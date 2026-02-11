@@ -1,0 +1,27 @@
+name: quarks
+description: "Quarks - minimalist modular app launcher."
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.0
+
+workspace:
+  - packages/quarks_core
+  - packages/quark_music
+
+dependencies:
+  flutter:
+    sdk: flutter
+  quarks_core:
+  quark_music:
+  flutter_riverpod: ^2.6.1
+  google_fonts: ^6.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

@@ -1,0 +1,28 @@
+name: quark_music
+description: "Quark Music - minimalist music player module for Quarks."
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.10.0
+  flutter: ">=3.38.0"
+
+resolution: workspace
+
+dependencies:
+  flutter:
+    sdk: flutter
+  quarks_core:
+  flutter_riverpod: ^2.6.1
+  just_audio: ^0.9.43
+  just_audio_media_kit: ^2.0.6
+  media_kit_libs_windows_audio: ^1.0.9
+  file_picker: ^9.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

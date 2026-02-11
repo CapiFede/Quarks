@@ -1,0 +1,25 @@
+# Dart/Flutter
+.dart_tool/
+.packages
+build/
+*.iml
+.idea/
+.vscode/
+
+# Flutter generated
+**/android/.gradle
+**/android/local.properties
+**/android/**/GeneratedPluginRegistrant.*
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/Runner/GeneratedPluginRegistrant.*
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+
+# Pub
+.pub-cache/
+.pub/
+pubspec.lock
