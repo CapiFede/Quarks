@@ -5,6 +5,7 @@ build/
 *.iml
 .idea/
 .vscode/
+.claude/
 
 # Flutter generated
 **/android/.gradle

@@ -11,6 +11,9 @@ abstract final class QuarksTheme {
       useMaterial3: true,
       brightness: Brightness.light,
       scaffoldBackgroundColor: QuarksColors.background,
+      splashFactory: NoSplash.splashFactory,
+      highlightColor: Colors.transparent,
+      splashColor: Colors.transparent,
       colorScheme: const ColorScheme.light(
         primary: QuarksColors.primary,
         onPrimary: QuarksColors.surface,

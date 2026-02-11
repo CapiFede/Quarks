@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../module/module_registry.dart';
 import '../module/quark_module.dart';
@@ -18,37 +19,186 @@ class QuarksShell extends ConsumerWidget {
     final registry = ref.read(moduleRegistryProvider);
 
     return Scaffold(
-      body: Column(
-        children: [
-          // Title bar
-          _TitleBar(
-            openTabs: openTabs,
-            activeIndex: activeIndex,
-            registry: registry,
-            ref: ref,
-          ),
-          // Content
-          Expanded(
-            child: activeIndex == -1
-                ? _LauncherGrid(modules: modules, ref: ref)
-                : _ModulePage(
-                    moduleId: openTabs[activeIndex],
-                    registry: registry,
-                  ),
-          ),
-        ],
+      body: _WindowFrame(
+        child: Column(
+          children: [
+            const _TitleBar(),
+            if (openTabs.isNotEmpty)
+              _TabStrip(
+                openTabs: openTabs,
+                activeIndex: activeIndex,
+                registry: registry,
+                ref: ref,
+              ),
+            Expanded(
+              child: _ContentArea(
+                child: activeIndex == -1
+                    ? _LauncherGrid(modules: modules, ref: ref)
+                    : _ModulePage(
+                        moduleId: openTabs[activeIndex],
+                        registry: registry,
+                      ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
+class _WindowFrame extends StatelessWidget {
+  final Widget child;
+
+  const _WindowFrame({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: QuarksColors.background,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: QuarksColors.borderDark, width: 2),
+      ),
+      child: child,
+    );
+  }
+}
+
 class _TitleBar extends StatelessWidget {
+  const _TitleBar();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return GestureDetector(
+      onDoubleTap: () async {
+        if (await windowManager.isMaximized()) {
+          windowManager.unmaximize();
+        } else {
+          windowManager.maximize();
+        }
+      },
+      child: DragToMoveArea(
+        child: Container(
+          decoration: const BoxDecoration(
+            color: QuarksColors.primary,
+            border: Border(
+              bottom: BorderSide(color: QuarksColors.borderDark, width: 2),
+            ),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+          child: Row(
+            children: [
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Quarks',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: QuarksColors.surface,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              _WindowButton(
+                onTap: () => windowManager.minimize(),
+                child: Container(
+                  width: 10,
+                  height: 2,
+                  color: QuarksColors.textPrimary,
+                ),
+              ),
+              const SizedBox(width: 2),
+              _WindowButton(
+                onTap: () async {
+                  if (await windowManager.isMaximized()) {
+                    windowManager.unmaximize();
+                  } else {
+                    windowManager.maximize();
+                  }
+                },
+                child: Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: QuarksColors.textPrimary,
+                      width: 1.5,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 2),
+              _WindowButton(
+                onTap: () => windowManager.close(),
+                child: const Text(
+                  'X',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: QuarksColors.textPrimary,
+                    height: 1,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _WindowButton extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+
+  const _WindowButton({required this.child, this.onTap});
+
+  @override
+  State<_WindowButton> createState() => _WindowButtonState();
+}
+
+class _WindowButtonState extends State<_WindowButton> {
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Container(
+          width: 24,
+          height: 24,
+          decoration: BoxDecoration(
+            color: _hovering ? QuarksColors.cardHover : QuarksColors.surface,
+            border: const Border(
+              top: BorderSide(color: QuarksColors.borderLight, width: 1),
+              left: BorderSide(color: QuarksColors.borderLight, width: 1),
+              bottom: BorderSide(color: QuarksColors.borderDark, width: 1),
+              right: BorderSide(color: QuarksColors.borderDark, width: 1),
+            ),
+          ),
+          child: Center(child: widget.child),
+        ),
+      ),
+    );
+  }
+}
+
+class _TabStrip extends StatelessWidget {
   final List<String> openTabs;
   final int activeIndex;
   final ModuleRegistry registry;
   final WidgetRef ref;
 
-  const _TitleBar({
+  const _TabStrip({
     required this.openTabs,
     required this.activeIndex,
     required this.registry,
@@ -57,73 +207,50 @@ class _TitleBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Container(
       decoration: const BoxDecoration(
-        color: QuarksColors.primary,
+        color: QuarksColors.background,
         border: Border(
           bottom: BorderSide(color: QuarksColors.borderDark, width: 2),
         ),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // App title
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-            child: Text(
-              'Quarks',
-              style: theme.textTheme.titleMedium?.copyWith(
-                color: QuarksColors.surface,
-              ),
-              textAlign: TextAlign.center,
+      padding: const EdgeInsets.only(left: 8, top: 4),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            _FolderTab(
+              label: 'Home',
+              isActive: activeIndex == -1,
+              onTap: () =>
+                  ref.read(activeTabIndexProvider.notifier).goHome(),
             ),
-          ),
-          // Tabs row (only show if there are open tabs)
-          if (openTabs.isNotEmpty)
-            Container(
-              width: double.infinity,
-              color: QuarksColors.primaryDark,
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    _TabButton(
-                      label: 'Home',
-                      isActive: activeIndex == -1,
-                      onTap: () =>
-                          ref.read(activeTabIndexProvider.notifier).goHome(),
-                    ),
-                    for (var i = 0; i < openTabs.length; i++)
-                      _TabButton(
-                        label:
-                            registry.getById(openTabs[i])?.name ?? openTabs[i],
-                        isActive: activeIndex == i,
-                        onTap: () =>
-                            ref.read(activeTabIndexProvider.notifier).setIndex(i),
-                        onClose: () => ref
-                            .read(openTabsProvider.notifier)
-                            .closeModule(openTabs[i]),
-                      ),
-                  ],
-                ),
+            for (var i = 0; i < openTabs.length; i++)
+              _FolderTab(
+                label:
+                    registry.getById(openTabs[i])?.name ?? openTabs[i],
+                isActive: activeIndex == i,
+                onTap: () =>
+                    ref.read(activeTabIndexProvider.notifier).setIndex(i),
+                onClose: () => ref
+                    .read(openTabsProvider.notifier)
+                    .closeModule(openTabs[i]),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
-class _TabButton extends StatefulWidget {
+class _FolderTab extends StatefulWidget {
   final String label;
   final bool isActive;
   final VoidCallback onTap;
   final VoidCallback? onClose;
 
-  const _TabButton({
+  const _FolderTab({
     required this.label,
     required this.isActive,
     required this.onTap,
@@ -131,10 +258,10 @@ class _TabButton extends StatefulWidget {
   });
 
   @override
-  State<_TabButton> createState() => _TabButtonState();
+  State<_FolderTab> createState() => _FolderTabState();
 }
 
-class _TabButtonState extends State<_TabButton> {
+class _FolderTabState extends State<_FolderTab> {
   bool _hovering = false;
 
   @override
@@ -144,18 +271,44 @@ class _TabButtonState extends State<_TabButton> {
     return MouseRegion(
       onEnter: (_) => setState(() => _hovering = true),
       onExit: (_) => setState(() => _hovering = false),
+      cursor: SystemMouseCursors.click,
       child: GestureDetector(
         onTap: widget.onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding: EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: widget.isActive ? 8 : 6,
+          ),
           decoration: BoxDecoration(
             color: widget.isActive
                 ? QuarksColors.surface
                 : _hovering
-                    ? QuarksColors.primaryDark.withValues(alpha: 0.5)
-                    : Colors.transparent,
-            border: const Border(
-              right: BorderSide(color: QuarksColors.borderDark, width: 1),
+                    ? QuarksColors.surfaceAlt
+                    : QuarksColors.background,
+            border: Border(
+              top: BorderSide(
+                color: widget.isActive
+                    ? QuarksColors.borderLight
+                    : QuarksColors.border,
+                width: 2,
+              ),
+              left: BorderSide(
+                color: widget.isActive
+                    ? QuarksColors.borderLight
+                    : QuarksColors.border,
+                width: widget.isActive ? 2 : 1,
+              ),
+              right: BorderSide(
+                color: widget.isActive
+                    ? QuarksColors.borderDark
+                    : QuarksColors.border,
+                width: widget.isActive ? 2 : 1,
+              ),
+              bottom: widget.isActive
+                  ? const BorderSide(
+                      color: QuarksColors.surface, width: 2)
+                  : const BorderSide(
+                      color: QuarksColors.borderDark, width: 2),
             ),
           ),
           child: Row(
@@ -163,22 +316,22 @@ class _TabButtonState extends State<_TabButton> {
             children: [
               Text(
                 widget.label,
-                style: theme.textTheme.labelMedium?.copyWith(
+                style: theme.textTheme.labelLarge?.copyWith(
                   color: widget.isActive
                       ? QuarksColors.textPrimary
-                      : QuarksColors.surface,
+                      : _hovering
+                          ? QuarksColors.textPrimary
+                          : QuarksColors.textSecondary,
                 ),
               ),
               if (widget.onClose != null) ...[
                 const SizedBox(width: 8),
                 GestureDetector(
                   onTap: widget.onClose,
-                  child: Icon(
+                  child: const Icon(
                     Icons.close,
-                    size: 14,
-                    color: widget.isActive
-                        ? QuarksColors.textSecondary
-                        : QuarksColors.surface.withValues(alpha: 0.7),
+                    size: 12,
+                    color: QuarksColors.textSecondary,
                   ),
                 ),
               ],
@@ -186,6 +339,29 @@ class _TabButtonState extends State<_TabButton> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ContentArea extends StatelessWidget {
+  final Widget child;
+
+  const _ContentArea({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.all(8),
+      decoration: const BoxDecoration(
+        color: QuarksColors.surface,
+        border: Border(
+          top: BorderSide(color: QuarksColors.borderDark, width: 2),
+          left: BorderSide(color: QuarksColors.borderDark, width: 2),
+          bottom: BorderSide(color: QuarksColors.borderLight, width: 2),
+          right: BorderSide(color: QuarksColors.borderLight, width: 2),
+        ),
+      ),
+      child: child,
     );
   }
 }

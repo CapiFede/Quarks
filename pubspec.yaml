@@ -17,6 +17,7 @@ dependencies:
   quark_music:
   flutter_riverpod: ^2.6.1
   google_fonts: ^6.2.1
+  window_manager: ^0.4.3
 
 dev_dependencies:
   flutter_test:

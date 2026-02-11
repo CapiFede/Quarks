@@ -13,6 +13,7 @@ abstract final class QuarksColors {
   // Borders & accents
   static const border = Color(0xFFD4B896);
   static const borderDark = Color(0xFFB89B78);
+  static const borderLight = Color(0xFFFFF5E8);
 
   // Text
   static const textPrimary = Color(0xFF5C4A3A);
