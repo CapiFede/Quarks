@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Necesario para poder hacer push del appcast.xml actualizado
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build Windows release
+        run: flutter build windows --release
+
+      - name: Install Inno Setup
+        run: choco install innosetup --yes
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          iscc "/DAppVersion=$version" installer\quarks.iss
+
+      - name: Update appcast.xml
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          $size    = (Get-Item release\quarks-setup.exe).Length
+          $date    = (Get-Date -Format "ddd, dd MMM yyyy HH:mm:ss") + " +0000"
+          $url     = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/quarks-setup.exe"
+
+          $content = @"
+          <?xml version="1.0" encoding="UTF-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>Quarks</title>
+              <item>
+                <title>Version $version</title>
+                <sparkle:version>$version</sparkle:version>
+                <pubDate>$date</pubDate>
+                <enclosure
+                  url="$url"
+                  sparkle:os="windows-x64"
+                  length="$size"
+                  type="application/octet-stream" />
+              </item>
+            </channel>
+          </rss>
+          "@
+
+          $content.TrimStart() | Set-Content appcast.xml -Encoding UTF8
+
+      - name: Commit updated appcast.xml
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add appcast.xml
+          git commit -m "chore: update appcast to ${{ github.ref_name }}"
+          git push origin HEAD:main
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Quarks ${{ github.ref_name }}"
+          files: release\quarks-setup.exe

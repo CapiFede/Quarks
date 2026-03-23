@@ -13,7 +13,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   const feedURL =
-      'https://raw.githubusercontent.com/USUARIO/REPO/main/appcast.xml';
+      'https://raw.githubusercontent.com/CapiFede/Quarks/main/appcast.xml';
   await autoUpdater.setFeedURL(feedURL);
   await autoUpdater.checkForUpdates();
 

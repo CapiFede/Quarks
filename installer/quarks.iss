@@ -1,10 +1,15 @@
 ; Quarks - Inno Setup Script
-; Requisito: compilar DESPUÉS de "flutter build windows --release"
+; Uso manual:    compilar desde Inno Setup IDE
+; Uso en CI:     iscc /DAppVersion=1.0.1 installer\quarks.iss
+
+#ifndef AppVersion
+  #define AppVersion "1.0.0"
+#endif
 
 [Setup]
 AppName=Quarks
-AppVersion=1.0.0
-AppPublisher=Tu Nombre
+AppVersion={#AppVersion}
+AppPublisher=CapiFede
 DefaultDirName={localappdata}\Quarks
 DefaultGroupName=Quarks
 OutputDir=..\release
