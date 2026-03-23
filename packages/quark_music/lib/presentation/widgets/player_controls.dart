@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:quarks_core/quarks_core.dart';
+import 'package:quark_core/quark_core.dart';
 
 import '../providers/music_providers.dart';
+import 'playlist_dropdown.dart';
 
 class PlayerControls extends ConsumerWidget {
   const PlayerControls({super.key});
@@ -11,14 +12,18 @@ class PlayerControls extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(playerProvider);
     final theme = Theme.of(context);
+    final colors = context.quarksColors;
 
-    if (state.currentTrack == null) return const SizedBox.shrink();
+    final displayTrack = state.displayTrack;
+    if (displayTrack == null) return const SizedBox.shrink();
+
+    final showingSelected = state.selectedDiffersFromCurrent;
 
     return Container(
-      decoration: const BoxDecoration(
-        color: QuarksColors.surfaceAlt,
+      decoration: BoxDecoration(
+        color: colors.surfaceAlt,
         border: Border(
-          top: BorderSide(color: QuarksColors.border, width: 2),
+          top: BorderSide(color: colors.border, width: 2),
         ),
       ),
       padding: const EdgeInsets.all(12),
@@ -27,18 +32,20 @@ class PlayerControls extends ConsumerWidget {
         children: [
           // Now playing info
           Text(
-            state.currentTrack!.title,
+            displayTrack.title,
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: QuarksColors.textPrimary,
+              color: colors.textPrimary,
             ),
             overflow: TextOverflow.ellipsis,
           ),
           const SizedBox(height: 8),
-          // Seek bar
+          // Seek bar — reset to zero when viewing a non-playing selected track
           _SeekBar(
-            position: state.position,
-            duration: state.duration,
-            onSeek: (pos) => ref.read(playerProvider.notifier).seek(pos),
+            position: showingSelected ? Duration.zero : state.position,
+            duration: showingSelected ? Duration.zero : state.duration,
+            onSeek: showingSelected
+                ? null
+                : (pos) => ref.read(playerProvider.notifier).seek(pos),
           ),
           const SizedBox(height: 4),
           // Controls row
@@ -46,7 +53,7 @@ class PlayerControls extends ConsumerWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               // Volume
-              Icon(Icons.volume_down, size: 16, color: QuarksColors.textSecondary),
+              Icon(Icons.volume_down, size: 16, color: colors.textSecondary),
               SizedBox(
                 width: 80,
                 child: SliderTheme(
@@ -66,22 +73,24 @@ class PlayerControls extends ConsumerWidget {
               IconButton(
                 icon: const Icon(Icons.skip_previous),
                 iconSize: 28,
-                color: QuarksColors.textPrimary,
+                color: colors.textPrimary,
                 onPressed: state.hasPrevious || state.position.inSeconds > 3
                     ? () => ref.read(playerProvider.notifier).previous()
                     : null,
               ),
               Container(
                 decoration: BoxDecoration(
-                  color: QuarksColors.primary,
-                  border: Border.all(color: QuarksColors.borderDark, width: 2),
+                  color: colors.primary,
+                  border: Border.all(color: colors.borderDark, width: 2),
                 ),
                 child: IconButton(
                   icon: Icon(
-                    state.isPlaying ? Icons.pause : Icons.play_arrow,
+                    state.isPlaying && !showingSelected
+                        ? Icons.pause
+                        : Icons.play_arrow,
                   ),
                   iconSize: 32,
-                  color: QuarksColors.surface,
+                  color: colors.surface,
                   onPressed: () =>
                       ref.read(playerProvider.notifier).togglePlayPause(),
                 ),
@@ -89,14 +98,21 @@ class PlayerControls extends ConsumerWidget {
               IconButton(
                 icon: const Icon(Icons.skip_next),
                 iconSize: 28,
-                color: QuarksColors.textPrimary,
+                color: colors.textPrimary,
                 onPressed: state.hasNext
                     ? () => ref.read(playerProvider.notifier).next()
                     : null,
               ),
               const Spacer(),
-              // Spacer to balance volume on the left
-              const SizedBox(width: 112),
+              // Shuffle toggle
+              IconButton(
+                icon: const Icon(Icons.shuffle),
+                iconSize: 20,
+                color: state.shuffle ? colors.primary : colors.textSecondary,
+                onPressed: () =>
+                    ref.read(playerProvider.notifier).toggleShuffle(),
+              ),
+              const PlaylistDropdown(),
             ],
           ),
         ],
@@ -108,12 +124,12 @@ class PlayerControls extends ConsumerWidget {
 class _SeekBar extends StatelessWidget {
   final Duration position;
   final Duration duration;
-  final ValueChanged<Duration> onSeek;
+  final ValueChanged<Duration>? onSeek;
 
   const _SeekBar({
     required this.position,
     required this.duration,
-    required this.onSeek,
+    this.onSeek,
   });
 
   @override
@@ -137,7 +153,9 @@ class _SeekBar extends StatelessWidget {
             child: Slider(
               value: max > 0 ? current : 0.0,
               max: max > 0 ? max : 1.0,
-              onChanged: (v) => onSeek(Duration(milliseconds: v.toInt())),
+              onChanged: onSeek != null
+                  ? (v) => onSeek!(Duration(milliseconds: v.toInt()))
+                  : null,
             ),
           ),
         ),

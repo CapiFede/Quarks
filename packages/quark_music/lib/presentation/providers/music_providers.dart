@@ -1,6 +1,6 @@
 import 'dart:async';
+import 'dart:math';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart' as ja;
 
@@ -8,6 +8,7 @@ import '../../data/repositories/music_repository_impl.dart';
 import '../../data/services/audio_service.dart';
 import '../../domain/entities/track.dart';
 import '../../domain/repositories/music_repository.dart';
+import 'library_providers.dart';
 import 'player_state.dart';
 
 final musicRepositoryProvider = Provider<MusicRepository>((ref) {
@@ -25,13 +26,12 @@ final playerProvider =
 
 class PlayerNotifier extends Notifier<PlayerState> {
   late final AudioService _audio;
-  late final MusicRepository _repo;
   final List<StreamSubscription<dynamic>> _subs = [];
+  ja.ProcessingState? _lastProcessingState;
 
   @override
   PlayerState build() {
     _audio = ref.read(audioServiceProvider);
-    _repo = ref.read(musicRepositoryProvider);
 
     _subs.add(_audio.positionStream.listen((pos) {
       state = state.copyWith(position: pos);
@@ -44,9 +44,12 @@ class PlayerNotifier extends Notifier<PlayerState> {
     }));
 
     _subs.add(_audio.playerStateStream.listen((playerState) {
-      if (playerState.processingState == ja.ProcessingState.completed) {
+      final processing = playerState.processingState;
+      if (processing == ja.ProcessingState.completed &&
+          _lastProcessingState != ja.ProcessingState.completed) {
         _onTrackCompleted();
       }
+      _lastProcessingState = processing;
     }));
 
     _subs.add(_audio.playingStream.listen((playing) {
@@ -64,32 +67,51 @@ class PlayerNotifier extends Notifier<PlayerState> {
     return const PlayerState();
   }
 
-  Future<void> pickAndScanFolder() async {
-    final result = await FilePicker.platform.getDirectoryPath();
-    if (result == null) return;
-
-    state = state.copyWith(isScanning: true, scannedFolder: result);
-    final tracks = await _repo.scanFolder(result);
-    state = state.copyWith(tracks: tracks, isScanning: false);
+  void selectTrack(Track track) {
+    final tracks = ref.read(visibleTracksProvider);
+    state = state.copyWith(
+      selectedTrack: track,
+      playingTracks: tracks,
+    );
   }
 
   Future<void> playTrack(Track track) async {
-    final index = state.tracks.indexOf(track);
+    final tracks = ref.read(visibleTracksProvider);
+    final index = tracks.indexOf(track);
     state = state.copyWith(
       currentTrack: track,
+      selectedTrack: track,
       currentIndex: index,
+      playingTracks: tracks,
       status: PlaybackStatus.playing,
+      playedIndices: {index},
     );
     await _audio.play(track);
   }
 
   Future<void> playAtIndex(int index) async {
-    if (index < 0 || index >= state.tracks.length) return;
-    await playTrack(state.tracks[index]);
+    if (index < 0 || index >= state.playingTracks.length) return;
+    final track = state.playingTracks[index];
+    _lastProcessingState = null;
+    state = state.copyWith(
+      currentTrack: track,
+      selectedTrack: track,
+      currentIndex: index,
+      status: PlaybackStatus.playing,
+    );
+    _lastProcessingState = null;
+    await _audio.play(track);
   }
 
   Future<void> togglePlayPause() async {
-    if (state.currentTrack == null) return;
+    final display = state.displayTrack;
+    if (display == null) return;
+
+    // If selected track differs from current, start playing the selected one
+    if (state.selectedDiffersFromCurrent) {
+      await playTrack(display);
+      return;
+    }
 
     if (_audio.isPlaying) {
       await _audio.pause();
@@ -99,13 +121,16 @@ class PlayerNotifier extends Notifier<PlayerState> {
   }
 
   Future<void> next() async {
-    if (state.hasNext) {
+    if (!state.hasNext) return;
+
+    if (state.shuffle) {
+      await _playRandomUnplayed();
+    } else {
       await playAtIndex(state.currentIndex + 1);
     }
   }
 
   Future<void> previous() async {
-    // If past 3 seconds, restart current track
     if (_audio.position.inSeconds > 3) {
       await _audio.seek(Duration.zero);
       return;
@@ -124,11 +149,31 @@ class PlayerNotifier extends Notifier<PlayerState> {
     await _audio.setVolume(volume);
   }
 
+  void toggleShuffle() {
+    state = state.copyWith(shuffle: !state.shuffle);
+  }
+
+  Future<void> _playRandomUnplayed() async {
+    final allIndices = List.generate(state.playingTracks.length, (i) => i);
+    final available = allIndices.where((i) => !state.playedIndices.contains(i)).toList();
+    if (available.isEmpty) return;
+
+    final nextIndex = available[Random().nextInt(available.length)];
+    final updatedPlayed = {...state.playedIndices, nextIndex};
+    state = state.copyWith(playedIndices: updatedPlayed);
+    await playAtIndex(nextIndex);
+  }
+
   void _onTrackCompleted() {
-    if (state.hasNext) {
-      playAtIndex(state.currentIndex + 1);
-    } else {
+    if (!state.hasNext) {
       state = state.copyWith(status: PlaybackStatus.stopped);
+      return;
+    }
+
+    if (state.shuffle) {
+      _playRandomUnplayed();
+    } else {
+      playAtIndex(state.currentIndex + 1);
     }
   }
 }

@@ -1,90 +1,105 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:quarks_core/quarks_core.dart';
+import 'package:quark_core/quark_core.dart';
 
+import '../../domain/entities/playlist.dart';
 import '../../domain/entities/track.dart';
+import '../providers/library_providers.dart';
 import '../providers/music_providers.dart';
+import '../providers/song_info_providers.dart';
 
 class TrackList extends ConsumerWidget {
   const TrackList({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(playerProvider);
+    final tracks = ref.watch(visibleTracksProvider);
+    final playerState = ref.watch(playerProvider);
     final theme = Theme.of(context);
+    final colors = context.quarksColors;
 
-    if (!state.hasTracks) {
+    if (tracks.isEmpty) {
       return Center(
         child: Text(
           'Scan a folder to find music',
           style: theme.textTheme.bodyLarge?.copyWith(
-            color: QuarksColors.textSecondary,
+            color: colors.textSecondary,
           ),
         ),
       );
     }
 
     return ListView.builder(
-      itemCount: state.tracks.length,
+      itemCount: tracks.length,
       itemBuilder: (context, index) {
-        final track = state.tracks[index];
-        final isPlaying = state.currentIndex == index;
+        final track = tracks[index];
+        final isPlaying = playerState.currentTrack?.path == track.path;
+        final isSelected = playerState.selectedTrack?.path == track.path;
 
         return _TrackTile(
           track: track,
           isPlaying: isPlaying,
-          onTap: () => ref.read(playerProvider.notifier).playTrack(track),
+          isSelected: isSelected,
+          onTap: () => ref.read(playerProvider.notifier).selectTrack(track),
         );
       },
     );
   }
 }
 
-class _TrackTile extends StatefulWidget {
+class _TrackTile extends ConsumerStatefulWidget {
   final Track track;
   final bool isPlaying;
+  final bool isSelected;
   final VoidCallback onTap;
 
   const _TrackTile({
     required this.track,
     required this.isPlaying,
+    this.isSelected = false,
     required this.onTap,
   });
 
   @override
-  State<_TrackTile> createState() => _TrackTileState();
+  ConsumerState<_TrackTile> createState() => _TrackTileState();
 }
 
-class _TrackTileState extends State<_TrackTile> {
+class _TrackTileState extends ConsumerState<_TrackTile> {
   bool _hovering = false;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = context.quarksColors;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hovering = true),
       onExit: (_) => setState(() => _hovering = false),
       child: GestureDetector(
         onTap: widget.onTap,
+        onSecondaryTapDown: (details) =>
+            _showContextMenu(context, details),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
-            color: widget.isPlaying
-                ? QuarksColors.secondary.withValues(alpha: 0.3)
-                : _hovering
-                    ? QuarksColors.cardHover
-                    : Colors.transparent,
-            border: const Border(
-              bottom: BorderSide(color: QuarksColors.border, width: 1),
+            color: widget.isSelected
+                ? colors.secondary.withValues(alpha: 0.3)
+                : widget.isPlaying
+                    ? colors.error.withValues(alpha: 0.25)
+                    : _hovering
+                        ? colors.cardHover
+                        : Colors.transparent,
+            border: Border(
+              bottom: BorderSide(color: colors.border, width: 1),
             ),
           ),
           child: Row(
             children: [
               if (widget.isPlaying)
-                const Icon(Icons.play_arrow, size: 16, color: QuarksColors.primary)
+                Icon(Icons.play_arrow, size: 16, color: colors.error)
               else
-                const Icon(Icons.music_note, size: 16, color: QuarksColors.textSecondary),
+                Icon(Icons.music_note,
+                    size: 16, color: colors.textSecondary),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -93,9 +108,11 @@ class _TrackTileState extends State<_TrackTile> {
                     Text(
                       widget.track.title,
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: widget.isPlaying
-                            ? QuarksColors.primaryDark
-                            : QuarksColors.textPrimary,
+                        color: widget.isSelected
+                            ? colors.primaryDark
+                            : widget.isPlaying
+                                ? colors.error
+                                : colors.textPrimary,
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -113,5 +130,80 @@ class _TrackTileState extends State<_TrackTile> {
         ),
       ),
     );
+  }
+
+  void _showContextMenu(BuildContext context, TapDownDetails details) {
+    final colors = context.quarksColors;
+    final libraryAsync = ref.read(libraryProvider);
+    final library = libraryAsync.valueOrNull;
+    if (library == null) return;
+
+    final playlists = library.playlists;
+    final selectedId = library.selectedPlaylistId;
+    final position = details.globalPosition;
+
+    final items = <PopupMenuEntry<String>>[];
+
+    // Add to playlist submenu
+    if (playlists.isNotEmpty) {
+      for (final pl in playlists) {
+        final alreadyIn = pl.trackPaths.contains(widget.track.path);
+        items.add(PopupMenuItem(
+          value: 'add:${pl.id}',
+          enabled: !alreadyIn,
+          child: Text(
+            alreadyIn ? '${pl.name} (added)' : 'Add to ${pl.name}',
+            style: TextStyle(
+              color: alreadyIn ? colors.textLight : colors.textPrimary,
+            ),
+          ),
+        ));
+      }
+    }
+
+    // Remove from current playlist (if viewing a user playlist)
+    if (selectedId != Playlist.allTracksId) {
+      items.add(const PopupMenuDivider());
+      items.add(PopupMenuItem(
+        value: 'remove',
+        child: Text('Remove from playlist',
+            style: TextStyle(color: colors.error)),
+      ));
+    }
+
+    // Song info
+    items.add(const PopupMenuDivider());
+    items.add(PopupMenuItem(
+      value: 'info',
+      child: Text('Song info', style: TextStyle(color: colors.textPrimary)),
+    ));
+
+    if (items.isEmpty) return;
+
+    showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy,
+        position.dx,
+        position.dy,
+      ),
+      color: colors.surface,
+      items: items,
+    ).then((value) {
+      if (value == null) return;
+      if (value == 'remove') {
+        ref
+            .read(libraryProvider.notifier)
+            .removeTrackFromPlaylist(selectedId, widget.track.path);
+      } else if (value == 'info') {
+        ref.read(songInfoProvider.notifier).openDrawer(widget.track);
+      } else if (value.startsWith('add:')) {
+        final playlistId = value.substring(4);
+        ref
+            .read(libraryProvider.notifier)
+            .addTrackToPlaylist(playlistId, widget.track);
+      }
+    });
   }
 }

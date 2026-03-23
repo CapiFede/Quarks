@@ -4,7 +4,8 @@
       "mcp__context7__resolve-library-id",
       "mcp__context7__query-docs",
       "Bash(flutter create:*)",
-      "Bash(dart pub get:*)"
+      "Bash(dart pub get:*)",
+      "Bash(flutter pub:*)"
     ]
   }
 }

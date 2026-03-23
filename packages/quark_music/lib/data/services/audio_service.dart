@@ -20,6 +20,7 @@ class AudioService {
   double get volume => _player.volume;
 
   Future<void> play(Track track) async {
+    await _player.stop();
     await _player.setFilePath(track.path);
     await _player.play();
   }

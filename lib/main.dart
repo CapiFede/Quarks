@@ -1,11 +1,21 @@
+import 'package:auto_updater/auto_updater.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:quark_music/quark_music.dart';
-import 'package:quarks_core/quarks_core.dart';
+import 'package:quark_core/quark_core.dart';
 import 'package:window_manager/window_manager.dart';
+
+import 'quarks_registry.dart';
+import 'presentation/quarks_shell.dart';
+import 'quarks_providers.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  const feedURL =
+      'https://raw.githubusercontent.com/USUARIO/REPO/main/appcast.xml';
+  await autoUpdater.setFeedURL(feedURL);
+  await autoUpdater.checkForUpdates();
 
   await windowManager.ensureInitialized();
   const windowOptions = WindowOptions(
@@ -18,29 +28,33 @@ void main() async {
     await windowManager.focus();
   });
 
-  final registry = ModuleRegistry();
+  final registry = QuarkRegistry();
   registry.register(MusicModule());
   await registry.initializeAll();
 
   runApp(
     ProviderScope(
       overrides: [
-        moduleRegistryProvider.overrideWithValue(registry),
+        quarkRegistryProvider.overrideWithValue(registry),
       ],
       child: const QuarksApp(),
     ),
   );
 }
 
-class QuarksApp extends StatelessWidget {
+class QuarksApp extends ConsumerWidget {
   const QuarksApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeModeProvider);
+
     return MaterialApp(
-      title: 'Quarks 2',
+      title: 'Quarks',
       debugShowCheckedModeBanner: false,
       theme: QuarksTheme.theme,
+      darkTheme: QuarksTheme.darkTheme,
+      themeMode: themeMode,
       home: const QuarksShell(),
     );
   }

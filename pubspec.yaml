@@ -7,17 +7,18 @@ environment:
   sdk: ^3.10.0
 
 workspace:
-  - packages/quarks_core
+  - packages/quark_core
   - packages/quark_music
 
 dependencies:
   flutter:
     sdk: flutter
-  quarks_core:
+  quark_core:
   quark_music:
   flutter_riverpod: ^2.6.1
   google_fonts: ^6.2.1
   window_manager: ^0.4.3
+  auto_updater: ^1.0.0
 
 dev_dependencies:
   flutter_test:
