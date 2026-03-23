@@ -24,7 +24,7 @@ Source: "..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: recurs
 
 [Icons]
 Name: "{group}\Quarks"; Filename: "{app}\quarks.exe"
-Name: "{commondesktop}\Quarks"; Filename: "{app}\quarks.exe"
+Name: "{userdesktop}\Quarks"; Filename: "{app}\quarks.exe"
 
 [Run]
 Filename: "{app}\quarks.exe"; Description: "Lanzar Quarks"; Flags: postinstall nowait

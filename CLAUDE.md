@@ -35,3 +35,22 @@ packages/quark_*/      → Quarks independientes (music, etc.)
 - just_audio + just_audio_media_kit + media_kit_libs_windows_audio (audio Windows)
 - file_picker (selección de archivos/carpetas)
 - google_fonts (Silkscreen)
+
+## Releases
+
+Cuando el usuario diga **"version patch"**, **"version minor"** o **"version major"**:
+
+1. Leer la versión actual de `pubspec.yaml`
+2. Calcular la nueva versión según el tipo:
+   - `patch`: 1.0.0 → 1.0.1
+   - `minor`: 1.0.0 → 1.1.0
+   - `major`: 1.0.0 → 2.0.0
+3. Actualizar `version` en `pubspec.yaml` con la nueva versión (sin build number, ej. `1.0.1`)
+4. Ejecutar los siguientes comandos git:
+
+```bash
+git add pubspec.yaml
+git commit -m "chore: bump version to vX.Y.Z"
+git tag vX.Y.Z
+git push && git push --tags
+```
