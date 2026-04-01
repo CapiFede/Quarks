@@ -77,7 +77,12 @@ class _PlaylistToolbarContent extends ConsumerWidget {
           const SizedBox(width: 8),
           _ToolbarButton(
             icon: Icons.folder_open,
-            onTap: () => ref.read(libraryProvider.notifier).pickAndScanFolder(),
+            onTap: () => ref.read(libraryProvider.notifier).openMusicFolder(),
+          ),
+          const SizedBox(width: 4),
+          _ToolbarButton(
+            icon: Icons.refresh,
+            onTap: () => ref.read(libraryProvider.notifier).rescanMusicFolder(),
             isScanning: library.isScanning,
           ),
           if (Platform.isWindows) ...[

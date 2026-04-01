@@ -41,6 +41,7 @@ class TrackList extends ConsumerWidget {
           isPlaying: isPlaying,
           isSelected: isSelected,
           onTap: () => ref.read(playerProvider.notifier).selectTrack(track),
+          onDoubleTap: () => ref.read(playerProvider.notifier).playTrack(track),
         );
       },
     );
@@ -52,12 +53,14 @@ class _TrackTile extends ConsumerStatefulWidget {
   final bool isPlaying;
   final bool isSelected;
   final VoidCallback onTap;
+  final VoidCallback onDoubleTap;
 
   const _TrackTile({
     required this.track,
     required this.isPlaying,
     this.isSelected = false,
     required this.onTap,
+    required this.onDoubleTap,
   });
 
   @override
@@ -71,16 +74,22 @@ class _TrackTileState extends ConsumerState<_TrackTile> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = context.quarksColors;
+    final library = ref.watch(libraryProvider).valueOrNull;
+    final containingPlaylists = library?.playlists
+            .where((p) => p.trackPaths.contains(widget.track.path))
+            .map((p) => p.name)
+            .toList() ??
+        [];
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hovering = true),
       onExit: (_) => setState(() => _hovering = false),
       child: GestureDetector(
         onTap: widget.onTap,
+        onDoubleTap: widget.onDoubleTap,
         onSecondaryTapDown: (details) =>
             _showContextMenu(context, details),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
             color: widget.isSelected
                 ? colors.secondary.withValues(alpha: 0.3)
@@ -93,39 +102,59 @@ class _TrackTileState extends ConsumerState<_TrackTile> {
               bottom: BorderSide(color: colors.border, width: 1),
             ),
           ),
-          child: Row(
-            children: [
-              if (widget.isPlaying)
-                Icon(Icons.play_arrow, size: 16, color: colors.error)
-              else
-                Icon(Icons.music_note,
-                    size: 16, color: colors.textSecondary),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.track.title,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: widget.isSelected
-                            ? colors.primaryDark
-                            : widget.isPlaying
-                                ? colors.error
-                                : colors.textPrimary,
-                      ),
-                      overflow: TextOverflow.ellipsis,
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (containingPlaylists.isNotEmpty)
+                  Tooltip(
+                    message: containingPlaylists.join('\n'),
+                    child: Container(width: 5, color: colors.primary),
+                  )
+                else
+                  const SizedBox(width: 5),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 10),
+                    child: Row(
+                      children: [
+                        if (widget.isPlaying)
+                          Icon(Icons.play_arrow, size: 16, color: colors.error)
+                        else
+                          Icon(Icons.music_note,
+                              size: 16, color: colors.textSecondary),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                widget.track.title,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: widget.isSelected
+                                      ? colors.primaryDark
+                                      : widget.isPlaying
+                                          ? colors.error
+                                          : colors.textPrimary,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              if (widget.track.artist != null)
+                                Text(
+                                  widget.track.artist!,
+                                  style: theme.textTheme.bodySmall,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
-                    if (widget.track.artist != null)
-                      Text(
-                        widget.track.artist!,
-                        style: theme.textTheme.bodySmall,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                  ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

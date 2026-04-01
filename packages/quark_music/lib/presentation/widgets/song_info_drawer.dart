@@ -157,8 +157,20 @@ class _SongInfoContentState extends ConsumerState<_SongInfoContent> {
                 const SizedBox(height: 16),
               ],
 
-              // Trim section
-              if (state.trackDuration != null) ...[
+              // Edit / Trim section
+              if (!state.isEditMode) ...[
+                SmallButton(
+                  label: 'EDIT',
+                  onTap: busy ? null : () => ref.read(songInfoProvider.notifier).enterEditMode(),
+                ),
+                const SizedBox(height: 16),
+              ] else if (state.trackDuration == null) ...[
+                Text(
+                  'Loading...',
+                  style: textTheme.bodySmall?.copyWith(color: colors.textLight),
+                ),
+                const SizedBox(height: 16),
+              ] else ...[
                 Text('TRIM', style: textTheme.labelSmall?.copyWith(color: colors.textSecondary)),
                 const SizedBox(height: 8),
                 _TrimSection(

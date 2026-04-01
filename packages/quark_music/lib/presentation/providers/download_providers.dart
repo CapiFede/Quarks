@@ -176,7 +176,7 @@ class DownloadNotifier extends Notifier<DownloadState> {
 
   Future<void> _onDownloadComplete(List<String> paths) async {
     // Rescan folder to pick up new tracks
-    await ref.read(libraryProvider.notifier).rescanFolder();
+    await ref.read(libraryProvider.notifier).rescanMusicFolder();
 
     // Add to selected playlists
     final libraryNotifier = ref.read(libraryProvider.notifier);

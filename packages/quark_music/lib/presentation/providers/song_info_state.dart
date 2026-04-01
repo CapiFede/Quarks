@@ -6,6 +6,7 @@ class SongInfoState {
   final String? editedTitle;
   final bool isRenaming;
   final bool isTrimming;
+  final bool isEditMode;
   final Duration? trimStart;
   final Duration? trimEnd;
   final Duration? trackDuration;
@@ -18,6 +19,7 @@ class SongInfoState {
     this.editedTitle,
     this.isRenaming = false,
     this.isTrimming = false,
+    this.isEditMode = false,
     this.trimStart,
     this.trimEnd,
     this.trackDuration,
@@ -33,6 +35,7 @@ class SongInfoState {
     bool clearEditedTitle = false,
     bool? isRenaming,
     bool? isTrimming,
+    bool? isEditMode,
     Duration? trimStart,
     bool clearTrimStart = false,
     Duration? trimEnd,
@@ -50,6 +53,7 @@ class SongInfoState {
       editedTitle: clearEditedTitle ? null : (editedTitle ?? this.editedTitle),
       isRenaming: isRenaming ?? this.isRenaming,
       isTrimming: isTrimming ?? this.isTrimming,
+      isEditMode: isEditMode ?? this.isEditMode,
       trimStart: clearTrimStart ? null : (trimStart ?? this.trimStart),
       trimEnd: clearTrimEnd ? null : (trimEnd ?? this.trimEnd),
       trackDuration: clearTrackDuration ? null : (trackDuration ?? this.trackDuration),

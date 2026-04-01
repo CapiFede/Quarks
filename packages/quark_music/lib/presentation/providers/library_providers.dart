@@ -1,4 +1,5 @@
-import 'package:file_picker/file_picker.dart';
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/services/playlist_storage_service.dart';
@@ -34,31 +35,31 @@ class LibraryNotifier extends AsyncNotifier<LibraryState> {
     _repo = ref.read(musicRepositoryProvider);
     _storage = ref.read(playlistStorageServiceProvider);
 
-    final data = await _storage.load();
-    List<Track> tracks = [];
-    if (data.lastFolder != null) {
-      tracks = await _repo.scanFolder(data.lastFolder!);
-    }
+    final musicDir = await _storage.musicDirPath;
+    final playlists = await _storage.load();
+    final tracks = await _repo.scanFolder(musicDir);
 
     return LibraryState(
       allTracks: tracks,
-      playlists: data.playlists,
-      scannedFolder: data.lastFolder,
+      playlists: playlists,
+      scannedFolder: musicDir,
     );
   }
 
-  Future<void> pickAndScanFolder() async {
-    final result = await FilePicker.platform.getDirectoryPath();
-    if (result == null) return;
-
+  Future<void> rescanMusicFolder() async {
     final current = state.requireValue;
-    state = AsyncData(current.copyWith(isScanning: true, scannedFolder: result));
+    state = AsyncData(current.copyWith(isScanning: true));
 
-    final tracks = await _repo.scanFolder(result);
+    final tracks = await _repo.scanFolder(current.scannedFolder!);
     state = AsyncData(
       state.requireValue.copyWith(allTracks: tracks, isScanning: false),
     );
-    await _persist();
+  }
+
+  Future<void> openMusicFolder() async {
+    final musicDir = await _storage.musicDirPath;
+    final winPath = musicDir.replaceAll('/', '\\');
+    await Process.run('explorer', [winPath]);
   }
 
   void selectPlaylist(String id) {
@@ -126,16 +127,6 @@ class LibraryNotifier extends AsyncNotifier<LibraryState> {
     await _persist();
   }
 
-  Future<void> rescanFolder() async {
-    final current = state.requireValue;
-    if (current.scannedFolder == null) return;
-
-    state = AsyncData(current.copyWith(isScanning: true));
-    final tracks = await _repo.scanFolder(current.scannedFolder!);
-    state = AsyncData(
-      state.requireValue.copyWith(allTracks: tracks, isScanning: false),
-    );
-  }
 
   Future<void> updateTrackPath(String oldPath, String newPath) async {
     final current = state.requireValue;
@@ -170,7 +161,6 @@ class LibraryNotifier extends AsyncNotifier<LibraryState> {
   }
 
   Future<void> _persist() async {
-    final s = state.requireValue;
-    await _storage.save(s.playlists, s.scannedFolder);
+    await _storage.save(state.requireValue.playlists);
   }
 }

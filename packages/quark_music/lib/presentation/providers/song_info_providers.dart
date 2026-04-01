@@ -29,8 +29,15 @@ class SongInfoNotifier extends Notifier<SongInfoState> {
       track: track,
       editedTitle: track.title,
     );
+  }
 
-    // Probe duration in background
+  Future<void> enterEditMode() async {
+    final track = state.track;
+    if (track == null) return;
+
+    state = state.copyWith(isEditMode: true);
+
+    // Probe duration only when edit mode is entered
     final service = ref.read(audioEditServiceProvider);
     final duration = await service.probeDuration(track.path);
     if (duration != null && state.track?.path == track.path) {

@@ -15,7 +15,7 @@ void main() async {
   const feedURL =
       'https://raw.githubusercontent.com/CapiFede/Quarks/main/appcast.xml';
   await autoUpdater.setFeedURL(feedURL);
-  await autoUpdater.checkForUpdates();
+  await autoUpdater.checkForUpdates(inBackground: true);
 
   await windowManager.ensureInitialized();
   const windowOptions = WindowOptions(
