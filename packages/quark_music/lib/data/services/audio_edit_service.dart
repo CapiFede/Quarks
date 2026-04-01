@@ -8,6 +8,7 @@ class AudioEditService {
   AudioEditService(this._binaryManager);
 
   Future<Duration?> probeDuration(String filePath) async {
+    if (!await _binaryManager.areBinariesReady()) return null;
     final ffmpeg = await _binaryManager.ffmpegPath;
     final result = await Process.run(ffmpeg, ['-i', filePath, '-f', 'null', '-']);
 
@@ -30,6 +31,7 @@ class AudioEditService {
   }
 
   Future<bool> trimAudio(String filePath, Duration start, Duration end) async {
+    if (!await _binaryManager.areBinariesReady()) return false;
     final ffmpeg = await _binaryManager.ffmpegPath;
     final tempPath = '$filePath.trim_temp.mp3';
 

@@ -69,7 +69,7 @@ class _SetupView extends ConsumerWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            'This feature requires yt-dlp and ffmpeg. They will be downloaded automatically (~90MB total).',
+            'Downloading yt-dlp and ffmpeg (~90MB total).',
             style: textTheme.bodySmall?.copyWith(color: colors.textSecondary),
           ),
           const SizedBox(height: 20),
@@ -83,12 +83,11 @@ class _SetupView extends ConsumerWidget {
               style: textTheme.bodySmall?.copyWith(color: colors.error),
             ),
             const SizedBox(height: 12),
-          ],
-          if (!state.isSettingUp)
             ActionButton(
-              label: 'SETUP',
+              label: 'RETRY',
               onTap: () => ref.read(downloadProvider.notifier).setupBinaries(),
             ),
+          ],
         ],
       ),
     );

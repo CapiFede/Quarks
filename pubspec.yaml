@@ -1,7 +1,7 @@
 name: quarks
 description: "Quarks - minimalist modular app launcher."
 publish_to: none
-version: 1.0.2
+version: 1.0.3
 
 environment:
   sdk: ^3.10.0

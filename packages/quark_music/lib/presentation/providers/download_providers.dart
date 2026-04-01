@@ -36,7 +36,11 @@ class DownloadNotifier extends Notifier<DownloadState> {
   Future<void> _checkBinaries() async {
     final manager = ref.read(binaryManagerProvider);
     final ready = await manager.areBinariesReady();
-    state = state.copyWith(binariesReady: ready);
+    if (ready) {
+      state = state.copyWith(binariesReady: true);
+    } else {
+      setupBinaries();
+    }
   }
 
   void toggleDrawer() {

@@ -77,6 +77,60 @@ class _TitleBar extends StatelessWidget {
     required this.ref,
   });
 
+  void _showSettingsMenu(BuildContext context, WidgetRef ref) {
+    final button = context.findRenderObject() as RenderBox;
+    final overlay =
+        Navigator.of(context).overlay!.context.findRenderObject() as RenderBox;
+    final position = RelativeRect.fromRect(
+      Rect.fromPoints(
+        button.localToGlobal(button.size.bottomLeft(Offset.zero),
+            ancestor: overlay),
+        button.localToGlobal(button.size.bottomRight(Offset.zero),
+            ancestor: overlay),
+      ),
+      Offset.zero & overlay.size,
+    );
+
+    final colors = context.quarksColors;
+    final current = ref.read(themeModeProvider);
+    final isDark = current == ThemeMode.dark;
+
+    showMenu<String>(
+      context: context,
+      position: position,
+      elevation: 0,
+      color: colors.surface,
+      shape: Border.all(color: colors.borderDark, width: 2),
+      items: [
+        PopupMenuItem<String>(
+          value: 'theme',
+          height: 32,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                isDark ? Icons.light_mode : Icons.dark_mode,
+                size: 13,
+                color: colors.textPrimary,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                isDark ? 'Tema claro' : 'Tema oscuro',
+                style: TextStyle(fontSize: 12, color: colors.textPrimary),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ).then((value) {
+      if (value == 'theme') {
+        ref.read(themeModeProvider.notifier).state =
+            isDark ? ThemeMode.light : ThemeMode.dark;
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.quarksColors;
@@ -102,18 +156,14 @@ class _TitleBar extends StatelessWidget {
             children: [
               const SizedBox(width: 4),
               Center(
-                child: _WindowButton(
-                  onTap: () {
-                    final current = ref.read(themeModeProvider);
-                    ref.read(themeModeProvider.notifier).state =
-                        current == ThemeMode.light
-                            ? ThemeMode.dark
-                            : ThemeMode.light;
-                  },
-                  child: Icon(
-                    Icons.settings,
-                    size: 12,
-                    color: colors.textPrimary,
+                child: Builder(
+                  builder: (ctx) => _WindowButton(
+                    onTap: () => _showSettingsMenu(ctx, ref),
+                    child: Icon(
+                      Icons.settings,
+                      size: 12,
+                      color: colors.textPrimary,
+                    ),
                   ),
                 ),
               ),
