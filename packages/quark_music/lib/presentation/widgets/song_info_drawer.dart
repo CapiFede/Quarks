@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:quark_core/quark_core.dart';
 
+import '../providers/library_providers.dart';
 import '../providers/song_info_providers.dart';
 import 'drawer_widgets.dart';
 
@@ -192,6 +193,18 @@ class _SongInfoContentState extends ConsumerState<_SongInfoContent> {
                 const SizedBox(height: 16),
               ],
 
+              // Playlists
+              _PlaylistsSection(trackPath: track.path),
+              const SizedBox(height: 8),
+
+              // Delete file
+              ActionButton(
+                label: 'DELETE FILE',
+                onTap: busy ? null : () => _confirmDelete(context, track.path),
+                isDestructive: true,
+              ),
+              const SizedBox(height: 16),
+
               // Messages
               if (state.successMessage != null)
                 Padding(
@@ -213,6 +226,37 @@ class _SongInfoContentState extends ConsumerState<_SongInfoContent> {
           ),
         ),
       ],
+    );
+  }
+
+  void _confirmDelete(BuildContext context, String path) {
+    final colors = context.quarksColors;
+    final textTheme = Theme.of(context).textTheme;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: colors.surface,
+        title: Text('Delete file?', style: textTheme.titleSmall?.copyWith(color: colors.textPrimary)),
+        content: Text(
+          'This will permanently delete the audio file from disk. This cannot be undone.',
+          style: textTheme.bodySmall?.copyWith(color: colors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('CANCEL', style: TextStyle(color: colors.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              ref.read(songInfoProvider.notifier).closeDrawer();
+              ref.read(libraryProvider.notifier).deleteTrack(path);
+            },
+            child: Text('DELETE', style: TextStyle(color: colors.error)),
+          ),
+        ],
+      ),
     );
   }
 
@@ -250,6 +294,50 @@ class _SongInfoContentState extends ConsumerState<_SongInfoContent> {
     final minutes = d.inMinutes.toString().padLeft(2, '0');
     final seconds = (d.inSeconds % 60).toString().padLeft(2, '0');
     return '$minutes:$seconds';
+  }
+}
+
+class _PlaylistsSection extends ConsumerWidget {
+  final String trackPath;
+
+  const _PlaylistsSection({required this.trackPath});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final colors = context.quarksColors;
+    final textTheme = Theme.of(context).textTheme;
+    final library = ref.watch(libraryProvider).valueOrNull;
+    final playlists = library?.playlists
+            .where((p) => p.trackPaths.contains(trackPath))
+            .map((p) => p.name)
+            .toList() ??
+        [];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('PLAYLISTS', style: textTheme.labelSmall?.copyWith(color: colors.textSecondary)),
+        const SizedBox(height: 4),
+        if (playlists.isEmpty)
+          Text(
+            'Not in any playlist',
+            style: textTheme.bodySmall?.copyWith(color: colors.textLight),
+          )
+        else
+          ...playlists.map(
+            (name) => Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                children: [
+                  Container(width: 5, height: 5, color: colors.primary),
+                  const SizedBox(width: 8),
+                  Text(name, style: textTheme.bodySmall?.copyWith(color: colors.textPrimary)),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
   }
 }
 

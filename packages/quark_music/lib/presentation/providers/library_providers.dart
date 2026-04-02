@@ -128,6 +128,25 @@ class LibraryNotifier extends AsyncNotifier<LibraryState> {
   }
 
 
+  Future<void> deleteTrack(String path) async {
+    final current = state.requireValue;
+    final newTracks = current.allTracks.where((t) => t.path != path).toList();
+    final newPlaylists = current.playlists.map((p) {
+      if (p.trackPaths.contains(path)) {
+        return p.copyWith(
+          trackPaths: p.trackPaths.where((t) => t != path).toList(),
+        );
+      }
+      return p;
+    }).toList();
+    state = AsyncData(current.copyWith(allTracks: newTracks, playlists: newPlaylists));
+    await _persist();
+    try {
+      final file = File(path);
+      if (await file.exists()) await file.delete();
+    } catch (_) {}
+  }
+
   Future<void> updateTrackPath(String oldPath, String newPath) async {
     final current = state.requireValue;
     final newTracks = current.allTracks.map((t) {
