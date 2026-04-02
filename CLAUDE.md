@@ -46,13 +46,23 @@ Cuando el usuario diga **"version patch"**, **"version minor"** o **"version maj
    - `minor`: 1.0.0 → 1.1.0
    - `major`: 1.0.0 → 2.0.0
 3. Actualizar `version` en `pubspec.yaml` con la nueva versión (sin build number, ej. `1.0.1`)
-4. Ejecutar los siguientes comandos git — **primero commitear todos los cambios pendientes**, luego el bump de versión:
+4. Ejecutar los siguientes comandos git en orden:
+   - **Primero**: leer el diff de todos los archivos modificados (`git diff`) para entender qué hay pendiente y armar un mensaje de commit apropiado
+   - **Segundo**: commitear **todos** los cambios pendientes (staged y unstaged), incluyendo archivos no commiteados que no sean `pubspec.yaml`
+   - **Tercero**: commitear el bump de versión en `pubspec.yaml`
+   - **Cuarto**: tag y push
 
 ```bash
-git add -A
+# Commitear todos los cambios previos (excepto pubspec.yaml si ya fue modificado)
+git add -A -- ':!pubspec.yaml'
 git commit -m "chore: release vX.Y.Z"
+
+# Bump de versión
 git add pubspec.yaml
 git commit -m "chore: bump version to vX.Y.Z"
+
 git tag vX.Y.Z
 git push && git push --tags
 ```
+
+> Si no hay cambios previos pendientes, omitir el primer commit y hacer solo el bump.
