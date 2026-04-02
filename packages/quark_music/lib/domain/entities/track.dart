@@ -15,9 +15,10 @@ class Track {
 
   /// Create a Track from a file path, extracting title from filename
   factory Track.fromPath(String filePath) {
-    final fileName = filePath.split(RegExp(r'[/\\]')).last;
+    final normalized = filePath.replaceAll('\\', '/');
+    final fileName = normalized.split('/').last;
     final title = fileName.replaceAll(RegExp(r'\.[^.]+$'), '');
 
-    return Track(path: filePath, title: title);
+    return Track(path: normalized, title: title);
   }
 }

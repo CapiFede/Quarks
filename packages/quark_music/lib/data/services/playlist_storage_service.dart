@@ -23,6 +23,7 @@ class PlaylistStorageService {
 
   Future<List<Playlist>> load() async {
     final musicDir = await musicDirPath;
+    final normalizedDir = musicDir.replaceAll('\\', '/');
     final dir = await _playlistsDir;
 
     final files = await dir
@@ -38,7 +39,7 @@ class PlaylistStorageService {
       final playlist = Playlist.fromJson(json);
       playlists.add(playlist.copyWith(
         trackPaths:
-            playlist.trackPaths.map((rel) => '$musicDir/$rel').toList(),
+            playlist.trackPaths.map((rel) => '$normalizedDir/$rel').toList(),
       ));
     }
     return playlists;

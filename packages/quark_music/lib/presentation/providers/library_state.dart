@@ -25,8 +25,12 @@ class LibraryState {
         .firstOrNull;
     if (playlist == null) return allTracks;
 
-    final pathSet = playlist.trackPaths.toSet();
-    return allTracks.where((t) => pathSet.contains(t.path)).toList();
+    final pathSet = playlist.trackPaths
+        .map((p) => p.replaceAll('\\', '/'))
+        .toSet();
+    return allTracks
+        .where((t) => pathSet.contains(t.path.replaceAll('\\', '/')))
+        .toList();
   }
 
   Playlist? get selectedPlaylist =>
