@@ -5,11 +5,11 @@
     <item>
       <title>Version 1.1.0</title>
       <sparkle:version>1.1.0</sparkle:version>
-      <pubDate>Fri, 01 May 2026 15:18:10 +0000</pubDate>
+      <pubDate>Fri, 01 May 2026 15:38:50 +0000</pubDate>
       <enclosure
         url="https://github.com/CapiFede/Quarks/releases/download/v1.1.0/quarks-setup.exe"
         sparkle:os="windows-x64"
-        length="17922891"
+        length="17924043"
         type="application/octet-stream" />
     </item>
   </channel>
