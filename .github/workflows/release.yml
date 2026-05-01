@@ -26,9 +26,21 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
-      - name: Create drive_config.dart from example
+      - name: Create drive_config.dart from secrets
         shell: pwsh
-        run: Copy-Item packages/quark_music/lib/data/services/drive_config.example.dart packages/quark_music/lib/data/services/drive_config.dart
+        env:
+          DESKTOP_CLIENT_ID: ${{ secrets.DRIVE_DESKTOP_CLIENT_ID }}
+          DESKTOP_CLIENT_SECRET: ${{ secrets.DRIVE_DESKTOP_CLIENT_SECRET }}
+          ANDROID_CLIENT_ID: ${{ secrets.DRIVE_ANDROID_CLIENT_ID }}
+        run: |
+          @"
+          class DriveConfig {
+            static const desktopClientId = '$env:DESKTOP_CLIENT_ID';
+            static const desktopClientSecret = '$env:DESKTOP_CLIENT_SECRET';
+            static const androidClientId = '$env:ANDROID_CLIENT_ID';
+            static const scopes = ['https://www.googleapis.com/auth/drive.file'];
+          }
+          "@ | Set-Content packages/quark_music/lib/data/services/drive_config.dart -Encoding UTF8
 
       - name: Build Windows release
         run: flutter build windows --release
