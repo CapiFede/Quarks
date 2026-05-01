@@ -26,6 +26,10 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
+      - name: Create drive_config.dart from example
+        shell: pwsh
+        run: Copy-Item packages/quark_music/lib/data/services/drive_config.example.dart packages/quark_music/lib/data/services/drive_config.dart
+
       - name: Build Windows release
         run: flutter build windows --release
 
