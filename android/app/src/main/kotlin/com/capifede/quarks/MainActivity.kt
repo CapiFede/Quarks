@@ -1,4 +1,4 @@
-package com.example.quarks
+package com.capifede.quarks
 
 import io.flutter.embedding.android.FlutterActivity
 

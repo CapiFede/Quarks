@@ -4,6 +4,7 @@ import 'package:quark_core/quark_core.dart';
 
 import '../providers/library_providers.dart';
 import '../widgets/download_drawer.dart';
+import '../widgets/drive_sync_drawer.dart';
 import '../widgets/player_controls.dart';
 import '../widgets/song_info_drawer.dart';
 import '../widgets/track_list.dart';
@@ -28,6 +29,7 @@ class MusicPage extends StatelessWidget {
           ),
           DownloadDrawer(),
           SongInfoDrawer(),
+          DriveSyncDrawer(),
         ],
       ),
     );

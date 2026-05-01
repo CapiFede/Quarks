@@ -6,6 +6,7 @@ import 'package:quark_core/quark_core.dart';
 
 import '../../domain/entities/playlist.dart';
 import '../providers/download_providers.dart';
+import '../providers/drive_sync_providers.dart';
 import '../providers/library_providers.dart';
 import '../providers/library_state.dart';
 
@@ -75,11 +76,14 @@ class _PlaylistToolbarContent extends ConsumerWidget {
             ),
           ),
           const SizedBox(width: 8),
-          _ToolbarButton(
-            icon: Icons.folder_open,
-            onTap: () => ref.read(libraryProvider.notifier).openMusicFolder(),
-          ),
-          const SizedBox(width: 4),
+          if (!Platform.isAndroid && !Platform.isIOS) ...[
+            _ToolbarButton(
+              icon: Icons.folder_open,
+              onTap: () =>
+                  ref.read(libraryProvider.notifier).openMusicFolder(),
+            ),
+            const SizedBox(width: 4),
+          ],
           _ToolbarButton(
             icon: Icons.refresh,
             onTap: () => ref.read(libraryProvider.notifier).rescanMusicFolder(),
@@ -92,6 +96,11 @@ class _PlaylistToolbarContent extends ConsumerWidget {
               onTap: () => ref.read(downloadProvider.notifier).toggleDrawer(),
             ),
           ],
+          const SizedBox(width: 4),
+          _ToolbarButton(
+            icon: Icons.cloud,
+            onTap: () => ref.read(driveSyncProvider.notifier).toggleDrawer(),
+          ),
         ],
       ),
     );

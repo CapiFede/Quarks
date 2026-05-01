@@ -58,8 +58,14 @@ class LibraryNotifier extends AsyncNotifier<LibraryState> {
 
   Future<void> openMusicFolder() async {
     final musicDir = await _storage.musicDirPath;
-    final winPath = musicDir.replaceAll('/', '\\');
-    await Process.run('explorer', [winPath]);
+    if (Platform.isWindows) {
+      await Process.run('explorer', [musicDir.replaceAll('/', '\\')]);
+    } else if (Platform.isMacOS) {
+      await Process.run('open', [musicDir]);
+    } else if (Platform.isLinux) {
+      await Process.run('xdg-open', [musicDir]);
+    }
+    // Android/iOS: no user-facing file manager hook; skip silently.
   }
 
   void selectPlaylist(String id) {

@@ -1,23 +1,40 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+
 import '../../domain/entities/playlist.dart';
 
 class PlaylistStorageService {
   static const _musicDirName = 'music';
   static const _playlistsDirName = 'playlists';
 
+  Future<Directory> _rootDir() async {
+    // Desktop: keep sibling folders next to the exe so portable installs work.
+    // Mobile: the exe-dir concept doesn't exist, use the app documents directory.
+    if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
+      return File(Platform.resolvedExecutable).parent;
+    }
+    return getApplicationDocumentsDirectory();
+  }
+
   Future<String> get musicDirPath async {
-    final exeDir = File(Platform.resolvedExecutable).parent;
-    final dir = Directory('${exeDir.path}\\$_musicDirName');
-    if (!await dir.exists()) await dir.create();
+    final root = await _rootDir();
+    final dir = Directory(p.join(root.path, _musicDirName));
+    if (!await dir.exists()) await dir.create(recursive: true);
+    return dir.path;
+  }
+
+  Future<String> get playlistsDirPath async {
+    final dir = await _playlistsDir;
     return dir.path;
   }
 
   Future<Directory> get _playlistsDir async {
-    final exeDir = File(Platform.resolvedExecutable).parent;
-    final dir = Directory('${exeDir.path}/$_playlistsDirName');
-    if (!await dir.exists()) await dir.create();
+    final root = await _rootDir();
+    final dir = Directory(p.join(root.path, _playlistsDirName));
+    if (!await dir.exists()) await dir.create(recursive: true);
     return dir;
   }
 
@@ -66,7 +83,7 @@ class PlaylistStorageService {
         return absolute;
       }).toList();
 
-      await File('${dir.path}/$filename').writeAsString(jsonEncode({
+      await File(p.join(dir.path, filename)).writeAsString(jsonEncode({
         'id': playlist.id,
         'name': playlist.name,
         'trackPaths': relativePaths,
@@ -80,7 +97,7 @@ class PlaylistStorageService {
         .cast<File>()
         .toList();
     for (final file in existingFiles) {
-      final filename = file.path.split(RegExp(r'[/\\]')).last;
+      final filename = p.basename(file.path);
       if (!expectedFilenames.contains(filename)) {
         await file.delete();
       }

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:quark_core/quark_core.dart';
@@ -6,6 +8,9 @@ import 'package:window_manager/window_manager.dart';
 import '../quarks_registry.dart';
 import '../quarks_providers.dart';
 import 'widgets/quark_card.dart';
+
+bool get _isDesktop =>
+    Platform.isWindows || Platform.isMacOS || Platform.isLinux;
 
 class QuarksShell extends ConsumerWidget {
   const QuarksShell({super.key});
@@ -53,6 +58,14 @@ class _WindowFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.quarksColors;
+
+    if (!_isDesktop) {
+      // Mobile: fullscreen, no rounded borders (OS manages the window).
+      return Container(
+        color: colors.background,
+        child: SafeArea(child: child),
+      );
+    }
 
     return Container(
       clipBehavior: Clip.antiAlias,
@@ -192,71 +205,76 @@ class _TitleBar extends StatelessWidget {
                 const SizedBox(width: 2),
               ],
 
-              // Draggable area fills remaining space
-              Expanded(
-                child: GestureDetector(
-                  onDoubleTap: () async {
-                    if (await windowManager.isMaximized()) {
-                      windowManager.unmaximize();
-                    } else {
-                      windowManager.maximize();
-                    }
-                  },
-                  child: const DragToMoveArea(
-                    child: SizedBox.expand(),
+              // Draggable area fills remaining space (desktop only).
+              if (_isDesktop)
+                Expanded(
+                  child: GestureDetector(
+                    onDoubleTap: () async {
+                      if (await windowManager.isMaximized()) {
+                        windowManager.unmaximize();
+                      } else {
+                        windowManager.maximize();
+                      }
+                    },
+                    child: const DragToMoveArea(
+                      child: SizedBox.expand(),
+                    ),
                   ),
-                ),
-              ),
+                )
+              else
+                const Expanded(child: SizedBox.expand()),
 
-              // Window buttons
-              Center(
-                child: _WindowButton(
-                  onTap: () => windowManager.minimize(),
-                  child: Container(
-                    width: 10,
-                    height: 2,
-                    color: colors.textPrimary,
+              // Window buttons (desktop only — mobile uses OS chrome).
+              if (_isDesktop) ...[
+                Center(
+                  child: _WindowButton(
+                    onTap: () => windowManager.minimize(),
+                    child: Container(
+                      width: 10,
+                      height: 2,
+                      color: colors.textPrimary,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 2),
-              Center(
-                child: _WindowButton(
-                  onTap: () async {
-                    if (await windowManager.isMaximized()) {
-                      windowManager.unmaximize();
-                    } else {
-                      windowManager.maximize();
-                    }
-                  },
-                  child: Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                        color: colors.textPrimary,
-                        width: 1.5,
+                const SizedBox(width: 2),
+                Center(
+                  child: _WindowButton(
+                    onTap: () async {
+                      if (await windowManager.isMaximized()) {
+                        windowManager.unmaximize();
+                      } else {
+                        windowManager.maximize();
+                      }
+                    },
+                    child: Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: colors.textPrimary,
+                          width: 1.5,
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 2),
-              Center(
-                child: _WindowButton(
-                  onTap: () => windowManager.close(),
-                  child: Text(
-                    'X',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      color: colors.textPrimary,
-                      height: 1,
+                const SizedBox(width: 2),
+                Center(
+                  child: _WindowButton(
+                    onTap: () => windowManager.close(),
+                    child: Text(
+                      'X',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: colors.textPrimary,
+                        height: 1,
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 4),
+                const SizedBox(width: 4),
+              ],
             ],
           ),
         ],

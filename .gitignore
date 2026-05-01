@@ -24,3 +24,6 @@ Thumbs.db
 .pub-cache/
 .pub/
 pubspec.lock
+
+# Secrets
+packages/quark_music/lib/data/services/drive_config.dart

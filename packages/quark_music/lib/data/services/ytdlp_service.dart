@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 
 import 'binary_manager.dart';
 
@@ -103,7 +104,7 @@ class YtdlpService {
     final ytdlp = await _binaryManager.ytdlpPath;
     final ffmpeg = await _binaryManager.ffmpegPath;
 
-    final tempDir = Directory('$outputFolder\\_ytdl_temp');
+    final tempDir = Directory(p.join(outputFolder, '_ytdl_temp'));
     if (!tempDir.existsSync()) tempDir.createSync();
 
     try {
@@ -124,7 +125,7 @@ class YtdlpService {
         '--audio-quality', '320K',
         '--no-continue',
         '--ffmpeg-location', ffmpeg,
-        '-o', '${tempDir.path}\\$template',
+        '-o', p.join(tempDir.path, template),
         url,
       ];
 
@@ -164,7 +165,7 @@ class YtdlpService {
         if (destMatch != null) {
           currentItem++;
           final filename = destMatch.group(1) ?? '';
-          currentTitle = filename.split('\\').last.replaceAll(RegExp(r'\.\w+$'), '');
+          currentTitle = p.basename(filename).replaceAll(RegExp(r'\.\w+$'), '');
         }
 
         if (progressMatch != null) {
@@ -208,8 +209,8 @@ class YtdlpService {
 
       for (var i = 0; i < mp3Files.length; i++) {
         final file = mp3Files[i];
-        final filename = file.path.split('\\').last;
-        final outputPath = '$outputFolder\\$filename';
+        final filename = p.basename(file.path);
+        final outputPath = p.join(outputFolder, filename);
 
         yield DownloadProgress(
           phase: DownloadPhase.normalizing,

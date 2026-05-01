@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:quark_core/quark_core.dart';
@@ -23,7 +25,11 @@ class MusicModule extends Quark {
 
   @override
   Future<void> initialize() async {
-    JustAudioMediaKit.ensureInitialized();
+    // just_audio uses ExoPlayer (Android) / AVPlayer (iOS, macOS) natively.
+    // media_kit is only needed as a backend on Windows/Linux.
+    if (Platform.isWindows || Platform.isLinux) {
+      JustAudioMediaKit.ensureInitialized();
+    }
   }
 
   @override

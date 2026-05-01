@@ -1,6 +1,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Audio files (Android 13+). -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
+    <!-- Legacy storage read for Android 12 and below. -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32"/>
+    <!-- auto-updater feed fetch + potential future networked features. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Keep CPU + network alive during Drive sync when screen is off. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+
     <application
-        android:label="quarks"
+        android:label="Quarks"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

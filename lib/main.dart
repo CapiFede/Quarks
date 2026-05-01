@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:auto_updater/auto_updater.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,24 +11,28 @@ import 'quarks_registry.dart';
 import 'presentation/quarks_shell.dart';
 import 'quarks_providers.dart';
 
+bool get _isDesktop => Platform.isWindows || Platform.isMacOS || Platform.isLinux;
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  const feedURL =
-      'https://raw.githubusercontent.com/CapiFede/Quarks/main/appcast.xml';
-  await autoUpdater.setFeedURL(feedURL);
-  await autoUpdater.checkForUpdates(inBackground: true);
+  if (_isDesktop) {
+    const feedURL =
+        'https://raw.githubusercontent.com/CapiFede/Quarks/main/appcast.xml';
+    await autoUpdater.setFeedURL(feedURL);
+    await autoUpdater.checkForUpdates(inBackground: true);
 
-  await windowManager.ensureInitialized();
-  const windowOptions = WindowOptions(
-    size: Size(900, 600),
-    minimumSize: Size(500, 400),
-    titleBarStyle: TitleBarStyle.hidden,
-  );
-  await windowManager.waitUntilReadyToShow(windowOptions, () async {
-    await windowManager.show();
-    await windowManager.focus();
-  });
+    await windowManager.ensureInitialized();
+    const windowOptions = WindowOptions(
+      size: Size(900, 600),
+      minimumSize: Size(500, 400),
+      titleBarStyle: TitleBarStyle.hidden,
+    );
+    await windowManager.waitUntilReadyToShow(windowOptions, () async {
+      await windowManager.show();
+      await windowManager.focus();
+    });
+  }
 
   final registry = QuarkRegistry();
   registry.register(MusicModule());
