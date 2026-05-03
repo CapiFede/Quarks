@@ -50,28 +50,34 @@ class _SmallButtonState extends State<SmallButton> {
     final textTheme = Theme.of(context).textTheme;
     final enabled = widget.onTap != null;
 
+    final Color borderColor =
+        _hovering && enabled ? colors.primary : colors.border;
+    final Color bg = _hovering && enabled
+        ? colors.primary.withValues(alpha: 0.1)
+        : Colors.transparent;
+    final Color textColor = !enabled
+        ? colors.textLight
+        : _hovering
+            ? colors.primary
+            : colors.textSecondary;
+
     return MouseRegion(
-      onEnter: (_) => setState(() => _hovering = true),
+      onEnter: (_) => enabled ? setState(() => _hovering = true) : null,
       onExit: (_) => setState(() => _hovering = false),
       cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
       child: GestureDetector(
         onTap: widget.onTap,
-        child: PixelBorder(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          borderWidth: 1.5,
-          backgroundColor: !enabled
-              ? colors.surfaceAlt
-              : _hovering
-                  ? colors.primary
-                  : colors.surface,
-          child: Text(
-            widget.label,
-            style: textTheme.labelSmall?.copyWith(
-              color: !enabled
-                  ? colors.textLight
-                  : _hovering
-                      ? colors.surface
-                      : colors.textPrimary,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: bg,
+            border: Border.all(color: borderColor, width: 1),
+          ),
+          child: Opacity(
+            opacity: enabled ? 1 : 0.5,
+            child: Text(
+              widget.label,
+              style: textTheme.labelMedium?.copyWith(color: textColor),
             ),
           ),
         ),
@@ -186,32 +192,45 @@ class _ActionButtonState extends State<ActionButton> {
     final colors = context.quarksColors;
     final textTheme = Theme.of(context).textTheme;
     final enabled = widget.onTap != null;
+    final accent = widget.isDestructive ? colors.error : colors.primary;
+
+    final Color bg = !enabled
+        ? Colors.transparent
+        : _hovering
+            ? accent.withValues(alpha: 0.1)
+            : Colors.transparent;
+    final Color borderColor = !enabled
+        ? colors.border
+        : _hovering
+            ? accent
+            : colors.border;
+    final Color textColor = !enabled
+        ? colors.textLight
+        : widget.isDestructive
+            ? colors.error
+            : _hovering
+                ? colors.primary
+                : colors.textPrimary;
 
     return MouseRegion(
-      onEnter: (_) => setState(() => _hovering = true),
+      onEnter: (_) => enabled ? setState(() => _hovering = true) : null,
       onExit: (_) => setState(() => _hovering = false),
       cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
       child: GestureDetector(
         onTap: widget.onTap,
-        child: PixelBorder(
+        child: Container(
+          width: double.infinity,
           padding: const EdgeInsets.symmetric(vertical: 8),
-          borderWidth: 1.5,
-          backgroundColor: !enabled
-              ? colors.surfaceAlt
-              : widget.isDestructive
-                  ? (_hovering ? colors.error : colors.surface)
-                  : (_hovering ? colors.primary : colors.surface),
-          child: Center(
-            child: Text(
-              widget.label,
-              style: textTheme.labelSmall?.copyWith(
-                color: !enabled
-                    ? colors.textLight
-                    : _hovering
-                        ? colors.surface
-                        : widget.isDestructive
-                            ? colors.error
-                            : colors.textPrimary,
+          decoration: BoxDecoration(
+            color: bg,
+            border: Border.all(color: borderColor, width: 1),
+          ),
+          child: Opacity(
+            opacity: enabled ? 1 : 0.5,
+            child: Center(
+              child: Text(
+                widget.label,
+                style: textTheme.labelMedium?.copyWith(color: textColor),
               ),
             ),
           ),

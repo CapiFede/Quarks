@@ -72,7 +72,7 @@ class _WindowFrame extends StatelessWidget {
       decoration: BoxDecoration(
         color: colors.background,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: colors.borderDark, width: 2),
+        border: Border.all(color: colors.borderDark, width: 1),
       ),
       child: child,
     );
@@ -158,7 +158,7 @@ class _TitleBar extends StatelessWidget {
               decoration: BoxDecoration(
                 color: colors.primary,
                 border: Border(
-                  bottom: BorderSide(color: colors.borderDark, width: 2),
+                  bottom: BorderSide(color: colors.borderDark, width: 1),
                 ),
               ),
             ),
@@ -331,12 +331,22 @@ class _TitleBarTabState extends State<_TitleBarTab> {
             decoration: BoxDecoration(
               color: bgColor,
               border: Border(
-                top: BorderSide(color: colors.borderDark, width: 2),
-                left: BorderSide(color: colors.borderDark, width: 1),
-                right: BorderSide(color: colors.borderDark, width: 1),
-                bottom: isActive
-                    ? BorderSide(color: colors.surface, width: 2)
-                    : BorderSide(color: colors.borderDark, width: 2),
+                top: BorderSide(
+                  color: isActive ? colors.border : Colors.transparent,
+                  width: 1,
+                ),
+                left: BorderSide(
+                  color: isActive ? colors.border : Colors.transparent,
+                  width: 1,
+                ),
+                right: BorderSide(
+                  color: isActive ? colors.border : Colors.transparent,
+                  width: 1,
+                ),
+                bottom: BorderSide(
+                  color: isActive ? colors.surface : Colors.transparent,
+                  width: 1,
+                ),
               ),
             ),
             child: Row(
@@ -384,30 +394,15 @@ class _WindowButton extends StatefulWidget {
 }
 
 class _WindowButtonState extends State<_WindowButton> {
-  bool _hovering = false;
-
   @override
   Widget build(BuildContext context) {
-    final colors = context.quarksColors;
-
     return MouseRegion(
-      onEnter: (_) => setState(() => _hovering = true),
-      onExit: (_) => setState(() => _hovering = false),
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
         onTap: widget.onTap,
-        child: Container(
+        child: SizedBox(
           width: 24,
           height: 24,
-          decoration: BoxDecoration(
-            color: _hovering ? colors.cardHover : colors.surface,
-            border: Border(
-              top: BorderSide(color: colors.borderLight, width: 1),
-              left: BorderSide(color: colors.borderLight, width: 1),
-              bottom: BorderSide(color: colors.borderDark, width: 1),
-              right: BorderSide(color: colors.borderDark, width: 1),
-            ),
-          ),
           child: Center(child: widget.child),
         ),
       ),
@@ -425,15 +420,10 @@ class _ContentArea extends StatelessWidget {
     final colors = context.quarksColors;
 
     return Container(
-      margin: const EdgeInsets.all(8),
+      margin: const EdgeInsets.all(6),
       decoration: BoxDecoration(
         color: colors.surface,
-        border: Border(
-          top: BorderSide(color: colors.borderDark, width: 2),
-          left: BorderSide(color: colors.borderDark, width: 2),
-          bottom: BorderSide(color: colors.borderLight, width: 2),
-          right: BorderSide(color: colors.borderLight, width: 2),
-        ),
+        border: Border.all(color: colors.border, width: 1),
       ),
       child: child,
     );

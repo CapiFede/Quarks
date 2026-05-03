@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Tiny5&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Tiny5', monospace; background: #F0F1F3; padding: 16px; }
+.section { margin-bottom: 14px; }
+.section-label { font-size: 9px; color: #869C96; text-transform: uppercase; margin-bottom: 8px; }
+.tokens { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+.token { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.bar { background: #3D8C82; }
+.name { font-size: 8px; color: #283330; }
+.val  { font-size: 8px; color: #556660; }
+.row { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.radius-box { border: 1.5px solid #9EAAA3; background: oklch(97.5% 0.003 220); height: 28px; width: 48px; display: flex; align-items: center; justify-content: center; }
+.r-name { font-size: 9px; color: #283330; width: 100px; }
+.r-val  { font-size: 9px; color: #556660; }
+</style>
+</head>
+<body>
+<div class="section">
+  <div class="section-label">Spacing scale</div>
+  <div class="tokens">
+    <div class="token"><div class="bar" style="width:4px;height:40px"></div><div class="name">sp-1</div><div class="val">4px</div></div>
+    <div class="token"><div class="bar" style="width:6px;height:40px"></div><div class="name">sp-2</div><div class="val">6px</div></div>
+    <div class="token"><div class="bar" style="width:8px;height:40px"></div><div class="name">sp-3</div><div class="val">8px</div></div>
+    <div class="token"><div class="bar" style="width:12px;height:40px"></div><div class="name">sp-4</div><div class="val">12px</div></div>
+    <div class="token"><div class="bar" style="width:16px;height:40px"></div><div class="name">sp-5</div><div class="val">16px</div></div>
+    <div class="token"><div class="bar" style="width:20px;height:40px"></div><div class="name">sp-6</div><div class="val">20px</div></div>
+    <div class="token"><div class="bar" style="width:24px;height:40px"></div><div class="name">sp-7</div><div class="val">24px</div></div>
+    <div class="token"><div class="bar" style="width:32px;height:40px"></div><div class="name">sp-8</div><div class="val">32px</div></div>
+  </div>
+</div>
+<div class="section">
+  <div class="section-label">Corner radii</div>
+  <div class="row"><div class="radius-box" style="border-radius:0px"></div><div class="r-name">radius-none (0px)</div><div class="r-val">all UI elements except window/tabs</div></div>
+  <div class="row"><div class="radius-box" style="border-radius:6px 6px 0 0"></div><div class="r-name">radius-tab (6px top)</div><div class="r-val">title bar tab tops only</div></div>
+  <div class="row"><div class="radius-box" style="border-radius:8px"></div><div class="r-name">radius-window (8px)</div><div class="r-val">outer window frame only</div></div>
+</div>
+<div class="section">
+  <div class="section-label">Key component heights</div>
+  <div class="tokens" style="align-items:flex-end">
+    <div class="token"><div class="bar" style="width:28px;height:32px"></div><div class="name">title bar</div><div class="val">32px</div></div>
+    <div class="token"><div class="bar" style="width:28px;height:36px"></div><div class="name">toolbar</div><div class="val">~36px</div></div>
+    <div class="token"><div class="bar" style="width:28px;height:8px"></div><div class="name">content gap</div><div class="val">8px</div></div>
+  </div>
+</div>
+</body>
+</html>

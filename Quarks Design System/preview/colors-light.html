@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Tiny5&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Tiny5', monospace; background: #F2EDE4; padding: 16px; }
+.grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.swatch { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.color { width: 56px; height: 40px; border: 1.5px solid #C4BDB2; }
+.name { font-size: 9px; color: #32382C; text-align: center; max-width: 60px; line-height: 1.3; }
+.hex  { font-size: 8px; color: #4A5444; }
+</style>
+</head>
+<body>
+<div class="grid">
+  <div class="swatch"><div class="color" style="background:#F2EDE4"></div><div class="name">background</div><div class="hex">#F2EDE4</div></div>
+  <div class="swatch"><div class="color" style="background:#FAF8F3"></div><div class="name">surface</div><div class="hex">#FAF8F3</div></div>
+  <div class="swatch"><div class="color" style="background:#EAE5DC"></div><div class="name">surfaceAlt</div><div class="hex">#EAE5DC</div></div>
+  <div class="swatch"><div class="color" style="background:#568070"></div><div class="name">primary</div><div class="hex">#568070</div></div>
+  <div class="swatch"><div class="color" style="background:#3E6054"></div><div class="name">primaryDark</div><div class="hex">#3E6054</div></div>
+  <div class="swatch"><div class="color" style="background:#72A090"></div><div class="name">primaryLight</div><div class="hex">#72A090</div></div>
+  <div class="swatch"><div class="color" style="background:#7A9E8E"></div><div class="name">secondary</div><div class="hex">#7A9E8E</div></div>
+  <div class="swatch"><div class="color" style="background:#D8D2C8"></div><div class="name">border</div><div class="hex">#D8D2C8</div></div>
+  <div class="swatch"><div class="color" style="background:#C4BDB2"></div><div class="name">borderDark</div><div class="hex">#C4BDB2</div></div>
+  <div class="swatch"><div class="color" style="background:#F4F1EC; border:1.5px solid #D8D2C8"></div><div class="name">borderLight</div><div class="hex">#F4F1EC</div></div>
+  <div class="swatch"><div class="color" style="background:#32382C"></div><div class="name">textPrimary</div><div class="hex">#32382C</div></div>
+  <div class="swatch"><div class="color" style="background:#4A5444"></div><div class="name">textSecond.</div><div class="hex">#4A5444</div></div>
+  <div class="swatch"><div class="color" style="background:#8A9484"></div><div class="name">textLight</div><div class="hex">#8A9484</div></div>
+  <div class="swatch"><div class="color" style="background:#C08080"></div><div class="name">error</div><div class="hex">#C08080</div></div>
+  <div class="swatch"><div class="color" style="background:#70A870"></div><div class="name">success</div><div class="hex">#70A870</div></div>
+  <div class="swatch"><div class="color" style="background:#EDE9E2; border:1.5px solid #D8D2C8"></div><div class="name">cardHover</div><div class="hex">#EDE9E2</div></div>
+</div>
+</body>
+</html>

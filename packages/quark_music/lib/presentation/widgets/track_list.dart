@@ -90,6 +90,7 @@ class _TrackTileState extends ConsumerState<_TrackTile> {
         onSecondaryTapDown: (details) =>
             _showContextMenu(context, details),
         child: Container(
+          constraints: const BoxConstraints(minHeight: 38),
           decoration: BoxDecoration(
             color: widget.isSelected
                 ? colors.secondary.withValues(alpha: 0.3)
@@ -119,15 +120,20 @@ class _TrackTileState extends ConsumerState<_TrackTile> {
                         horizontal: 16, vertical: 10),
                     child: Row(
                       children: [
-                        if (widget.isPlaying)
-                          Icon(Icons.play_arrow, size: 16, color: colors.error)
-                        else
-                          Icon(Icons.music_note,
-                              size: 16, color: colors.textSecondary),
+                        Icon(
+                          widget.isPlaying
+                              ? Icons.play_arrow
+                              : Icons.music_note,
+                          size: 16,
+                          color: widget.isPlaying
+                              ? colors.error
+                              : colors.textSecondary,
+                        ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Text(
                                 widget.track.title,
@@ -140,15 +146,29 @@ class _TrackTileState extends ConsumerState<_TrackTile> {
                                 ),
                                 overflow: TextOverflow.ellipsis,
                               ),
-                              if (widget.track.artist != null)
+                              if (widget.track.artist != null) ...[
+                                const SizedBox(height: 2),
                                 Text(
                                   widget.track.artist!,
-                                  style: theme.textTheme.bodySmall,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: colors.textSecondary,
+                                  ),
                                   overflow: TextOverflow.ellipsis,
                                 ),
+                              ],
                             ],
                           ),
                         ),
+                        if (widget.track.duration != null) ...[
+                          const SizedBox(width: 12),
+                          Text(
+                            _formatDuration(widget.track.duration!),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: colors.textLight,
+                              fontSize: 9,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -159,6 +179,12 @@ class _TrackTileState extends ConsumerState<_TrackTile> {
         ),
       ),
     );
+  }
+
+  String _formatDuration(Duration d) {
+    final minutes = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
   }
 
   void _showContextMenu(BuildContext context, TapDownDetails details) {

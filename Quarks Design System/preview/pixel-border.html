@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Tiny5&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Tiny5', monospace; background: #EAE5DC; padding: 20px; display: flex; flex-direction: column; gap: 24px; }
+
+.section-label {
+  font-size: 9px; color: #4A5444; text-transform: uppercase;
+  letter-spacing: 0.08em; margin-bottom: 12px;
+}
+.row { display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap; }
+.pair { display: flex; flex-direction: column; gap: 6px; }
+.pair-label { font-size: 9px; color: #8A9484; text-transform: uppercase; }
+
+/* ── DEFAULT — 1px solid border, flat ── */
+.flat {
+  background: #FAF8F3;
+  border: 1px solid #D8D2C8;
+  padding: 14px 20px;
+  font-size: 12px; color: #32382C;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+}
+.flat .sub { font-size: 9px; color: #4A5444; }
+
+/* ── HOVER — slightly darker border ── */
+.flat-hover {
+  background: #EDE9E2;
+  border: 1px solid #C4BDB2;
+  padding: 14px 20px;
+  font-size: 12px; color: #32382C;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+}
+.flat-hover .sub { font-size: 9px; color: #4A5444; }
+
+/* ── FOCUS / ACTIVE — sage accent border ── */
+.flat-focus {
+  background: #FAF8F3;
+  border: 1px solid #568070;
+  padding: 14px 20px;
+  font-size: 12px; color: #32382C;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+}
+.flat-focus .sub { font-size: 9px; color: #568070; }
+
+/* ── SURFACE ALT — content areas, inset sections ── */
+.surface-alt {
+  background: #EAE5DC;
+  border: 1px solid #D8D2C8;
+  padding: 14px 20px;
+  font-size: 12px; color: #32382C;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+}
+.surface-alt .sub { font-size: 9px; color: #4A5444; }
+
+/* ── PRIMARY FILLED — title bar, active states ── */
+.primary-filled {
+  background: #568070;
+  border: 1px solid #3E6054;
+  padding: 14px 20px;
+  font-size: 12px; color: #FAF8F3;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+}
+.primary-filled .sub { font-size: 9px; color: #B8D0C8; }
+
+/* ── CARD SHADOW — optional subtle lift ── */
+.card-shadow {
+  background: #FAF8F3;
+  border: 1px solid #D8D2C8;
+  box-shadow: 2px 2px 0 rgba(86,128,112,0.12);
+  padding: 14px 20px;
+  font-size: 12px; color: #32382C;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+}
+.card-shadow .sub { font-size: 9px; color: #4A5444; }
+
+/* ── DIVIDERS ── */
+.divider-h { width: 200px; height: 1px; background: #D8D2C8; }
+.divider-subtle { width: 200px; height: 1px; background: #EAE5DC; }
+</style>
+</head>
+<body>
+
+  <div>
+    <div class="section-label">Surface states</div>
+    <div class="row">
+      <div class="pair">
+        <div class="pair-label">Default</div>
+        <div class="flat">
+          <span class="material-icons" style="font-size:20px;color:#568070">music_note</span>
+          Surface
+          <span class="sub">1px · #D8D2C8</span>
+        </div>
+      </div>
+      <div class="pair">
+        <div class="pair-label">Hover</div>
+        <div class="flat-hover">
+          <span class="material-icons" style="font-size:20px;color:#568070">music_note</span>
+          Hover
+          <span class="sub">1px · #C4BDB2 · bg dimmed</span>
+        </div>
+      </div>
+      <div class="pair">
+        <div class="pair-label">Focus / Active</div>
+        <div class="flat-focus">
+          <span class="material-icons" style="font-size:20px;color:#568070">edit</span>
+          Focused
+          <span class="sub">1px · #568070 sage</span>
+        </div>
+      </div>
+      <div class="pair">
+        <div class="pair-label">Surface alt</div>
+        <div class="surface-alt">
+          <span class="material-icons" style="font-size:20px;color:#4A5444">layers</span>
+          Alt section
+          <span class="sub">bg #EAE5DC · 1px border</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="section-label">Variants</div>
+    <div class="row">
+      <div class="pair">
+        <div class="pair-label">Card (+ shadow)</div>
+        <div class="card-shadow">
+          <span class="material-icons" style="font-size:28px;color:#568070">music_note</span>
+          QuarkCard
+          <span class="sub">shadow: 2px 2px sage/12%</span>
+        </div>
+      </div>
+      <div class="pair">
+        <div class="pair-label">Primary filled</div>
+        <div class="primary-filled">
+          <span class="material-icons" style="font-size:24px;color:#FAF8F3">play_arrow</span>
+          Title bar / Active
+          <span class="sub">bg #568070 · border #3E6054</span>
+        </div>
+      </div>
+      <div class="pair">
+        <div class="pair-label">Dividers</div>
+        <div style="display:flex;flex-direction:column;gap:12px;padding:14px 0;">
+          <div>
+            <div style="font-size:8px;color:#8A9484;margin-bottom:4px;">Standard</div>
+            <div class="divider-h"></div>
+          </div>
+          <div>
+            <div style="font-size:8px;color:#8A9484;margin-bottom:4px;">Subtle</div>
+            <div class="divider-subtle" style="border:1px solid #EAE5DC;height:0"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

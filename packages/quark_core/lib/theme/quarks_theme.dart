@@ -46,13 +46,20 @@ abstract final class QuarksTheme {
         ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: QuarksColors.secondary,
-          foregroundColor: QuarksColors.textPrimary,
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.zero,
+        style: ButtonStyle(
+          backgroundColor: const WidgetStatePropertyAll(Colors.transparent),
+          foregroundColor: const WidgetStatePropertyAll(QuarksColors.textPrimary),
+          overlayColor: WidgetStatePropertyAll(
+            QuarksColors.primary.withValues(alpha: 0.1),
           ),
-          textStyle: textTheme.labelLarge,
+          side: const WidgetStatePropertyAll(
+            BorderSide(color: QuarksColors.border, width: 1),
+          ),
+          shape: const WidgetStatePropertyAll(
+            RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+          ),
+          elevation: const WidgetStatePropertyAll(0),
+          textStyle: WidgetStatePropertyAll(textTheme.labelLarge),
         ),
       ),
       iconTheme: const IconThemeData(
@@ -118,13 +125,20 @@ abstract final class QuarksTheme {
         ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: QuarksColorsDark.secondary,
-          foregroundColor: QuarksColorsDark.textPrimary,
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.zero,
+        style: ButtonStyle(
+          backgroundColor: const WidgetStatePropertyAll(Colors.transparent),
+          foregroundColor: const WidgetStatePropertyAll(QuarksColorsDark.textPrimary),
+          overlayColor: WidgetStatePropertyAll(
+            QuarksColorsDark.primary.withValues(alpha: 0.1),
           ),
-          textStyle: textTheme.labelLarge,
+          side: const WidgetStatePropertyAll(
+            BorderSide(color: QuarksColorsDark.border, width: 1),
+          ),
+          shape: const WidgetStatePropertyAll(
+            RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+          ),
+          elevation: const WidgetStatePropertyAll(0),
+          textStyle: WidgetStatePropertyAll(textTheme.labelLarge),
         ),
       ),
       iconTheme: const IconThemeData(
@@ -150,7 +164,7 @@ abstract final class QuarksTheme {
   }
 
   static TextTheme _buildTextTheme(Color primary, Color secondary) {
-    final base = GoogleFonts.silkscreenTextTheme();
+    final base = GoogleFonts.tiny5TextTheme();
 
     return base.copyWith(
       displayLarge: base.displayLarge?.copyWith(
@@ -159,35 +173,35 @@ abstract final class QuarksTheme {
       ),
       titleLarge: base.titleLarge?.copyWith(
         color: primary,
-        fontSize: 20,
+        fontSize: 22,
       ),
       titleMedium: base.titleMedium?.copyWith(
         color: primary,
-        fontSize: 16,
+        fontSize: 17,
       ),
       titleSmall: base.titleSmall?.copyWith(
         color: secondary,
-        fontSize: 14,
+        fontSize: 15,
       ),
       bodyLarge: base.bodyLarge?.copyWith(
         color: primary,
-        fontSize: 14,
+        fontSize: 15,
       ),
       bodyMedium: base.bodyMedium?.copyWith(
         color: primary,
-        fontSize: 12,
+        fontSize: 13,
       ),
       bodySmall: base.bodySmall?.copyWith(
         color: secondary,
-        fontSize: 10,
+        fontSize: 11,
       ),
       labelLarge: base.labelLarge?.copyWith(
         color: primary,
-        fontSize: 12,
+        fontSize: 13,
       ),
       labelMedium: base.labelMedium?.copyWith(
         color: secondary,
-        fontSize: 10,
+        fontSize: 11,
       ),
     );
   }

@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Tiny5&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Tiny5', monospace; background: #F2EDE4; padding: 16px; display: flex; flex-direction: column; gap: 20px; }
+.label { font-size: 9px; color: #8A9484; text-transform: uppercase; margin-bottom: 6px; }
+.row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+/* Chip — flat underline only, no background */
+.chip {
+  padding: 4px 9px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-family: 'Tiny5', monospace; font-size: 10px;
+  color: #8A9484; cursor: pointer;
+}
+.chip.active {
+  color: #568070;
+  border-bottom-color: #568070;
+}
+.chip.hover {
+  color: #4A5444;
+  border-bottom-color: #C4BDB2;
+}
+
+/* Icon buttons — fully transparent */
+.icon-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px;
+  background: transparent; border: none; cursor: pointer;
+}
+.icon-btn .material-icons { font-size: 14px; color: #8A9484; }
+.icon-btn.hover .material-icons { color: #32382C; }
+
+/* Toolbar container */
+.toolbar {
+  background: #F2EDE4;
+  border-bottom: 1px solid #D8D2C8;
+  padding: 0 8px;
+  height: 32px;
+  display: flex; align-items: center; gap: 2px;
+}
+</style>
+</head>
+<body>
+  <div>
+    <div class="label">PlaylistChip states</div>
+    <div class="row" style="height:32px; background:#F2EDE4; border-bottom:1px solid #D8D2C8; padding:0 8px; width:fit-content;">
+      <div class="chip active">All Tracks</div>
+      <div class="chip">Chill</div>
+      <div class="chip hover">Rock</div>
+      <div class="chip">Lo-fi</div>
+      <div class="icon-btn"><span class="material-icons">add</span></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="label">PlaylistToolbar (full)</div>
+    <div class="toolbar" style="width:100%; max-width:520px;">
+      <div class="chip active">All Tracks</div>
+      <div class="chip">Chill</div>
+      <div class="chip">Lo-fi</div>
+      <div class="icon-btn"><span class="material-icons">add</span></div>
+      <div style="flex:1"></div>
+      <div class="icon-btn"><span class="material-icons">folder_open</span></div>
+      <div class="icon-btn hover"><span class="material-icons">refresh</span></div>
+      <div class="icon-btn"><span class="material-icons">download</span></div>
+      <div class="icon-btn"><span class="material-icons">cloud</span></div>
+    </div>
+  </div>
+</body>
+</html>

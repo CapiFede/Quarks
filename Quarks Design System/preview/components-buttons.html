@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Tiny5&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Tiny5', monospace; background: #F2EDE4; padding: 16px; display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+.group { display: flex; flex-direction: column; gap: 8px; }
+.label { font-size: 9px; color: #8A9484; text-transform: uppercase; margin-bottom: 2px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* ActionButton — transparent bg, simple 1px border, sage fill on hover */
+.action-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 140px; padding: 8px 0;
+  background: transparent;
+  border: 1px solid #D8D2C8;
+  font-family: 'Tiny5', monospace; font-size: 10px; color: #32382C; cursor: pointer;
+}
+.action-btn.hover {
+  background: rgba(86,128,112,0.10);
+  border-color: #568070;
+  color: #568070;
+}
+.action-btn.pressed {
+  background: rgba(86,128,112,0.06);
+  border-color: #C4BDB2;
+  color: #4A5444;
+}
+.action-btn.destructive {
+  border-color: #D8D2C8;
+  color: #C08080;
+}
+.action-btn.destructive.hover {
+  background: rgba(192,128,128,0.10);
+  border-color: #C08080;
+  color: #C08080;
+}
+.action-btn.disabled {
+  background: transparent;
+  border-color: #D8D2C8;
+  color: #8A9484; cursor: default; opacity: 0.5;
+}
+
+/* SmallButton — same language, compact */
+.small-btn {
+  padding: 5px 10px;
+  background: transparent;
+  border: 1px solid #D8D2C8;
+  font-family: 'Tiny5', monospace; font-size: 10px; color: #4A5444; cursor: pointer;
+}
+.small-btn.hover {
+  background: rgba(86,128,112,0.10);
+  border-color: #568070;
+  color: #568070;
+}
+.small-btn.pressed {
+  background: rgba(86,128,112,0.06);
+  border-color: #C4BDB2;
+}
+.small-btn.disabled {
+  background: transparent;
+  border-color: #D8D2C8;
+  color: #8A9484; cursor: default; opacity: 0.5;
+}
+
+/* IconButton — transparent, no border */
+.icon-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px;
+  background: transparent; border: none; cursor: pointer;
+  font-size: 16px; color: #4A5444;
+}
+.icon-btn.hover { color: #32382C; }
+.icon-btn.active { color: #568070; }
+</style>
+</head>
+<body>
+  <div class="group">
+    <div class="label">ActionButton</div>
+    <div class="row">
+      <div class="action-btn">Download</div>
+      <div class="action-btn hover">Download</div>
+      <div class="action-btn pressed">Download</div>
+      <div class="action-btn disabled">Download</div>
+    </div>
+    <div class="row">
+      <div class="action-btn destructive">Delete file</div>
+      <div class="action-btn destructive hover">Delete file</div>
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="label">SmallButton</div>
+    <div class="row">
+      <div class="small-btn">Scan</div>
+      <div class="small-btn hover">Scan</div>
+      <div class="small-btn pressed">Scan</div>
+      <div class="small-btn disabled">Scan</div>
+    </div>
+    <div class="row">
+      <div class="small-btn">Rename</div>
+      <div class="small-btn">Retry</div>
+      <div class="small-btn">Edit</div>
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="label">IconButton (toolbar)</div>
+    <div class="row">
+      <div class="icon-btn">⚙</div>
+      <div class="icon-btn hover">⚙</div>
+      <div class="icon-btn active">⚙</div>
+    </div>
+    <div style="font-size:8px; color:#8A9484; margin-top:2px;">default · hover · active</div>
+  </div>
+</body>
+</html>

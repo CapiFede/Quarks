@@ -12,6 +12,7 @@ class QuarksColorExtension extends ThemeExtension<QuarksColorExtension> {
   final Color surfaceAlt;
   final Color primary;
   final Color primaryDark;
+  final Color primaryLight;
   final Color secondary;
   final Color secondaryDark;
 
@@ -39,6 +40,7 @@ class QuarksColorExtension extends ThemeExtension<QuarksColorExtension> {
     required this.surfaceAlt,
     required this.primary,
     required this.primaryDark,
+    required this.primaryLight,
     required this.secondary,
     required this.secondaryDark,
     required this.border,
@@ -60,6 +62,7 @@ class QuarksColorExtension extends ThemeExtension<QuarksColorExtension> {
     surfaceAlt: QuarksColors.surfaceAlt,
     primary: QuarksColors.primary,
     primaryDark: QuarksColors.primaryDark,
+    primaryLight: QuarksColors.primaryLight,
     secondary: QuarksColors.secondary,
     secondaryDark: QuarksColors.secondaryDark,
     border: QuarksColors.border,
@@ -81,6 +84,7 @@ class QuarksColorExtension extends ThemeExtension<QuarksColorExtension> {
     surfaceAlt: QuarksColorsDark.surfaceAlt,
     primary: QuarksColorsDark.primary,
     primaryDark: QuarksColorsDark.primaryDark,
+    primaryLight: QuarksColorsDark.primaryLight,
     secondary: QuarksColorsDark.secondary,
     secondaryDark: QuarksColorsDark.secondaryDark,
     border: QuarksColorsDark.border,
@@ -102,6 +106,7 @@ class QuarksColorExtension extends ThemeExtension<QuarksColorExtension> {
     Color? surfaceAlt,
     Color? primary,
     Color? primaryDark,
+    Color? primaryLight,
     Color? secondary,
     Color? secondaryDark,
     Color? border,
@@ -121,6 +126,7 @@ class QuarksColorExtension extends ThemeExtension<QuarksColorExtension> {
       surfaceAlt: surfaceAlt ?? this.surfaceAlt,
       primary: primary ?? this.primary,
       primaryDark: primaryDark ?? this.primaryDark,
+      primaryLight: primaryLight ?? this.primaryLight,
       secondary: secondary ?? this.secondary,
       secondaryDark: secondaryDark ?? this.secondaryDark,
       border: border ?? this.border,
@@ -151,6 +157,7 @@ class QuarksColorExtension extends ThemeExtension<QuarksColorExtension> {
       surfaceAlt: Color.lerp(surfaceAlt, other.surfaceAlt, t)!,
       primary: Color.lerp(primary, other.primary, t)!,
       primaryDark: Color.lerp(primaryDark, other.primaryDark, t)!,
+      primaryLight: Color.lerp(primaryLight, other.primaryLight, t)!,
       secondary: Color.lerp(secondary, other.secondary, t)!,
       secondaryDark: Color.lerp(secondaryDark, other.secondaryDark, t)!,
       border: Color.lerp(border, other.border, t)!,

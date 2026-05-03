@@ -1,0 +1,261 @@
+/**
+ * Quarks Design System — Colors & Typography
+ * v3 — Paleta C (Marfil + Sage) + Tiny5
+ *
+ * Font: Tiny5 (Google Fonts) — micro pixel, mayús/minús
+ * @import url('https://fonts.googleapis.com/css2?family=Tiny5&display=swap');
+ */
+
+/* ─── LIGHT THEME ─────────────────────────────────────────────────────────── */
+:root,
+[data-theme="light"] {
+  /* Base palette */
+  --color-background:     #F2EDE4;
+  --color-surface:        #FAF8F3;
+  --color-surface-alt:    #EAE5DC;
+  --color-primary:        #568070;
+  --color-primary-dark:   #3E6054;
+  --color-primary-light:  #72A090;
+  --color-secondary:      #7A9E8E;
+  --color-secondary-dark: #5A7C6C;
+
+  /* Borders */
+  --color-border:         #D8D2C8;
+  --color-border-dark:    #C4BDB2;
+  --color-border-light:   #F4F1EC;
+
+  /* Text */
+  --color-text-primary:   #32382C;
+  --color-text-secondary: #4A5444;
+  --color-text-light:     #8A9484;
+
+  /* Semantic / functional */
+  --color-error:   #C08080;
+  --color-success: #70A870;
+
+  /* Card states */
+  --color-card-hover:  #EDE9E2;
+  --color-card-shadow: rgba(86, 128, 112, 0.15);
+
+  /* Semantic aliases */
+  --color-fg1: var(--color-text-primary);
+  --color-fg2: var(--color-text-secondary);
+  --color-fg3: var(--color-text-light);
+  --color-bg1: var(--color-background);
+  --color-bg2: var(--color-surface);
+  --color-bg3: var(--color-surface-alt);
+  --color-accent:      var(--color-primary);
+  --color-accent-dark: var(--color-primary-dark);
+  --color-muted:       var(--color-secondary);
+}
+
+/* ─── DARK THEME ──────────────────────────────────────────────────────────── */
+[data-theme="dark"] {
+  /* Base palette — grises neutros, inspirado en Discord */
+  --color-background:     #1E1F22;
+  --color-surface:        #2B2D31;
+  --color-surface-alt:    #313338;
+  --color-primary:        #568070;
+  --color-primary-dark:   #3E6054;
+  --color-primary-light:  #72A090;
+  --color-secondary:      #4A6E5E;
+  --color-secondary-dark: #385248;
+
+  /* Borders */
+  --color-border:         #3A3B3E;
+  --color-border-dark:    #2A2B2E;
+  --color-border-light:   #4E4F52;
+
+  /* Text */
+  --color-text-primary:   #DCDDDE;
+  --color-text-secondary: #8E9297;
+  --color-text-light:     #5C5E66;
+
+  /* Semantic / functional */
+  --color-error:   #C08080;
+  --color-success: #70A870;
+
+  /* Card states */
+  --color-card-hover:  #35373C;
+  --color-card-shadow: rgba(0, 0, 0, 0.3);
+
+  /* Semantic aliases */
+  --color-fg1: var(--color-text-primary);
+  --color-fg2: var(--color-text-secondary);
+  --color-fg3: var(--color-text-light);
+  --color-bg1: var(--color-background);
+  --color-bg2: var(--color-surface);
+  --color-bg3: var(--color-surface-alt);
+  --color-accent:      var(--color-primary);
+  --color-accent-dark: var(--color-primary-dark);
+  --color-muted:       var(--color-secondary);
+}
+
+/* ─── TYPOGRAPHY ──────────────────────────────────────────────────────────── */
+:root {
+  /* Font family */
+  --font-pixel: 'Tiny5', monospace;
+  --font-base:  var(--font-pixel);
+
+  /* Type scale — slightly larger than Silkscreen since Tiny5 renders small */
+  --text-display-large:  32px;
+  --text-title-large:    22px;
+  --text-title-medium:   17px;
+  --text-title-small:    15px;
+  --text-body-large:     15px;
+  --text-body-medium:    13px;
+  --text-body-small:     11px;
+  --text-label-large:    13px;
+  --text-label-medium:   11px;
+  --text-label-small:    10px;
+
+  /* Font weights */
+  --font-weight-normal: 400;
+  --font-weight-bold:   400; /* Tiny5 is single-weight */
+
+  /* Line heights */
+  --line-height-tight:  1.2;
+  --line-height-normal: 1.5;
+  --line-height-loose:  1.7;
+}
+
+/* ─── SPACING & SIZING TOKENS ─────────────────────────────────────────────── */
+:root {
+  --space-1: 4px;
+  --space-2: 6px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 20px;
+  --space-7: 24px;
+  --space-8: 32px;
+
+  /* Component sizing */
+  --title-bar-height:    32px;
+  --toolbar-height:      36px;
+  --content-margin:       8px;
+  --drawer-width-sm:    320px;
+  --drawer-width-lg:    360px;
+
+  /* Border widths */
+  --border-width-base: 2px;
+  --border-width-sm:   1.5px;
+  --border-width-xs:   1px;
+
+  /* Corner radii */
+  --radius-window: 8px;   /* window frame ONLY */
+  --radius-tab:    6px;   /* tab top corners ONLY */
+  --radius-none:   0px;   /* all other elements */
+
+  /* Pixel shadow */
+  --shadow-pixel:  3px 3px 0px var(--color-card-shadow);
+  --shadow-drawer: -4px 0px 8px var(--color-card-shadow);
+}
+
+/* ─── SEMANTIC ELEMENT STYLES ─────────────────────────────────────────────── */
+
+body {
+  font-family: var(--font-pixel);
+  background: var(--color-background);
+  color: var(--color-text-primary);
+}
+
+h1, .h1 {
+  font-family: var(--font-pixel);
+  font-size: var(--text-display-large);
+  color: var(--color-text-primary);
+  line-height: var(--line-height-tight);
+}
+
+h2, .h2 {
+  font-family: var(--font-pixel);
+  font-size: var(--text-title-large);
+  color: var(--color-text-primary);
+  line-height: var(--line-height-tight);
+}
+
+h3, .h3 {
+  font-family: var(--font-pixel);
+  font-size: var(--text-title-medium);
+  color: var(--color-text-primary);
+}
+
+h4, .h4 {
+  font-family: var(--font-pixel);
+  font-size: var(--text-title-small);
+  color: var(--color-text-secondary);
+}
+
+p, .body-large {
+  font-family: var(--font-pixel);
+  font-size: var(--text-body-large);
+  color: var(--color-text-primary);
+  line-height: var(--line-height-normal);
+}
+
+.body-medium {
+  font-family: var(--font-pixel);
+  font-size: var(--text-body-medium);
+  color: var(--color-text-primary);
+}
+
+small, .body-small {
+  font-family: var(--font-pixel);
+  font-size: var(--text-body-small);
+  color: var(--color-text-secondary);
+}
+
+.label-large {
+  font-family: var(--font-pixel);
+  font-size: var(--text-label-large);
+  color: var(--color-text-primary);
+}
+
+.label-medium {
+  font-family: var(--font-pixel);
+  font-size: var(--text-label-medium);
+  color: var(--color-text-secondary);
+}
+
+.label-section {
+  font-family: var(--font-pixel);
+  font-size: var(--text-label-small);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+code, .code {
+  font-family: var(--font-pixel);
+  font-size: var(--text-body-small);
+  color: var(--color-text-primary);
+  background: var(--color-surface-alt);
+  padding: 2px 4px;
+}
+
+/* ─── PIXEL BORDER UTILITY ───────────────────────────────────────────────── */
+
+.pixel-border {
+  border-style: solid;
+  border-width: var(--border-width-base);
+  border-top-color:    var(--color-border-light);
+  border-left-color:   var(--color-border-light);
+  border-bottom-color: var(--color-border-dark);
+  border-right-color:  var(--color-border-dark);
+  background: var(--color-surface);
+}
+
+.pixel-border--inset {
+  border-top-color:    var(--color-border-dark);
+  border-left-color:   var(--color-border-dark);
+  border-bottom-color: var(--color-border-light);
+  border-right-color:  var(--color-border-light);
+}
+
+.pixel-border--shadow {
+  box-shadow: var(--shadow-pixel);
+}
+
+.pixel-border--sm {
+  border-width: var(--border-width-sm);
+}

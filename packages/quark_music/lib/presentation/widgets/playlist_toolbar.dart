@@ -35,13 +35,14 @@ class _PlaylistToolbarContent extends ConsumerWidget {
     final colors = context.quarksColors;
 
     return Container(
+      height: 32,
       decoration: BoxDecoration(
         color: colors.background,
         border: Border(
-          bottom: BorderSide(color: colors.borderDark, width: 2),
+          bottom: BorderSide(color: colors.border, width: 1),
         ),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Row(
         children: [
           Expanded(
@@ -67,36 +68,28 @@ class _PlaylistToolbarContent extends ConsumerWidget {
                       onSecondaryTap: (details) =>
                           _showContextMenu(context, ref, pl, details),
                     ),
-                  const SizedBox(width: 4),
-                  _AddButton(
-                    onTap: () => _showCreateDialog(context, ref),
-                  ),
+                  _AddButton(onTap: () => _showCreateDialog(context, ref)),
                 ],
               ),
             ),
           ),
           const SizedBox(width: 8),
-          if (!Platform.isAndroid && !Platform.isIOS) ...[
+          if (!Platform.isAndroid && !Platform.isIOS)
             _ToolbarButton(
               icon: Icons.folder_open,
               onTap: () =>
                   ref.read(libraryProvider.notifier).openMusicFolder(),
             ),
-            const SizedBox(width: 4),
-          ],
           _ToolbarButton(
             icon: Icons.refresh,
             onTap: () => ref.read(libraryProvider.notifier).rescanMusicFolder(),
             isScanning: library.isScanning,
           ),
-          if (Platform.isWindows) ...[
-            const SizedBox(width: 4),
+          if (Platform.isWindows)
             _ToolbarButton(
               icon: Icons.download,
               onTap: () => ref.read(downloadProvider.notifier).toggleDrawer(),
             ),
-          ],
-          const SizedBox(width: 4),
           _ToolbarButton(
             icon: Icons.cloud,
             onTap: () => ref.read(driveSyncProvider.notifier).toggleDrawer(),
@@ -282,9 +275,21 @@ class _PlaylistChipState extends State<_PlaylistChip> {
   @override
   Widget build(BuildContext context) {
     final colors = context.quarksColors;
+    final textTheme = Theme.of(context).textTheme;
+
+    final Color borderColor = widget.isSelected
+        ? colors.primary
+        : _hovering
+            ? colors.borderDark
+            : Colors.transparent;
+    final Color textColor = widget.isSelected
+        ? colors.primary
+        : _hovering
+            ? colors.textPrimary
+            : colors.textSecondary;
 
     return Padding(
-      padding: const EdgeInsets.only(right: 4),
+      padding: const EdgeInsets.only(right: 2),
       child: MouseRegion(
         onEnter: (_) => setState(() => _hovering = true),
         onExit: (_) => setState(() => _hovering = false),
@@ -292,21 +297,16 @@ class _PlaylistChipState extends State<_PlaylistChip> {
         child: GestureDetector(
           onTap: widget.onTap,
           onSecondaryTapDown: widget.onSecondaryTap,
-          child: PixelBorder(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            borderWidth: 1.5,
-            backgroundColor: widget.isSelected
-                ? colors.primary
-                : _hovering
-                    ? colors.cardHover
-                    : colors.surface,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: borderColor, width: 2),
+              ),
+            ),
             child: Text(
               widget.name,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: widget.isSelected
-                        ? colors.surface
-                        : colors.textPrimary,
-                  ),
+              style: textTheme.labelMedium?.copyWith(color: textColor),
             ),
           ),
         ),
@@ -337,14 +337,12 @@ class _AddButtonState extends State<_AddButton> {
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
         onTap: widget.onTap,
-        child: PixelBorder(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-          borderWidth: 1.5,
-          backgroundColor: _hovering ? colors.cardHover : colors.surface,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
           child: Icon(
             Icons.add,
-            size: 14,
-            color: colors.textSecondary,
+            size: 13,
+            color: _hovering ? colors.textPrimary : colors.textSecondary,
           ),
         ),
       ),
@@ -380,24 +378,26 @@ class _ToolbarButtonState extends State<_ToolbarButton> {
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
         onTap: widget.isScanning ? null : widget.onTap,
-        child: PixelBorder(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-          borderWidth: 1.5,
-          backgroundColor: _hovering ? colors.cardHover : colors.surface,
-          child: widget.isScanning
-              ? SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: colors.textSecondary,
+        child: SizedBox(
+          width: 26,
+          height: 26,
+          child: Center(
+            child: widget.isScanning
+                ? SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: colors.textSecondary,
+                    ),
+                  )
+                : Icon(
+                    widget.icon,
+                    size: 14,
+                    color:
+                        _hovering ? colors.textPrimary : colors.textSecondary,
                   ),
-                )
-              : Icon(
-                  widget.icon,
-                  size: 14,
-                  color: colors.textSecondary,
-                ),
+          ),
         ),
       ),
     );

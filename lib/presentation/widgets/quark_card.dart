@@ -31,11 +31,21 @@ class _QuarkCardState extends State<QuarkCard> {
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
         onTap: widget.onTap,
-        child: PixelBorder(
-          backgroundColor: _hovering ? colors.background : colors.surface,
-          borderColor: colors.primary,
-          inset: _hovering,
+        child: Container(
           padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: _hovering ? colors.cardHover : colors.surface,
+            border: Border.all(color: colors.border, width: 1),
+            boxShadow: _hovering
+                ? const []
+                : [
+                    BoxShadow(
+                      color: colors.cardShadow,
+                      offset: const Offset(2, 2),
+                      blurRadius: 0,
+                    ),
+                  ],
+          ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             mainAxisSize: MainAxisSize.min,

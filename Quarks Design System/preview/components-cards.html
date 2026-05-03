@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Tiny5&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Tiny5', monospace; background: #F2EDE4; padding: 20px; display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+.label { font-size: 9px; color: #8A9484; text-transform: uppercase; margin-bottom: 8px; }
+.group { display: flex; flex-direction: column; }
+
+/* QuarkCard — simple 1px border, subtle shadow, hover dims bg */
+.quark-card {
+  width: 120px; height: 120px;
+  background: #FAF8F3;
+  border: 1px solid #D8D2C8;
+  box-shadow: 2px 2px 0px rgba(86,128,112,0.12);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; cursor: pointer;
+}
+.quark-card.hover {
+  background: #EDE9E2;
+  box-shadow: none;
+}
+.quark-card .material-icons { font-size: 44px; color: #568070; }
+.quark-card .card-name { font-size: 11px; color: #32382C; text-align: center; }
+
+/* Launcher grid container */
+.grid {
+  display: grid; grid-template-columns: repeat(3, 110px); gap: 16px;
+  background: #EAE5DC;
+  border: 1px solid #D8D2C8;
+  padding: 20px;
+}
+</style>
+</head>
+<body>
+  <div class="group">
+    <div class="label">Default</div>
+    <div class="quark-card">
+      <span class="material-icons">music_note</span>
+      <span class="card-name">Quark Music</span>
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="label">Hover</div>
+    <div class="quark-card hover">
+      <span class="material-icons">music_note</span>
+      <span class="card-name">Quark Music</span>
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="label">Launcher grid</div>
+    <div class="grid">
+      <div class="quark-card" style="width:100%;height:100px">
+        <span class="material-icons" style="font-size:34px">music_note</span>
+        <span class="card-name" style="font-size:10px">Quark Music</span>
+      </div>
+      <div class="quark-card" style="width:100%;height:100px;opacity:0.35">
+        <span class="material-icons" style="font-size:34px">photo_camera</span>
+        <span class="card-name" style="font-size:10px">Quark Photos</span>
+      </div>
+      <div class="quark-card" style="width:100%;height:100px;opacity:0.35">
+        <span class="material-icons" style="font-size:34px">edit_note</span>
+        <span class="card-name" style="font-size:10px">Quark Notes</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Tiny5&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Tiny5', monospace; background: #F2EDE4; padding: 16px; display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+.group { display: flex; flex-direction: column; gap: 8px; min-width: 180px; }
+.label { font-size: 9px; color: #8A9484; text-transform: uppercase; margin-bottom: 2px; }
+
+/* Search bar — simple 1px border, no radius */
+.search-wrap { background: #F2EDE4; border-bottom: 1px solid #D8D2C8; padding: 6px 12px; }
+.search-inner {
+  display: flex; align-items: center; gap: 6px;
+  border: 1px solid #D8D2C8;
+  background: #FAF8F3; padding: 4px 8px;
+}
+.search-inner .material-icons { font-size: 14px; color: #8A9484; }
+.search-inner input {
+  border: none; background: transparent; outline: none;
+  font-family: 'Tiny5', monospace; font-size: 11px; color: #32382C; width: 150px;
+}
+.search-inner input::placeholder { color: #8A9484; }
+
+/* Text field — simple 1px border */
+.text-field {
+  border: 1px solid #D8D2C8;
+  background: #FAF8F3; padding: 6px 8px;
+  width: 180px;
+}
+.text-field input {
+  border: none; background: transparent; outline: none;
+  font-family: 'Tiny5', monospace; font-size: 11px; color: #32382C; width: 100%;
+}
+.text-field input::placeholder { color: #8A9484; }
+.text-field.focus { border-color: #568070; }
+
+/* Progress bar — flat, no border */
+.progress-wrap {
+  background: #D8D2C8; height: 4px; width: 200px; overflow: hidden;
+}
+.progress-fill { background: #568070; height: 100%; }
+
+/* Progress bar tall (download) */
+.progress-wrap-tall {
+  background: #EAE5DC; height: 10px; width: 200px; overflow: hidden;
+  border: 1px solid #D8D2C8;
+}
+.progress-fill-tall { background: #568070; height: 100%; }
+
+/* Checkbox */
+.check-row { display: flex; align-items: center; gap: 8px; }
+.check-row .material-icons { font-size: 16px; }
+.check-row span.text { font-size: 11px; color: #32382C; }
+</style>
+</head>
+<body>
+  <div class="group">
+    <div class="label">Search bar</div>
+    <div class="search-wrap" style="padding:6px 0;">
+      <div class="search-inner">
+        <span class="material-icons">search</span>
+        <input placeholder="Search songs..." readonly>
+      </div>
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="label">Text field</div>
+    <div class="text-field"><input placeholder="YouTube URL..." readonly></div>
+    <div class="text-field focus"><input value="Bohemian Rhapsody" readonly></div>
+    <div style="font-size:8px; color:#8A9484; margin-top:2px;">default · focused (sage border)</div>
+  </div>
+
+  <div class="group">
+    <div class="label">Progress bar</div>
+    <div class="progress-wrap"><div class="progress-fill" style="width:30%"></div></div>
+    <div class="progress-wrap"><div class="progress-fill" style="width:65%"></div></div>
+    <div class="progress-wrap"><div class="progress-fill" style="width:100%"></div></div>
+    <div style="font-size:8px; color:#8A9484; margin-top:2px;">seek bar (4px flat)</div>
+    <div class="progress-wrap-tall" style="margin-top:8px;"><div class="progress-fill-tall" style="width:45%"></div></div>
+    <div style="font-size:8px; color:#8A9484; margin-top:2px;">download bar (10px, bordered)</div>
+  </div>
+
+  <div class="group">
+    <div class="label">Checkbox</div>
+    <div class="check-row"><span class="material-icons" style="color:#568070">check_box</span><span class="text">Chill Vibes</span></div>
+    <div class="check-row"><span class="material-icons" style="color:#8A9484">check_box_outline_blank</span><span class="text">Rock Classics</span></div>
+    <div class="check-row"><span class="material-icons" style="color:#8A9484">check_box_outline_blank</span><span class="text">Lo-fi Beats</span></div>
+  </div>
+</body>
+</html>

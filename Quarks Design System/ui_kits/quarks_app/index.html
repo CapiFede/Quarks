@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quarks UI Kit</title>
+<link href="https://fonts.googleapis.com/css2?family=Tiny5&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body, #root { width: 100%; height: 100%; overflow: hidden; }
+  body { background: #1a1614; display: flex; align-items: center; justify-content: center; }
+  input[type=range] { cursor: pointer; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #C4BDB2; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- Design tokens shared across all components -->
+<script>
+window.QuarksTokens = {
+  // Light — Paleta C (Marfil + Sage)
+  background:   '#F2EDE4',
+  surface:      '#FAF8F3',
+  surfaceAlt:   '#EAE5DC',
+  primary:      '#568070',
+  primaryDark:  '#3E6054',
+  primaryLight: '#72A090',
+  primaryDeep:  '#3E6054',
+  secondary:    '#7A9E8E',
+  secondaryDark:'#5A7C6C',
+  border:       '#D8D2C8',
+  borderDark:   '#C4BDB2',
+  borderLight:  '#F4F1EC',
+  textPrimary:  '#32382C',
+  textSecondary:'#4A5444',
+  textLight:    '#8A9484',
+  error:        '#C08080',
+  success:      '#70A870',
+  cardHover:    '#EDE9E2',
+  cardShadow:   'rgba(86,128,112,0.15)',
+  font:         "'Tiny5', monospace",
+  // Dark — grises neutros estilo Discord
+  dark: {
+    background:   '#1E1F22',
+    surface:      '#2B2D31',
+    surfaceAlt:   '#313338',
+    primary:      '#568070',
+    primaryDark:  '#3E6054',
+    primaryLight: '#72A090',
+    primaryDeep:  '#3E6054',
+    secondary:    '#4A6E5E',
+    secondaryDark:'#385248',
+    border:       '#3A3B3E',
+    borderDark:   '#2A2B2E',
+    borderLight:  '#4E4F52',
+    textPrimary:  '#DCDDDE',
+    textSecondary:'#8E9297',
+    textLight:    '#5C5E66',
+    error:        '#C08080',
+    success:      '#70A870',
+    cardHover:    '#35373C',
+    cardShadow:   'rgba(0,0,0,0.3)',
+    font:         "'Tiny5', monospace",
+  }
+};
+</script>
+
+<script type="text/babel" src="Shell.jsx"></script>
+<script type="text/babel" src="LauncherGrid.jsx"></script>
+<script type="text/babel" src="PlaylistToolbar.jsx"></script>
+<script type="text/babel" src="PlayerControls.jsx"></script>
+<script type="text/babel" src="MusicPage.jsx"></script>
+<script type="text/babel" src="Drawers.jsx"></script>
+
+<script type="text/babel">
+// ── Fake data ────────────────────────────────────────────────────────────────
+const FAKE_TRACKS = [
+  { title: 'Bohemian Rhapsody', artist: 'Queen', duration: '05:54', path: 'C:\\Music\\queen\\bohemian.mp3' },
+  { title: 'Hotel California', artist: 'Eagles', duration: '06:31', path: 'C:\\Music\\eagles\\hotel.mp3' },
+  { title: 'Stairway to Heaven', artist: 'Led Zeppelin', duration: '08:02', path: 'C:\\Music\\ledzep\\stairway.mp3', inPlaylist: true },
+  { title: 'Smells Like Teen Spirit', artist: 'Nirvana', duration: '05:01', path: 'C:\\Music\\nirvana\\smells.mp3', inPlaylist: true },
+  { title: 'Purple Rain', artist: 'Prince', duration: '08:41', path: 'C:\\Music\\prince\\purple.mp3' },
+  { title: 'Like a Rolling Stone', artist: 'Bob Dylan', duration: '06:08', path: 'C:\\Music\\dylan\\stone.mp3' },
+  { title: 'Johnny B. Goode', artist: 'Chuck Berry', duration: '02:41', path: 'C:\\Music\\chuck\\johnny.mp3' },
+  { title: 'Superstition', artist: 'Stevie Wonder', duration: '04:02', path: 'C:\\Music\\stevie\\superstition.mp3', inPlaylist: true },
+  { title: 'Billie Jean', artist: 'Michael Jackson', duration: '04:54', path: 'C:\\Music\\mj\\billie.mp3' },
+  { title: 'Lose Yourself', artist: 'Eminem', duration: '05:26', path: 'C:\\Music\\eminem\\lose.mp3' },
+  { title: 'Redbone', artist: 'Childish Gambino', duration: '05:26', path: 'C:\\Music\\childish\\redbone.mp3' },
+  { title: 'Formation', artist: 'Beyoncé', duration: '03:26', path: 'C:\\Music\\beyonce\\formation.mp3' },
+];
+
+const FAKE_PLAYLISTS = [
+  { id: 'p1', name: 'Chill' },
+  { id: 'p2', name: 'Rock Classics' },
+];
+
+// ── Main App ─────────────────────────────────────────────────────────────────
+function App() {
+  const [isDark, setIsDark] = React.useState(false);
+  const [tabs, setTabs] = React.useState({ isHome: true, openTabs: [], activeIndex: -1 });
+  const [currentTrack, setCurrentTrack] = React.useState(FAKE_TRACKS[0]);
+  const [selectedTrack, setSelectedTrack] = React.useState(null);
+  const [isPlaying, setIsPlaying] = React.useState(false);
+  const [position, setPosition] = React.useState(0);
+  const [volume, setVolume] = React.useState(0.8);
+  const [shuffle, setShuffle] = React.useState(false);
+  const [selectedPlaylist, setSelectedPlaylist] = React.useState('__all');
+  const [openDrawer, setOpenDrawer] = React.useState(null); // null | 'download' | 'songinfo'
+  const [drawerTrack, setDrawerTrack] = React.useState(null);
+
+  // Swap tokens when theme changes
+  const T = isDark ? { ...window.QuarksTokens.dark, font: window.QuarksTokens.font } : window.QuarksTokens;
+  window.QuarksTokens = { ...window.QuarksTokens, ...T };
+
+  // Simulated playback tick
+  React.useEffect(() => {
+    if (!isPlaying) return;
+    const iv = setInterval(() => {
+      setPosition(p => {
+        const dur = parseDur(currentTrack?.duration || '0:00');
+        if (p >= dur) { setIsPlaying(false); return 0; }
+        return p + 1;
+      });
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [isPlaying, currentTrack]);
+
+  function parseDur(s) {
+    const parts = s.split(':').map(Number);
+    return parts.length === 2 ? parts[0]*60 + parts[1] : parts[0]*3600 + parts[1]*60 + parts[2];
+  }
+
+  function openQuark(id) {
+    setTabs(prev => {
+      if (prev.openTabs.includes(id)) {
+        return { isHome: false, openTabs: prev.openTabs, activeIndex: prev.openTabs.indexOf(id) };
+      }
+      const newTabs = [...prev.openTabs, id];
+      return { isHome: false, openTabs: newTabs, activeIndex: newTabs.length - 1 };
+    });
+  }
+
+  function closeTab(id) {
+    setTabs(prev => {
+      const newTabs = prev.openTabs.filter(t => t !== id);
+      if (newTabs.length === 0) return { isHome: true, openTabs: [], activeIndex: -1 };
+      const newIdx = Math.min(prev.activeIndex, newTabs.length - 1);
+      return { isHome: false, openTabs: newTabs, activeIndex: newIdx };
+    });
+  }
+
+  function activateTab(id) {
+    setTabs(prev => ({ isHome: false, openTabs: prev.openTabs, activeIndex: prev.openTabs.indexOf(id) }));
+  }
+
+  const activeQuarkId = !tabs.isHome && tabs.openTabs.length > 0
+    ? tabs.openTabs[tabs.activeIndex]
+    : null;
+
+  const Q = window.QuarksTokens;
+
+  return (
+    <div style={{
+      width: '100vw', height: '100vh',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: isDark ? '#111' : '#1a1614',
+      fontFamily: Q.font,
+    }}>
+      {/* Scale wrapper: 900×600 content box */}
+      <div style={{ width: '90vw', maxWidth: 900, aspectRatio: '900/600' }}>
+        <WindowFrame>
+          <TitleBar
+            tabs={tabs}
+            onGoHome={() => setTabs(prev => ({ ...prev, isHome: true }))}
+            onOpenTab={activateTab}
+            onCloseTab={closeTab}
+            onToggleTheme={() => {
+              setIsDark(d => {
+                const next = !d;
+                const T2 = next ? { ...window.QuarksTokens.dark, font: window.QuarksTokens.font, dark: window.QuarksTokens.dark }
+                               : { ...{
+                                    background:'#F2EDE4', surface:'#FAF8F3', surfaceAlt:'#EAE5DC',
+                                    primary:'#568070', primaryDark:'#3E6054', primaryLight:'#72A090', primaryDeep:'#3E6054',
+                                    secondary:'#7A9E8E', secondaryDark:'#5A7C6C',
+                                    border:'#D8D2C8', borderDark:'#C4BDB2', borderLight:'#F4F1EC',
+                                    textPrimary:'#32382C', textSecondary:'#4A5444', textLight:'#8A9484',
+                                    error:'#C08080', success:'#70A870',
+                                    cardHover:'#EDE9E2', cardShadow:'rgba(86,128,112,0.15)',
+                                    font:"'Tiny5', monospace",
+                                  },
+                                  dark: window.QuarksTokens.dark };
+                window.QuarksTokens = T2;
+                return next;
+              });
+            }}
+            isDark={isDark}
+          />
+
+          <ContentArea>
+            {tabs.isHome ? (
+              <LauncherGrid onOpenQuark={openQuark} />
+            ) : activeQuarkId === 'quark_music' ? (
+              <MusicPage
+                tracks={FAKE_TRACKS}
+                currentTrack={currentTrack}
+                selectedTrack={selectedTrack}
+                onSelect={t => setSelectedTrack(t)}
+                onPlay={t => { setCurrentTrack(t); setSelectedTrack(t); setIsPlaying(true); setPosition(0); }}
+                toolbar={
+                  <PlaylistToolbar
+                    playlists={FAKE_PLAYLISTS}
+                    selectedId={selectedPlaylist}
+                    onSelect={setSelectedPlaylist}
+                    onAdd={() => {}}
+                    onScan={() => {}}
+                    scanning={false}
+                    onDownload={() => setOpenDrawer(d => d === 'download' ? null : 'download')}
+                    onCloud={() => {}}
+                  />
+                }
+                player={
+                  <PlayerControls
+                    track={currentTrack}
+                    isPlaying={isPlaying}
+                    position={position}
+                    duration={parseDur(currentTrack?.duration || '0:00')}
+                    volume={volume}
+                    shuffle={shuffle}
+                    onTogglePlay={() => setIsPlaying(p => !p)}
+                    onPrev={() => {
+                      const idx = FAKE_TRACKS.indexOf(currentTrack);
+                      if (idx > 0) { setCurrentTrack(FAKE_TRACKS[idx-1]); setPosition(0); }
+                    }}
+                    onNext={() => {
+                      const idx = FAKE_TRACKS.indexOf(currentTrack);
+                      if (idx < FAKE_TRACKS.length-1) { setCurrentTrack(FAKE_TRACKS[idx+1]); setPosition(0); }
+                    }}
+                    onSeek={setPosition}
+                    onVolume={setVolume}
+                    onShuffle={() => setShuffle(s => !s)}
+                  />
+                }
+              />
+            ) : (
+              <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                <span style={{ fontFamily: Q.font, fontSize: 14, color: Q.textSecondary }}>
+                  Quark not installed
+                </span>
+              </div>
+            )}
+
+            {/* Drawers */}
+            {openDrawer === 'download' && (
+              <DownloadDrawer onClose={() => setOpenDrawer(null)} />
+            )}
+            {openDrawer === 'songinfo' && (
+              <SongInfoDrawer
+                track={drawerTrack || FAKE_TRACKS[0]}
+                onClose={() => setOpenDrawer(null)}
+                onDelete={() => setOpenDrawer(null)}
+              />
+            )}
+          </ContentArea>
+        </WindowFrame>
+      </div>
+
+      {/* Demo hint */}
+      <div style={{
+        position: 'fixed', bottom: 12, left: '50%', transform: 'translateX(-50%)',
+        fontFamily: "'Silkscreen', monospace", fontSize: 9,
+        color: 'rgba(255,255,255,0.3)', pointerEvents: 'none',
+      }}>
+        double-click a track to play · click download icon to open drawer · settings → toggle dark mode
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+</body>
+</html>

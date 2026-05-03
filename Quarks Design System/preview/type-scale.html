@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Tiny5&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Tiny5', monospace; background: oklch(95% 0.004 220); padding: 16px; }
+.rows { display: flex; flex-direction: column; gap: 10px; }
+.row { display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid #C2C9C4; padding-bottom: 8px; }
+.meta { display: flex; flex-direction: column; gap: 2px; width: 120px; flex-shrink: 0; }
+.role { font-size: 9px; color: #869C96; }
+.size { font-size: 9px; color: #556660; }
+.specimen { color: #283330; line-height: 1; }
+</style>
+</head>
+<body>
+<div class="rows">
+  <div class="row">
+    <div class="meta"><div class="role">displayLarge</div><div class="size">32px</div></div>
+    <div class="specimen" style="font-size:32px">Quarks</div>
+  </div>
+  <div class="row">
+    <div class="meta"><div class="role">titleLarge</div><div class="size">22px</div></div>
+    <div class="specimen" style="font-size:22px">Quark Music</div>
+  </div>
+  <div class="row">
+    <div class="meta"><div class="role">titleMedium</div><div class="size">17px</div></div>
+    <div class="specimen" style="font-size:17px">Home</div>
+  </div>
+  <div class="row">
+    <div class="meta"><div class="role">titleSmall</div><div class="size">15px / secondary</div></div>
+    <div class="specimen" style="font-size:15px; color:#556660">Download</div>
+  </div>
+  <div class="row">
+    <div class="meta"><div class="role">bodyLarge</div><div class="size">15px</div></div>
+    <div class="specimen" style="font-size:15px">Track title goes here</div>
+  </div>
+  <div class="row">
+    <div class="meta"><div class="role">bodyMedium</div><div class="size">13px</div></div>
+    <div class="specimen" style="font-size:13px">Search songs...</div>
+  </div>
+  <div class="row">
+    <div class="meta"><div class="role">bodySmall</div><div class="size">11px / secondary</div></div>
+    <div class="specimen" style="font-size:11px; color:#556660">Artist name · 03:42</div>
+  </div>
+  <div class="row">
+    <div class="meta"><div class="role">labelLarge</div><div class="size">13px</div></div>
+    <div class="specimen" style="font-size:13px">All Tracks</div>
+  </div>
+  <div class="row" style="border:none; padding:0">
+    <div class="meta"><div class="role">labelMedium</div><div class="size">11px / secondary</div></div>
+    <div class="specimen" style="font-size:11px; color:#556660">Unselected tab</div>
+  </div>
+</div>
+</body>
+</html>

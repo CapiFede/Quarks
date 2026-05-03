@@ -52,34 +52,37 @@ class _SearchBar extends ConsumerWidget {
           bottom: BorderSide(color: colors.border, width: 1),
         ),
       ),
-      child: TextField(
-        style: theme.textTheme.bodyMedium?.copyWith(color: colors.textPrimary),
-        decoration: InputDecoration(
-          isDense: true,
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          hintText: 'Search songs...',
-          hintStyle: theme.textTheme.bodyMedium?.copyWith(
-            color: colors.textLight,
-          ),
-          prefixIcon: Icon(Icons.search, size: 16, color: colors.textSecondary),
-          prefixIconConstraints:
-              const BoxConstraints(minWidth: 28, minHeight: 0),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(4),
-            borderSide: BorderSide(color: colors.border),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(4),
-            borderSide: BorderSide(color: colors.border),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(4),
-            borderSide: BorderSide(color: colors.primary),
-          ),
+      child: Container(
+        decoration: BoxDecoration(
+          color: colors.surface,
+          border: Border.all(color: colors.border, width: 1),
         ),
-        onChanged: (value) =>
-            ref.read(searchQueryProvider.notifier).state = value,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Row(
+          children: [
+            Icon(Icons.search, size: 16, color: colors.textSecondary),
+            const SizedBox(width: 6),
+            Expanded(
+              child: TextField(
+                style: theme.textTheme.bodyMedium
+                    ?.copyWith(color: colors.textPrimary),
+                decoration: InputDecoration(
+                  isDense: true,
+                  contentPadding: EdgeInsets.zero,
+                  hintText: 'Search songs...',
+                  hintStyle: theme.textTheme.bodyMedium?.copyWith(
+                    color: colors.textLight,
+                  ),
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                ),
+                onChanged: (value) =>
+                    ref.read(searchQueryProvider.notifier).state = value,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

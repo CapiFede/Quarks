@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Tiny5&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Tiny5', monospace; background: #F2EDE4; padding: 16px; }
+.rows { display: flex; flex-direction: column; gap: 6px; }
+.row { display: flex; align-items: center; gap: 10px; }
+.dot { width: 20px; height: 20px; border: 1.5px solid #C4BDB2; flex-shrink: 0; }
+.token { font-size: 10px; color: #32382C; width: 110px; flex-shrink: 0; }
+.usage { font-size: 10px; color: #4A5444; flex: 1; }
+.section-label { font-size: 9px; color: #8A9484; text-transform: uppercase; margin-top: 6px; margin-bottom: 2px; }
+</style>
+</head>
+<body>
+<div class="rows">
+  <div class="section-label">Backgrounds</div>
+  <div class="row"><div class="dot" style="background:#F2EDE4"></div><div class="token">background</div><div class="usage">Window frame, app background, toolbar BG</div></div>
+  <div class="row"><div class="dot" style="background:#FAF8F3"></div><div class="token">surface</div><div class="usage">Cards, content area, inputs, dialogs</div></div>
+  <div class="row"><div class="dot" style="background:#EAE5DC"></div><div class="token">surfaceAlt</div><div class="usage">Player controls bar, alternate sections</div></div>
+  <div class="section-label">Accent — Sage</div>
+  <div class="row"><div class="dot" style="background:#568070"></div><div class="token">primary</div><div class="usage">Title bar, play button, active chips, accent icons</div></div>
+  <div class="row"><div class="dot" style="background:#3E6054"></div><div class="token">primaryDark</div><div class="usage">Tab hover, slider thumb, selected track text</div></div>
+  <div class="row"><div class="dot" style="background:#72A090"></div><div class="token">primaryLight</div><div class="usage">Hover highlights, lighter accents</div></div>
+  <div class="row"><div class="dot" style="background:#7A9E8E"></div><div class="token">secondary</div><div class="usage">Muted buttons, secondary accents</div></div>
+  <div class="section-label">Borders</div>
+  <div class="row"><div class="dot" style="background:#D8D2C8"></div><div class="token">border</div><div class="usage">Default dividers, card edges</div></div>
+  <div class="row"><div class="dot" style="background:#C4BDB2"></div><div class="token">borderDark</div><div class="usage">Pixel border shadow side, inset top/left</div></div>
+  <div class="row"><div class="dot" style="background:#F4F1EC; border:1.5px solid #D8D2C8"></div><div class="token">borderLight</div><div class="usage">Pixel border highlight side, raised top/left</div></div>
+  <div class="section-label">Text</div>
+  <div class="row"><div class="dot" style="background:#32382C"></div><div class="token">textPrimary</div><div class="usage">Track titles, labels, body copy</div></div>
+  <div class="row"><div class="dot" style="background:#4A5444"></div><div class="token">textSecondary</div><div class="usage">Artist names, sub-labels, descriptions</div></div>
+  <div class="row"><div class="dot" style="background:#8A9484"></div><div class="token">textLight</div><div class="usage">Timestamps, placeholders, disabled text</div></div>
+  <div class="section-label">Functional</div>
+  <div class="row"><div class="dot" style="background:#C08080"></div><div class="token">error</div><div class="usage">Destructive actions, now-playing indicator, delete</div></div>
+  <div class="row"><div class="dot" style="background:#70A870"></div><div class="token">success</div><div class="usage">Completion messages, ready states</div></div>
+</div>
+</body>
+</html>
