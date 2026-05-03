@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:quark_core/quark_core.dart';
 
 import '../../data/services/playlist_storage_service.dart';
 import '../../domain/entities/playlist.dart';
@@ -38,6 +39,13 @@ class LibraryNotifier extends AsyncNotifier<LibraryState> {
     final musicDir = await _storage.musicDirPath;
     final playlists = await _storage.load();
     final tracks = await _repo.scanFolder(musicDir);
+
+    // First-run default: pin "All Tracks" so the playlists bar isn't empty
+    // out of the box. No-op if the user has already touched their pins.
+    await ref.read(pinStateProvider.notifier).seedIfMissing(
+      'quark_music',
+      dynamicItems: {Playlist.allTracksId},
+    );
 
     return LibraryState(
       allTracks: tracks,
@@ -83,6 +91,10 @@ class LibraryNotifier extends AsyncNotifier<LibraryState> {
       current.copyWith(playlists: [...current.playlists, playlist]),
     );
     await _persist();
+    // New playlists are pinned to the toolbar by default.
+    await ref
+        .read(pinStateProvider.notifier)
+        .pinDynamic('quark_music', playlist.id);
   }
 
   Future<void> deletePlaylist(String id) async {
@@ -95,6 +107,7 @@ class LibraryNotifier extends AsyncNotifier<LibraryState> {
       current.copyWith(playlists: newPlaylists, selectedPlaylistId: newSelectedId),
     );
     await _persist();
+    await ref.read(pinStateProvider.notifier).unpinDynamic('quark_music', id);
   }
 
   Future<void> renamePlaylist(String id, String newName) async {

@@ -20,28 +20,46 @@ class QuarksShell extends ConsumerWidget {
     final registry = ref.watch(quarkRegistryProvider);
     final tabs = ref.watch(tabsProvider);
 
-    // Get the active quark's toolbar if any
-    Widget? toolbar;
-    if (!tabs.isHome) {
-      final quark = registry.getById(tabs.openTabs[tabs.activeIndex]);
-      toolbar = quark?.buildToolbar();
-    }
+    // Active quark — drives toolbars and overlay.
+    final quark =
+        tabs.isHome ? null : registry.getById(tabs.openTabs[tabs.activeIndex]);
+
+    final tabBody = Column(
+      children: [
+        if (quark != null) ...[
+          QuarkToolbar(quark: quark),
+          QuarkPinnedBar(quark: quark),
+        ],
+        Expanded(
+          child: _ContentArea(
+            child: tabs.isHome
+                ? _LauncherGrid(quarks: registry.quarks, ref: ref)
+                : _QuarkPage(quark: quark!),
+          ),
+        ),
+      ],
+    );
 
     return Scaffold(
       body: _WindowFrame(
         child: Column(
           children: [
             _TitleBar(tabs: tabs, registry: registry, ref: ref),
-            ?toolbar,
             Expanded(
-              child: _ContentArea(
-                child: tabs.isHome
-                    ? _LauncherGrid(quarks: registry.quarks, ref: ref)
-                    : _QuarkPage(
-                        quarkId: tabs.openTabs[tabs.activeIndex],
-                        registry: registry,
-                      ),
-              ),
+              child: quark == null
+                  ? tabBody
+                  : Stack(
+                      children: [
+                        Positioned.fill(child: tabBody),
+                        Positioned.fill(
+                          child: Consumer(
+                            builder: (ctx, ref, _) =>
+                                quark.buildOverlay(ctx, ref) ??
+                                const SizedBox.shrink(),
+                          ),
+                        ),
+                      ],
+                    ),
             ),
           ],
         ),
@@ -504,17 +522,10 @@ class _LauncherGrid extends StatelessWidget {
 }
 
 class _QuarkPage extends StatelessWidget {
-  final String quarkId;
-  final QuarkRegistry registry;
+  final Quark quark;
 
-  const _QuarkPage({required this.quarkId, required this.registry});
+  const _QuarkPage({required this.quark});
 
   @override
-  Widget build(BuildContext context) {
-    final quark = registry.getById(quarkId);
-    if (quark == null) {
-      return const Center(child: Text('Quark not found'));
-    }
-    return quark.buildPage();
-  }
+  Widget build(BuildContext context) => quark.buildPage();
 }
