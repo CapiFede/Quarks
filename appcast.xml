@@ -3,13 +3,13 @@
   <channel>
     <title>Quarks</title>
     <item>
-      <title>Version 2.0.0</title>
-      <sparkle:version>2.0.0</sparkle:version>
-      <pubDate>Sun, 03 May 2026 04:42:59 +0000</pubDate>
+      <title>Version 2.0.1</title>
+      <sparkle:version>2.0.1</sparkle:version>
+      <pubDate>Sun, 03 May 2026 05:50:54 +0000</pubDate>
       <enclosure
-        url="https://github.com/CapiFede/Quarks/releases/download/v2.0.0/quarks-setup.exe"
+        url="https://github.com/CapiFede/Quarks/releases/download/v2.0.1/quarks-setup.exe"
         sparkle:os="windows-x64"
-        length="17920450"
+        length="17921463"
         type="application/octet-stream" />
     </item>
   </channel>
