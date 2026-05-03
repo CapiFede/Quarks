@@ -377,10 +377,15 @@ class _ToolbarButtonState extends State<_ToolbarButton> {
       onExit: (_) => setState(() => _hovering = false),
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: widget.isScanning ? null : widget.onTap,
-        child: SizedBox(
+        child: Container(
           width: 26,
           height: 26,
+          decoration: BoxDecoration(
+            color: _hovering ? colors.surfaceAlt : Colors.transparent,
+            borderRadius: BorderRadius.circular(4),
+          ),
           child: Center(
             child: widget.isScanning
                 ? SizedBox(

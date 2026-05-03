@@ -1,36 +1,48 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:quark_core/quark_core.dart';
 
 import '../providers/library_providers.dart';
+import '../providers/music_providers.dart';
 import '../widgets/download_drawer.dart';
 import '../widgets/drive_sync_drawer.dart';
 import '../widgets/player_controls.dart';
 import '../widgets/song_info_drawer.dart';
 import '../widgets/track_list.dart';
 
-class MusicPage extends StatelessWidget {
+class MusicPage extends ConsumerWidget {
   const MusicPage({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final colors = context.quarksColors;
 
-    return Container(
-      color: colors.background,
-      child: const Stack(
-        children: [
-          Column(
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.space): () {
+          ref.read(playerProvider.notifier).togglePlayPause();
+        },
+      },
+      child: Focus(
+        autofocus: true,
+        child: Container(
+          color: colors.background,
+          child: const Stack(
             children: [
-              _SearchBar(),
-              Expanded(child: TrackList()),
-              PlayerControls(),
+              Column(
+                children: [
+                  _SearchBar(),
+                  Expanded(child: TrackList()),
+                  PlayerControls(),
+                ],
+              ),
+              DownloadDrawer(),
+              SongInfoDrawer(),
+              DriveSyncDrawer(),
             ],
           ),
-          DownloadDrawer(),
-          SongInfoDrawer(),
-          DriveSyncDrawer(),
-        ],
+        ),
       ),
     );
   }

@@ -262,6 +262,7 @@ class _TitleBar extends StatelessWidget {
                 Center(
                   child: _WindowButton(
                     onTap: () => windowManager.close(),
+                    isClose: true,
                     child: Text(
                       'X',
                       style: TextStyle(
@@ -386,23 +387,40 @@ class _TitleBarTabState extends State<_TitleBarTab> {
 class _WindowButton extends StatefulWidget {
   final Widget child;
   final VoidCallback? onTap;
+  final bool isClose;
 
-  const _WindowButton({required this.child, this.onTap});
+  const _WindowButton({
+    required this.child,
+    this.onTap,
+    this.isClose = false,
+  });
 
   @override
   State<_WindowButton> createState() => _WindowButtonState();
 }
 
 class _WindowButtonState extends State<_WindowButton> {
+  bool _hovering = false;
+
   @override
   Widget build(BuildContext context) {
+    final colors = context.quarksColors;
+
+    final hoverColor = widget.isClose
+        ? colors.error
+        : colors.primaryDark;
+
     return MouseRegion(
       cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
-        child: SizedBox(
-          width: 24,
+        child: Container(
+          width: 30,
           height: 24,
+          color: _hovering ? hoverColor : Colors.transparent,
           child: Center(child: widget.child),
         ),
       ),

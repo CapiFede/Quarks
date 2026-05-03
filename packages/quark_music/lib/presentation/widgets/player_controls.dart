@@ -53,17 +53,17 @@ class PlayerControls extends ConsumerWidget {
           Row(
             children: [
               // Volume
-              Icon(Icons.volume_down, size: 14, color: colors.textLight),
+              Icon(Icons.volume_down, size: 16, color: colors.textLight),
               const SizedBox(width: 4),
               SizedBox(
-                width: 56,
+                width: 100,
                 child: SliderTheme(
                   data: SliderTheme.of(context).copyWith(
-                    trackHeight: 2,
+                    trackHeight: 3,
                     thumbShape:
-                        const RoundSliderThumbShape(enabledThumbRadius: 5),
+                        const RoundSliderThumbShape(enabledThumbRadius: 7),
                     overlayShape:
-                        const RoundSliderOverlayShape(overlayRadius: 10),
+                        const RoundSliderOverlayShape(overlayRadius: 12),
                     activeTrackColor: colors.primary,
                     inactiveTrackColor: colors.border,
                     thumbColor: colors.primary,
@@ -163,7 +163,7 @@ class _IconControlState extends State<_IconControl> {
   }
 }
 
-class _SeekBar extends StatelessWidget {
+class _SeekBar extends StatefulWidget {
   final Duration position;
   final Duration duration;
   final ValueChanged<Duration>? onSeek;
@@ -175,12 +175,21 @@ class _SeekBar extends StatelessWidget {
   });
 
   @override
+  State<_SeekBar> createState() => _SeekBarState();
+}
+
+class _SeekBarState extends State<_SeekBar> {
+  double? _hoverX;
+  double _barWidth = 0;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = context.quarksColors;
-    final max = duration.inMilliseconds.toDouble();
-    final current = position.inMilliseconds.toDouble().clamp(0.0, max);
-    final pct = max > 0 ? (current / max) : 0.0;
+    final max = widget.duration.inMilliseconds.toDouble();
+    final pct = max > 0
+        ? (widget.position.inMilliseconds.toDouble() / max).clamp(0.0, 1.0)
+        : 0.0;
 
     final timeStyle = theme.textTheme.bodySmall?.copyWith(
       color: colors.textSecondary,
@@ -192,50 +201,102 @@ class _SeekBar extends StatelessWidget {
         SizedBox(
           width: 32,
           child: Text(
-            _formatDuration(position),
+            _formatDuration(widget.position),
             style: timeStyle,
             textAlign: TextAlign.right,
           ),
         ),
         const SizedBox(width: 8),
         Expanded(
-          child: MouseRegion(
-            cursor: onSeek != null
-                ? SystemMouseCursors.click
-                : SystemMouseCursors.basic,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTapDown: onSeek == null
-                  ? null
-                  : (details) {
-                      final box = context.findRenderObject() as RenderBox?;
-                      if (box == null) return;
-                      final localX = details.localPosition.dx;
-                      final fraction = (localX / box.size.width).clamp(0.0, 1.0);
-                      onSeek!(Duration(milliseconds: (fraction * max).toInt()));
-                    },
-              child: SizedBox(
-                height: 8,
-                child: Center(
-                  child: Container(
-                    height: 4,
-                    decoration: BoxDecoration(color: colors.border),
-                    child: FractionallySizedBox(
-                      alignment: Alignment.centerLeft,
-                      widthFactor: pct,
-                      child: Container(color: colors.primary),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              _barWidth = constraints.maxWidth;
+              final hoverMs = (_hoverX != null && max > 0)
+                  ? ((_hoverX! / _barWidth).clamp(0.0, 1.0) * max).toInt()
+                  : null;
+
+              return MouseRegion(
+                cursor: widget.onSeek != null
+                    ? SystemMouseCursors.click
+                    : SystemMouseCursors.basic,
+                onEnter: (e) => setState(
+                    () => _hoverX = e.localPosition.dx.clamp(0.0, _barWidth)),
+                onHover: (e) => setState(
+                    () => _hoverX = e.localPosition.dx.clamp(0.0, _barWidth)),
+                onExit: (_) => setState(() => _hoverX = null),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTapDown: widget.onSeek == null
+                      ? null
+                      : (details) {
+                          final fraction = (details.localPosition.dx /
+                                  _barWidth)
+                              .clamp(0.0, 1.0);
+                          widget.onSeek!(Duration(
+                              milliseconds: (fraction * max).toInt()));
+                        },
+                  child: SizedBox(
+                    height: 20,
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        // Bar (centered vertically inside the 20px hit area)
+                        Positioned.fill(
+                          child: Center(
+                            child: SizedBox(
+                              height: 4,
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  Container(color: colors.border),
+                                  Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: FractionallySizedBox(
+                                      widthFactor: pct,
+                                      child: Container(color: colors.primary),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        // Hover tooltip
+                        if (hoverMs != null)
+                          Positioned(
+                            left: (_hoverX! - 20).clamp(0.0, _barWidth - 40),
+                            top: -16,
+                            child: IgnorePointer(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 4, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: colors.surfaceAlt,
+                                  border: Border.all(
+                                      color: colors.border, width: 1),
+                                ),
+                                child: Text(
+                                  _formatDuration(
+                                      Duration(milliseconds: hoverMs)),
+                                  style: timeStyle?.copyWith(
+                                      color: colors.textPrimary),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
         ),
         const SizedBox(width: 8),
         SizedBox(
           width: 32,
           child: Text(
-            _formatDuration(duration),
+            _formatDuration(widget.duration),
             style: timeStyle,
           ),
         ),

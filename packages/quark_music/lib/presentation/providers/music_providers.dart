@@ -149,8 +149,25 @@ class PlayerNotifier extends Notifier<PlayerState> {
     await _audio.setVolume(volume);
   }
 
-  void toggleShuffle() {
-    state = state.copyWith(shuffle: !state.shuffle);
+  Future<void> toggleShuffle() async {
+    final newShuffle = !state.shuffle;
+
+    // Kickstart a random song when activating shuffle and nothing is playing.
+    if (newShuffle && state.status != PlaybackStatus.playing) {
+      final tracks = ref.read(visibleTracksProvider);
+      if (tracks.isNotEmpty) {
+        final randomIndex = Random().nextInt(tracks.length);
+        state = state.copyWith(
+          shuffle: true,
+          playingTracks: tracks,
+          playedIndices: {randomIndex},
+        );
+        await playAtIndex(randomIndex);
+        return;
+      }
+    }
+
+    state = state.copyWith(shuffle: newShuffle);
   }
 
   Future<void> _playRandomUnplayed() async {
