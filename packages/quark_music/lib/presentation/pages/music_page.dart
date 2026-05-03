@@ -5,10 +5,7 @@ import 'package:quark_core/quark_core.dart';
 
 import '../providers/library_providers.dart';
 import '../providers/music_providers.dart';
-import '../widgets/download_drawer.dart';
-import '../widgets/drive_sync_drawer.dart';
 import '../widgets/player_controls.dart';
-import '../widgets/song_info_drawer.dart';
 import '../widgets/track_list.dart';
 
 class MusicPage extends ConsumerWidget {
@@ -28,18 +25,11 @@ class MusicPage extends ConsumerWidget {
         autofocus: true,
         child: Container(
           color: colors.background,
-          child: const Stack(
+          child: const Column(
             children: [
-              Column(
-                children: [
-                  _SearchBar(),
-                  Expanded(child: TrackList()),
-                  PlayerControls(),
-                ],
-              ),
-              DownloadDrawer(),
-              SongInfoDrawer(),
-              DriveSyncDrawer(),
+              _SearchBar(),
+              Expanded(child: TrackList()),
+              PlayerControls(),
             ],
           ),
         ),
