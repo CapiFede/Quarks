@@ -3,6 +3,7 @@
   <channel>
     <title>Quarks</title>
     <item>
+<<<<<<< Updated upstream
       <title>Version 2.0.1</title>
       <sparkle:version>2.0.1</sparkle:version>
       <pubDate>Sun, 03 May 2026 05:50:54 +0000</pubDate>
@@ -10,6 +11,15 @@
         url="https://github.com/CapiFede/Quarks/releases/download/v2.0.1/quarks-setup.exe"
         sparkle:os="windows-x64"
         length="17921463"
+=======
+      <title>Version 2.1.0</title>
+      <sparkle:version>2.1.0</sparkle:version>
+      <pubDate>Sun, 03 May 2026 18:06:26 +0000</pubDate>
+      <enclosure
+        url="https://github.com/CapiFede/Quarks/releases/download/v2.1.0/quarks-setup.exe"
+        sparkle:os="windows-x64"
+        length="17928863"
+>>>>>>> Stashed changes
         type="application/octet-stream" />
     </item>
   </channel>
