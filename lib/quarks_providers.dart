@@ -1,7 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import 'quarks_registry.dart';
+
+/// App version string read once from package info
+final appVersionProvider = FutureProvider<String>((ref) async {
+  final info = await PackageInfo.fromPlatform();
+  return info.version;
+});
 
 /// Theme mode toggle (light/dark)
 final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.light);

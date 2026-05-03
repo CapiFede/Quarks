@@ -1,6 +1,10 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:auto_updater/auto_updater.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:quark_core/quark_core.dart';
 import 'package:window_manager/window_manager.dart';
@@ -17,6 +21,7 @@ class QuarksShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(appVersionProvider); // preload so menu renders it immediately
     final registry = ref.watch(quarkRegistryProvider);
     final tabs = ref.watch(tabsProvider);
 
@@ -123,8 +128,10 @@ class _TitleBar extends StatelessWidget {
     );
 
     final colors = context.quarksColors;
+    final messenger = ScaffoldMessenger.of(context);
     final current = ref.read(themeModeProvider);
     final isDark = current == ThemeMode.dark;
+    final version = ref.read(appVersionProvider).valueOrNull ?? '';
 
     showMenu<String>(
       context: context,
@@ -153,13 +160,132 @@ class _TitleBar extends StatelessWidget {
             ],
           ),
         ),
+        if (_isDesktop)
+          PopupMenuItem<String>(
+            value: 'check_updates',
+            height: 32,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.system_update_alt, size: 13, color: colors.textPrimary),
+                const SizedBox(width: 8),
+                Text(
+                  'Buscar actualizaciones',
+                  style: TextStyle(fontSize: 12, color: colors.textPrimary),
+                ),
+              ],
+            ),
+          ),
+        if (version.isNotEmpty) ...[
+          _MenuDivider(color: colors.primary),
+          PopupMenuItem<String>(
+            value: 'version',
+            enabled: false,
+            height: 26,
+            padding: EdgeInsets.zero,
+            child: Center(
+              child: Text(
+                'v$version',
+                style: TextStyle(fontSize: 11, color: colors.textLight),
+              ),
+            ),
+          ),
+        ],
       ],
     ).then((value) {
       if (value == 'theme') {
         ref.read(themeModeProvider.notifier).state =
             isDark ? ThemeMode.light : ThemeMode.dark;
+      } else if (value == 'check_updates') {
+        _checkForUpdatesManually(messenger);
       }
     });
+  }
+
+  Future<void> _checkForUpdatesManually(
+      ScaffoldMessengerState messenger) async {
+    if (!_isDesktop) return;
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('Buscando actualizaciones...'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+
+    // The Windows side of auto_updater swallows the underlying error and only
+    // emits an opaque "error" event with no payload, so a manual check fetches
+    // the appcast directly to surface a meaningful diagnostic.
+    final currentVersion = ref.read(appVersionProvider).valueOrNull ?? '';
+    String? errorDetail;
+    String? latestVersion;
+
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 10);
+    try {
+      final request = await client.getUrl(Uri.parse(
+          'https://raw.githubusercontent.com/CapiFede/Quarks/main/appcast.xml'));
+      final response =
+          await request.close().timeout(const Duration(seconds: 10));
+      if (response.statusCode != 200) {
+        errorDetail = 'HTTP ${response.statusCode} al leer appcast.xml';
+      } else {
+        final body = await response.transform(utf8.decoder).join();
+        final match =
+            RegExp(r'<sparkle:version>(.*?)</sparkle:version>').firstMatch(body);
+        if (match == null) {
+          errorDetail = 'appcast.xml sin <sparkle:version>';
+        } else {
+          latestVersion = match.group(1)!.trim();
+        }
+      }
+    } on TimeoutException {
+      errorDetail = 'tiempo de espera agotado al contactar GitHub';
+    } catch (e) {
+      errorDetail = e.toString();
+    } finally {
+      client.close(force: true);
+    }
+
+    messenger.hideCurrentSnackBar();
+
+    if (errorDetail != null) {
+      final detail = errorDetail;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('No se pudo verificar: $detail'),
+          duration: const Duration(seconds: 12),
+          action: SnackBarAction(
+            label: 'Copiar',
+            onPressed: () =>
+                Clipboard.setData(ClipboardData(text: detail)),
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (latestVersion != null &&
+        _isNewerVersion(latestVersion, currentVersion)) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Hay una nueva versión disponible: v$latestVersion'),
+          duration: const Duration(seconds: 8),
+          action: SnackBarAction(
+            label: 'Actualizar',
+            onPressed: () =>
+                autoUpdater.checkForUpdates(inBackground: false),
+          ),
+        ),
+      );
+    } else {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Ya tenés la última versión.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
   }
 
   @override
@@ -284,7 +410,7 @@ class _TitleBar extends StatelessWidget {
                     child: Text(
                       'X',
                       style: TextStyle(
-                        fontSize: 11,
+                        fontSize: 14,
                         fontWeight: FontWeight.bold,
                         color: colors.textPrimary,
                         height: 1,
@@ -300,6 +426,52 @@ class _TitleBar extends StatelessWidget {
       ),
     );
   }
+}
+
+class _MenuDivider extends PopupMenuEntry<String> {
+  const _MenuDivider({required this.color});
+
+  final Color color;
+
+  @override
+  double get height => 9;
+
+  @override
+  bool represents(String? value) => false;
+
+  @override
+  State<_MenuDivider> createState() => _MenuDividerState();
+}
+
+class _MenuDividerState extends State<_MenuDivider> {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: widget.height,
+      alignment: Alignment.center,
+      child: Container(
+        height: 1,
+        margin: const EdgeInsets.symmetric(horizontal: 10),
+        color: widget.color,
+      ),
+    );
+  }
+}
+
+/// Compares two dotted version strings (e.g. "2.1.0" vs "2.0.1") and returns
+/// true when [latest] is strictly greater than [current]. Missing components
+/// are treated as 0; non-numeric components fall through to 0 as well.
+bool _isNewerVersion(String latest, String current) {
+  final l = latest.split('.').map((s) => int.tryParse(s) ?? 0).toList();
+  final c = current.split('.').map((s) => int.tryParse(s) ?? 0).toList();
+  final len = l.length > c.length ? l.length : c.length;
+  for (var i = 0; i < len; i++) {
+    final lv = i < l.length ? l[i] : 0;
+    final cv = i < c.length ? c[i] : 0;
+    if (lv > cv) return true;
+    if (lv < cv) return false;
+  }
+  return false;
 }
 
 class _TitleBarTab extends StatefulWidget {
@@ -340,60 +512,63 @@ class _TitleBarTabState extends State<_TitleBarTab> {
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
         onTap: widget.onTap,
-        child: ClipRRect(
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(6),
-            topRight: Radius.circular(6),
-          ),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              color: bgColor,
-              border: Border(
-                top: BorderSide(
-                  color: isActive ? colors.border : Colors.transparent,
-                  width: 1,
-                ),
-                left: BorderSide(
-                  color: isActive ? colors.border : Colors.transparent,
-                  width: 1,
-                ),
-                right: BorderSide(
-                  color: isActive ? colors.border : Colors.transparent,
-                  width: 1,
-                ),
-                bottom: BorderSide(
-                  color: isActive ? colors.surface : Colors.transparent,
-                  width: 1,
-                ),
-              ),
+        child: Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: ClipRRect(
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(6),
+              topRight: Radius.circular(6),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  widget.label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: isActive
-                        ? colors.textPrimary
-                        : colors.surface,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: bgColor,
+                border: Border(
+                  top: BorderSide(
+                    color: isActive ? colors.border : Colors.transparent,
+                    width: 1,
+                  ),
+                  left: BorderSide(
+                    color: isActive ? colors.border : Colors.transparent,
+                    width: 1,
+                  ),
+                  right: BorderSide(
+                    color: isActive ? colors.border : Colors.transparent,
+                    width: 1,
+                  ),
+                  bottom: BorderSide(
+                    color: isActive ? colors.surface : Colors.transparent,
+                    width: 1,
                   ),
                 ),
-                if (widget.onClose != null) ...[
-                  const SizedBox(width: 6),
-                  GestureDetector(
-                    onTap: widget.onClose,
-                    child: Icon(
-                      Icons.close,
-                      size: 10,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    widget.label,
+                    style: TextStyle(
+                      fontSize: 12,
                       color: isActive
-                          ? colors.textSecondary
+                          ? colors.textPrimary
                           : colors.surface,
                     ),
                   ),
+                  if (widget.onClose != null) ...[
+                    const SizedBox(width: 6),
+                    GestureDetector(
+                      onTap: widget.onClose,
+                      child: Icon(
+                        Icons.close,
+                        size: 10,
+                        color: isActive
+                            ? colors.textSecondary
+                            : colors.surface,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),
@@ -529,3 +704,4 @@ class _QuarkPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) => quark.buildPage();
 }
+
