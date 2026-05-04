@@ -5,7 +5,6 @@ import 'package:quark_core/quark_core.dart';
 import '../../domain/entities/category.dart';
 import '../../domain/entities/note.dart';
 import '../providers/notes_providers.dart';
-import 'note_color_picker.dart';
 
 class NoteActionBar extends ConsumerStatefulWidget {
   const NoteActionBar({super.key});
@@ -126,7 +125,7 @@ class _NoteActionBarState extends ConsumerState<NoteActionBar> {
           // Row 2: color swatches | spacer | category button
           Row(
             children: [
-              NoteColorPicker(
+              QuarkColorPicker(
                 selectedColorValue: note.colorValue,
                 onColorSelected: (v) async {
                   final updated = note.copyWith(colorValue: v);
@@ -257,7 +256,7 @@ class _ColorPickerOverlay extends ConsumerWidget {
           border: Border.all(color: colors.borderDark, width: 2),
         ),
         padding: const EdgeInsets.all(6),
-        child: NoteColorPicker(
+        child: QuarkColorPicker(
           selectedColorValue: note.colorValue,
           onColorSelected: onColorSelected,
         ),
