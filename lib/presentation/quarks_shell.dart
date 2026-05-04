@@ -29,20 +29,20 @@ class QuarksShell extends ConsumerWidget {
     final quark =
         tabs.isHome ? null : registry.getById(tabs.openTabs[tabs.activeIndex]);
 
-    final tabBody = Column(
-      children: [
-        if (quark != null) ...[
-          QuarkToolbar(quark: quark),
-          QuarkPinnedBar(quark: quark),
+    // ALL pages kept alive: index 0 = home, 1..n = quark tabs (never unmounted).
+    final contentIndex = tabs.isHome ? 0 : tabs.activeIndex + 1;
+    final persistentContent = _ContentArea(
+      child: IndexedStack(
+        index: contentIndex,
+        children: [
+          _LauncherGrid(quarks: registry.quarks, ref: ref),
+          for (final tabId in tabs.openTabs)
+            _QuarkPage(
+              key: ValueKey(tabId),
+              quark: registry.getById(tabId)!,
+            ),
         ],
-        Expanded(
-          child: _ContentArea(
-            child: tabs.isHome
-                ? _LauncherGrid(quarks: registry.quarks, ref: ref)
-                : _QuarkPage(quark: quark!),
-          ),
-        ),
-      ],
+      ),
     );
 
     return Scaffold(
@@ -50,21 +50,29 @@ class QuarksShell extends ConsumerWidget {
         child: Column(
           children: [
             _TitleBar(tabs: tabs, registry: registry, ref: ref),
+            // Toolbars appear here when a quark is active — BEFORE the content
+            // so they don't change the content's position in the tree.
+            if (quark != null) ...[
+              QuarkToolbar(quark: quark),
+              QuarkPinnedBar(quark: quark),
+            ],
+            // Content is ALWAYS at this position with a stable key so Flutter
+            // never remounts it (preserves scroll, text, etc. across tab/home switches).
             Expanded(
-              child: quark == null
-                  ? tabBody
-                  : Stack(
-                      children: [
-                        Positioned.fill(child: tabBody),
-                        Positioned.fill(
-                          child: Consumer(
-                            builder: (ctx, ref, _) =>
-                                quark.buildOverlay(ctx, ref) ??
-                                const SizedBox.shrink(),
-                          ),
-                        ),
-                      ],
+              key: const ValueKey('quark_content'),
+              child: Stack(
+                children: [
+                  Positioned.fill(child: persistentContent),
+                  if (quark != null)
+                    Positioned.fill(
+                      child: Consumer(
+                        builder: (ctx, ref, _) =>
+                            quark.buildOverlay(ctx, ref) ??
+                            const SizedBox.shrink(),
+                      ),
                     ),
+                ],
+              ),
             ),
           ],
         ),
@@ -699,7 +707,7 @@ class _LauncherGrid extends StatelessWidget {
 class _QuarkPage extends StatelessWidget {
   final Quark quark;
 
-  const _QuarkPage({required this.quark});
+  const _QuarkPage({super.key, required this.quark});
 
   @override
   Widget build(BuildContext context) => quark.buildPage();

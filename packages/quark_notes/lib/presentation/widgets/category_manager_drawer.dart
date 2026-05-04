@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:quark_core/quark_core.dart';
 
@@ -23,8 +24,18 @@ class CategoryManagerDrawer extends ConsumerWidget {
       top: 0,
       bottom: 0,
       right: 0,
-      child: Container(
-        width: 300,
+      child: Focus(
+        autofocus: true,
+        onKeyEvent: (node, event) {
+          if (event is KeyDownEvent &&
+              event.logicalKey == LogicalKeyboardKey.escape) {
+            ref.read(categoryManagerDrawerOpenProvider.notifier).state = false;
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
+        child: Container(
+          width: 300,
         decoration: BoxDecoration(
           color: colors.background,
           border: Border(
@@ -94,6 +105,7 @@ class CategoryManagerDrawer extends ConsumerWidget {
           ],
         ),
       ),
+    ),
     );
   }
 }
