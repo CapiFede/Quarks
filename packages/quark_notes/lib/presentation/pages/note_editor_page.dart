@@ -216,6 +216,42 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage>
     }
   }
 
+  Future<void> _pasteAsPlainText() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (data?.text == null) return;
+    final text = _cleanPastedText(data!.text!);
+    if (text.isEmpty) return;
+    final selection = _quillController.selection;
+    if (!selection.isValid) return;
+    if (!selection.isCollapsed) {
+      _quillController.document.delete(
+        selection.start,
+        selection.end - selection.start,
+      );
+    }
+    final offset =
+        selection.isCollapsed ? selection.baseOffset : selection.start;
+    _quillController.document.insert(offset, text);
+    _quillController.updateSelection(
+      TextSelection.collapsed(offset: offset + text.length),
+      ChangeSource.local,
+    );
+  }
+
+  static String _cleanPastedText(String raw) {
+    final lines = raw.split('\n');
+    final cleaned = lines
+        .where((line) => !line.trimLeft().startsWith('SourceURL:'))
+        .toList();
+    while (cleaned.isNotEmpty && cleaned.first.trim().isEmpty) {
+      cleaned.removeAt(0);
+    }
+    while (cleaned.isNotEmpty && cleaned.last.trim().isEmpty) {
+      cleaned.removeLast();
+    }
+    return cleaned.join('\n');
+  }
+
   Future<void> _deleteNote() async {
     final note = _note;
     if (note == null) return;
@@ -264,19 +300,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage>
     final state = ref.watch(notesProvider).valueOrNull;
     final categories = state?.categories ?? [];
 
-    return Focus(
-      autofocus: true,
-      onKeyEvent: (node, event) {
-        if (event is KeyDownEvent &&
-            event.logicalKey == LogicalKeyboardKey.escape) {
-          _onBack();
-          return KeyEventResult.handled;
-        }
-        return KeyEventResult.ignored;
-      },
-      child: Container(
-        color: noteColor,
-        child: Column(
+    return Container(
+      color: noteColor,
+      child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
           // Top bar
@@ -407,22 +433,39 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage>
               config: QuillEditorConfig(
                 padding: const EdgeInsets.all(16),
                 placeholder: 'Escribe tu nota...',
+                onKeyPressed: (event, node) {
+                  if (event is KeyDownEvent &&
+                      event.logicalKey == LogicalKeyboardKey.escape) {
+                    _onBack();
+                    return KeyEventResult.handled;
+                  }
+                  return null;
+                },
                 customStyles: DefaultStyles(
                   paragraph: DefaultTextBlockStyle(
-                    textTheme.bodyMedium!.copyWith(color: colors.textPrimary),
+                    TextStyle(
+                      fontFamily: 'Consolas',
+                      fontSize: 13.5,
+                      height: 1.6,
+                      color: colors.textPrimary,
+                    ),
                     const HorizontalSpacing(0, 0),
-                    const VerticalSpacing(0, 0),
+                    const VerticalSpacing(2, 2),
                     const VerticalSpacing(0, 0),
                     null,
                   ),
                 ),
+                customActions: {
+                  PasteTextIntent: CallbackAction<PasteTextIntent>(
+                    onInvoke: (_) => _pasteAsPlainText(),
+                  ),
+                },
               ),
             ),
           ),
           ],
         ),
-      ),
-    );
+      );
   }
 }
 
