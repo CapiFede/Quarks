@@ -4,6 +4,7 @@ import 'package:auto_updater/auto_updater.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_quill/flutter_quill.dart' show FlutterQuillLocalizations;
+import 'package:quark_calendar/quark_calendar.dart';
 import 'package:quark_music/quark_music.dart';
 import 'package:quark_notes/quark_notes.dart';
 import 'package:quark_core/quark_core.dart';
@@ -39,6 +40,7 @@ void main() async {
   final registry = QuarkRegistry();
   registry.register(MusicModule());
   registry.register(NotesModule());
+  registry.register(CalendarModule());
   await registry.initializeAll();
 
   runApp(

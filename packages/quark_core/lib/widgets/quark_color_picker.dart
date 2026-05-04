@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:quark_core/quark_core.dart';
 
-// 10 pastel note colors
-const noteColors = [
+import '../theme/quarks_color_extension.dart';
+
+const quarkPastelColors = [
   Color(0xFFFAF8F3), // Marfil (default)
   Color(0xFFFFF5C2), // Vainilla
   Color(0xFFFFD6D6), // Rosa
@@ -15,7 +15,7 @@ const noteColors = [
   Color(0xFFD8DCE8), // Pizarra
 ];
 
-const noteColorNames = [
+const quarkPastelColorNames = [
   'Marfil',
   'Vainilla',
   'Rosa',
@@ -28,11 +28,11 @@ const noteColorNames = [
   'Pizarra',
 ];
 
-class NoteColorPicker extends StatelessWidget {
+class QuarkColorPicker extends StatelessWidget {
   final int selectedColorValue;
   final ValueChanged<int> onColorSelected;
 
-  const NoteColorPicker({
+  const QuarkColorPicker({
     super.key,
     required this.selectedColorValue,
     required this.onColorSelected,
@@ -45,14 +45,14 @@ class NoteColorPicker extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        for (int i = 0; i < noteColors.length; i++)
+        for (int i = 0; i < quarkPastelColors.length; i++)
           _ColorSwatch(
-            color: noteColors[i],
-            isSelected: noteColors[i].toARGB32() == selectedColorValue,
-            tooltip: noteColorNames[i],
+            color: quarkPastelColors[i],
+            isSelected: quarkPastelColors[i].toARGB32() == selectedColorValue,
+            tooltip: quarkPastelColorNames[i],
             borderColor: colors.borderDark,
             primaryColor: colors.primary,
-            onTap: () => onColorSelected(noteColors[i].toARGB32()),
+            onTap: () => onColorSelected(quarkPastelColors[i].toARGB32()),
           ),
       ],
     );

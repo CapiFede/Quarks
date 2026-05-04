@@ -6,4 +6,5 @@ export 'theme/quarks_color_extension.dart';
 export 'theme/quarks_colors.dart';
 export 'theme/quarks_theme.dart';
 export 'widgets/pixel_border.dart';
+export 'widgets/quark_color_picker.dart';
 export 'widgets/quark_toolbar.dart';

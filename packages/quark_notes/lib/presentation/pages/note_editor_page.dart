@@ -10,7 +10,6 @@ import 'package:quark_core/quark_core.dart';
 
 import '../../domain/entities/note.dart';
 import '../providers/notes_providers.dart';
-import '../widgets/note_color_picker.dart';
 
 enum _DraftChoice { discard, stay }
 
@@ -373,7 +372,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage>
             ),
             child: Row(
               children: [
-                NoteColorPicker(
+                QuarkColorPicker(
                   selectedColorValue: note.colorValue,
                   onColorSelected: (v) async {
                     final updated = note.copyWith(colorValue: v);
