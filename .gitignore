@@ -8,6 +8,8 @@ build/
 .claude/
 
 # Flutter generated
+**/.flutter-plugins-dependencies
+**/flutter/generated_plugins.cmake
 **/android/.gradle
 **/android/local.properties
 **/android/**/GeneratedPluginRegistrant.*

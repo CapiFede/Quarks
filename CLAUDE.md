@@ -38,31 +38,20 @@ packages/quark_*/      → Quarks independientes (music, etc.)
 
 ## Releases
 
-Cuando el usuario diga **"version patch"**, **"version minor"** o **"version major"**:
+Cuando el usuario diga **"version patch"**, **"version minor"** o **"version major"**, correr el script:
 
-1. Leer la versión actual de `pubspec.yaml`
-2. Calcular la nueva versión según el tipo:
-   - `patch`: 1.0.0 → 1.0.1
-   - `minor`: 1.0.0 → 1.1.0
-   - `major`: 1.0.0 → 2.0.0
-3. Actualizar `version` en `pubspec.yaml` con la nueva versión (sin build number, ej. `1.0.1`)
-4. Ejecutar los siguientes comandos git en orden:
-   - **Primero**: leer el diff de todos los archivos modificados (`git diff`) para entender qué hay pendiente y armar un mensaje de commit apropiado
-   - **Segundo**: commitear **todos** los cambios pendientes (staged y unstaged), incluyendo archivos no commiteados que no sean `pubspec.yaml`
-   - **Tercero**: commitear el bump de versión en `pubspec.yaml`
-   - **Cuarto**: tag y push
-
-```bash
-# Commitear todos los cambios previos (excepto pubspec.yaml si ya fue modificado)
-git add -A -- ':!pubspec.yaml'
-git commit -m "chore: release vX.Y.Z"
-
-# Bump de versión
-git add pubspec.yaml
-git commit -m "chore: bump version to vX.Y.Z"
-
-git tag vX.Y.Z
-git push && git push --tags
+```powershell
+pwsh scripts/release.ps1 patch    # 1.0.0 -> 1.0.1
+pwsh scripts/release.ps1 minor    # 1.0.0 -> 1.1.0
+pwsh scripts/release.ps1 major    # 1.0.0 -> 2.0.0
 ```
 
-> Si no hay cambios previos pendientes, omitir el primer commit y hacer solo el bump.
+El script bumpea `pubspec.yaml`, commitea, taggea y pushea — el push del tag dispara el workflow de GitHub Actions que construye el instalador, lo sube como release y actualiza `appcast.xml`.
+
+**Pre-condiciones que el script chequea (y aborta si no se cumplen):**
+- estar en `main`
+- estar al día con `origin/main`
+- working tree limpio (sin cambios pendientes)
+- el tag nuevo no existe ya local ni remotamente
+
+Si el script aborta por cambios pendientes, primero commitearlos (o stashearlos) y después correr el script.
