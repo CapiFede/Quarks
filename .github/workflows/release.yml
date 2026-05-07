@@ -54,9 +54,20 @@ jobs:
           $version = "${{ github.ref_name }}".TrimStart('v')
           iscc "/DAppVersion=$version" installer\quarks.iss
 
-      - name: Update appcast.xml
+      - name: Update and commit appcast.xml
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Switch to main *before* writing the file so there is no stash dance
+          # and no chance of a stash-pop conflict producing a file with merge
+          # markers (which previously got committed verbatim).
+          git fetch origin main
+          git checkout main
+          git pull --ff-only origin main
+
           $version = "${{ github.ref_name }}".TrimStart('v')
           $size    = (Get-Item release\quarks-setup.exe).Length
           $date    = (Get-Date -Format "ddd, dd MMM yyyy HH:mm:ss") + " +0000"
@@ -83,16 +94,12 @@ jobs:
 
           $content.TrimStart() | Set-Content appcast.xml -Encoding UTF8
 
-      - name: Commit updated appcast.xml
-        shell: pwsh
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git stash
-          git fetch origin
-          git checkout main
-          git pull origin main
-          git stash pop
+          # Defensive guard: never publish an appcast with merge conflict markers.
+          if (Select-String -Path appcast.xml -Pattern '^(<<<<<<<|=======$|>>>>>>>)' -Quiet) {
+            Write-Error "appcast.xml contains conflict markers; refusing to commit"
+            exit 1
+          }
+
           git add appcast.xml
           git commit -m "chore: update appcast to ${{ github.ref_name }}"
           git push origin main

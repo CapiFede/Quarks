@@ -239,12 +239,23 @@ class _TitleBar extends StatelessWidget {
         errorDetail = 'HTTP ${response.statusCode} al leer appcast.xml';
       } else {
         final body = await response.transform(utf8.decoder).join();
-        final match =
-            RegExp(r'<sparkle:version>(.*?)</sparkle:version>').firstMatch(body);
-        if (match == null) {
-          errorDetail = 'appcast.xml sin <sparkle:version>';
+        // Reject merge conflict markers outright instead of silently picking
+        // whichever side appears first — that previously made the manual check
+        // report "estás al día" against a corrupted feed.
+        if (RegExp(r'^(<{7}|={7}$|>{7})', multiLine: true).hasMatch(body)) {
+          errorDetail = 'appcast.xml con marcadores de conflicto sin resolver';
         } else {
-          latestVersion = match.group(1)!.trim();
+          final matches = RegExp(r'<sparkle:version>(.*?)</sparkle:version>')
+              .allMatches(body)
+              .map((m) => m.group(1)!.trim())
+              .where((v) => v.isNotEmpty)
+              .toList();
+          if (matches.isEmpty) {
+            errorDetail = 'appcast.xml sin <sparkle:version>';
+          } else {
+            matches.sort((a, b) => _isNewerVersion(a, b) ? -1 : 1);
+            latestVersion = matches.first;
+          }
         }
       }
     } on TimeoutException {
