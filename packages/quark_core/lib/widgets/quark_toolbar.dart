@@ -330,8 +330,9 @@ class QuarkPinnedBar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = context.quarksColors;
+    final leftWidget = quark.buildPinnedBarLeft(context, ref);
     final items = quark.buildDynamicPinned(context, ref);
-    if (items.isEmpty) return const SizedBox.shrink();
+    if (leftWidget == null && items.isEmpty) return const SizedBox.shrink();
 
     return Container(
       height: 22,
@@ -340,14 +341,31 @@ class QuarkPinnedBar extends ConsumerWidget {
         border: Border(bottom: BorderSide(color: colors.border, width: 1)),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            for (final item in items)
-              KeyedSubtree(key: ValueKey(item.id), child: item.builder(context)),
+      child: Row(
+        children: [
+          if (leftWidget != null) ...[
+            leftWidget,
+            Container(
+              width: 1,
+              height: 14,
+              margin: const EdgeInsets.symmetric(horizontal: 8),
+              color: colors.borderDark,
+            ),
           ],
-        ),
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (final item in items)
+                    KeyedSubtree(
+                        key: ValueKey(item.id),
+                        child: item.builder(context)),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

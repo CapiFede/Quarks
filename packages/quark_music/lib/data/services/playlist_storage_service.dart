@@ -5,10 +5,12 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../domain/entities/playlist.dart';
+import '../../domain/entities/playlist_category.dart';
 
 class PlaylistStorageService {
   static const _musicDirName = 'music';
   static const _playlistsDirName = 'playlists';
+  static const _categoriesFileName = 'categories.json';
 
   Future<Directory> _rootDir() async {
     // Desktop: keep sibling folders next to the exe so portable installs work.
@@ -45,7 +47,10 @@ class PlaylistStorageService {
 
     final files = await dir
         .list()
-        .where((e) => e is File && e.path.endsWith('.json'))
+        .where((e) =>
+            e is File &&
+            e.path.endsWith('.json') &&
+            p.basename(e.path) != _categoriesFileName)
         .cast<File>()
         .toList();
 
@@ -87,10 +92,12 @@ class PlaylistStorageService {
         'id': playlist.id,
         'name': playlist.name,
         'trackPaths': relativePaths,
+        if (playlist.categoryId != null) 'categoryId': playlist.categoryId,
       }));
     }
 
-    // Delete files for playlists that no longer exist
+    // Delete files for playlists that no longer exist. The shared
+    // categories.json lives in the same directory, so don't touch it here.
     final existingFiles = await dir
         .list()
         .where((e) => e is File && e.path.endsWith('.json'))
@@ -98,10 +105,33 @@ class PlaylistStorageService {
         .toList();
     for (final file in existingFiles) {
       final filename = p.basename(file.path);
+      if (filename == _categoriesFileName) continue;
       if (!expectedFilenames.contains(filename)) {
         await file.delete();
       }
     }
+  }
+
+  Future<List<PlaylistCategory>> loadCategories() async {
+    final dir = await _playlistsDir;
+    final file = File(p.join(dir.path, _categoriesFileName));
+    if (!await file.exists()) return [];
+    try {
+      final content = await file.readAsString();
+      final decoded = jsonDecode(content) as List;
+      return decoded
+          .map((e) => PlaylistCategory.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> saveCategories(List<PlaylistCategory> categories) async {
+    final dir = await _playlistsDir;
+    final file = File(p.join(dir.path, _categoriesFileName));
+    await file.writeAsString(
+        jsonEncode(categories.map((c) => c.toJson()).toList()));
   }
 
   String _sanitizeFilename(String name) {

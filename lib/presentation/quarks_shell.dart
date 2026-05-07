@@ -16,11 +16,44 @@ import 'widgets/quark_card.dart';
 bool get _isDesktop =>
     Platform.isWindows || Platform.isMacOS || Platform.isLinux;
 
-class QuarksShell extends ConsumerWidget {
+class QuarksShell extends ConsumerStatefulWidget {
   const QuarksShell({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<QuarksShell> createState() => _QuarksShellState();
+}
+
+class _QuarksShellState extends ConsumerState<QuarksShell> {
+  @override
+  void initState() {
+    super.initState();
+    HardwareKeyboard.instance.addHandler(_handleGlobalKey);
+  }
+
+  @override
+  void dispose() {
+    HardwareKeyboard.instance.removeHandler(_handleGlobalKey);
+    super.dispose();
+  }
+
+  // Global Escape: ask the active Quark to close its topmost drawer/sub-view.
+  // Runs before focus-based key dispatch, so it works regardless of which
+  // text field, editor, or button currently has focus.
+  bool _handleGlobalKey(KeyEvent event) {
+    if (event is! KeyDownEvent) return false;
+    if (event.logicalKey != LogicalKeyboardKey.escape) return false;
+
+    final tabs = ref.read(tabsProvider);
+    if (tabs.isHome) return false;
+    final registry = ref.read(quarkRegistryProvider);
+    final quark = registry.getById(tabs.openTabs[tabs.activeIndex]);
+    if (quark == null) return false;
+
+    return quark.onEscape(ref);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     ref.watch(appVersionProvider); // preload so menu renders it immediately
     final registry = ref.watch(quarkRegistryProvider);
     final tabs = ref.watch(tabsProvider);

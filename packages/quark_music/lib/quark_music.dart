@@ -10,7 +10,9 @@ import 'presentation/pages/music_page.dart';
 import 'presentation/providers/download_providers.dart';
 import 'presentation/providers/drive_sync_providers.dart';
 import 'presentation/providers/library_providers.dart';
+import 'presentation/providers/song_info_providers.dart';
 import 'presentation/widgets/all_playlists_drawer.dart';
+import 'presentation/widgets/category_dropdown.dart';
 import 'presentation/widgets/download_drawer.dart';
 import 'presentation/widgets/drive_sync_drawer.dart';
 import 'presentation/widgets/playlist_chip.dart';
@@ -33,9 +35,6 @@ class MusicModule extends Quark {
   @override
   List<QuarkSettingOption> buildSettings(
       BuildContext context, WidgetRef ref) {
-    final library = ref.watch(libraryProvider).valueOrNull;
-    final isScanning = library?.isScanning ?? false;
-
     return [
       QuarkSettingOption(
         id: 'new_playlist',
@@ -58,14 +57,6 @@ class MusicModule extends Quark {
           icon: Icons.folder_open,
           onTap: () => ref.read(libraryProvider.notifier).openMusicFolder(),
         ),
-      QuarkSettingOption(
-        id: 'rescan',
-        label: isScanning ? 'Scanning…' : 'Rescan music folder',
-        icon: Icons.refresh,
-        onTap: isScanning
-            ? () {}
-            : () => ref.read(libraryProvider.notifier).rescanMusicFolder(),
-      ),
       if (Platform.isWindows)
         QuarkSettingOption(
           id: 'download',
@@ -83,22 +74,26 @@ class MusicModule extends Quark {
   }
 
   @override
+  Widget? buildPinnedBarLeft(BuildContext context, WidgetRef ref) {
+    return const CategoryDropdown();
+  }
+
+  @override
   List<QuarkPinnedItem> buildDynamicPinned(
       BuildContext context, WidgetRef ref) {
     final library = ref.watch(libraryProvider).valueOrNull;
     if (library == null) return const [];
 
-    final pinnedIds = ref.watch(pinStateProvider.select(
-      (async) => async.valueOrNull?[id]?.dynamicItems ?? const <String>{},
-    ));
-
-    // All Tracks is treated as a regular playlist: it appears in the bar
-    // only when pinned, just like any other.
-    final allPlaylists = [Playlist.allTracks(), ...library.playlists];
-
     final items = <QuarkPinnedItem>[];
-    for (final pl in allPlaylists) {
-      if (!pinnedIds.contains(pl.id)) continue;
+
+    // The "default" (uncategorized) view always includes the synthetic
+    // All Tracks playlist as the first chip so the bar is never empty.
+    final visiblePlaylists = <Playlist>[
+      if (library.selectedCategoryId == '__default__') Playlist.allTracks(),
+      ...library.playlistsInSelectedCategory,
+    ];
+
+    for (final pl in visiblePlaylists) {
       items.add(QuarkPinnedItem(
         id: 'playlist_${pl.id}',
         builder: (ctx) => PlaylistChip(
@@ -106,8 +101,9 @@ class MusicModule extends Quark {
           isSelected: library.selectedPlaylistId == pl.id,
           onTap: () =>
               ref.read(libraryProvider.notifier).selectPlaylist(pl.id),
-          onSecondaryTap: (details) =>
-              _showChipContextMenu(ctx, ref, pl, details),
+          onSecondaryTap: pl.isAllTracks
+              ? null
+              : (details) => _showChipContextMenu(ctx, ref, pl, details),
         ),
       ));
     }
@@ -122,7 +118,6 @@ class MusicModule extends Quark {
   ) {
     final colors = context.quarksColors;
     final pos = details.globalPosition;
-    final isAllTracks = pl.isAllTracks;
 
     showMenu<String>(
       context: context,
@@ -130,26 +125,17 @@ class MusicModule extends Quark {
       color: colors.surface,
       items: [
         PopupMenuItem(
-          value: 'unpin',
-          child: Text('Unpin', style: TextStyle(color: colors.textPrimary)),
+          value: 'rename',
+          child: Text('Rename', style: TextStyle(color: colors.textPrimary)),
         ),
-        if (!isAllTracks)
-          PopupMenuItem(
-            value: 'rename',
-            child:
-                Text('Rename', style: TextStyle(color: colors.textPrimary)),
-          ),
-        if (!isAllTracks)
-          PopupMenuItem(
-            value: 'delete',
-            child: Text('Delete', style: TextStyle(color: colors.error)),
-          ),
+        PopupMenuItem(
+          value: 'delete',
+          child: Text('Delete', style: TextStyle(color: colors.error)),
+        ),
       ],
     ).then((value) async {
       if (!context.mounted) return;
       switch (value) {
-        case 'unpin':
-          await ref.read(pinStateProvider.notifier).unpinDynamic(id, pl.id);
         case 'rename':
           await showRenamePlaylistDialog(context, ref, pl);
         case 'delete':
@@ -170,6 +156,27 @@ class MusicModule extends Quark {
         AllPlaylistsDrawer(),
       ],
     );
+  }
+
+  @override
+  bool onEscape(WidgetRef ref) {
+    if (ref.read(songInfoProvider).drawerOpen) {
+      ref.read(songInfoProvider.notifier).closeDrawer();
+      return true;
+    }
+    if (ref.read(downloadProvider).drawerOpen) {
+      ref.read(downloadProvider.notifier).closeDrawer();
+      return true;
+    }
+    if (ref.read(driveSyncProvider).drawerOpen) {
+      ref.read(driveSyncProvider.notifier).closeDrawer();
+      return true;
+    }
+    if (ref.read(allPlaylistsDrawerOpenProvider)) {
+      ref.read(allPlaylistsDrawerOpenProvider.notifier).state = false;
+      return true;
+    }
+    return false;
   }
 
   @override

@@ -7,6 +7,7 @@ import '../../domain/entities/track.dart';
 import '../providers/library_providers.dart';
 import '../providers/music_providers.dart';
 import '../providers/song_info_providers.dart';
+import 'track_dialogs.dart';
 
 class TrackList extends ConsumerWidget {
   const TrackList({super.key});
@@ -193,47 +194,30 @@ class _TrackTileState extends ConsumerState<_TrackTile> {
     final library = libraryAsync.valueOrNull;
     if (library == null) return;
 
-    final playlists = library.playlists;
     final selectedId = library.selectedPlaylistId;
     final position = details.globalPosition;
 
-    final items = <PopupMenuEntry<String>>[];
-
-    // Add to playlist submenu
-    if (playlists.isNotEmpty) {
-      for (final pl in playlists) {
-        final alreadyIn = pl.trackPaths.contains(widget.track.path);
-        items.add(PopupMenuItem(
-          value: 'add:${pl.id}',
-          enabled: !alreadyIn,
-          child: Text(
-            alreadyIn ? '${pl.name} (added)' : 'Add to ${pl.name}',
-            style: TextStyle(
-              color: alreadyIn ? colors.textLight : colors.textPrimary,
-            ),
-          ),
-        ));
-      }
-    }
-
-    // Remove from current playlist (if viewing a user playlist)
-    if (selectedId != Playlist.allTracksId) {
-      items.add(const PopupMenuDivider());
-      items.add(PopupMenuItem(
-        value: 'remove',
-        child: Text('Remove from playlist',
-            style: TextStyle(color: colors.error)),
-      ));
-    }
-
-    // Song info
-    items.add(const PopupMenuDivider());
-    items.add(PopupMenuItem(
-      value: 'info',
-      child: Text('Song info', style: TextStyle(color: colors.textPrimary)),
-    ));
-
-    if (items.isEmpty) return;
+    final items = <PopupMenuEntry<String>>[
+      PopupMenuItem(
+        value: 'rename',
+        child: Text('Rename', style: TextStyle(color: colors.textPrimary)),
+      ),
+      PopupMenuItem(
+        value: 'delete',
+        child: Text('Delete', style: TextStyle(color: colors.error)),
+      ),
+      if (selectedId != Playlist.allTracksId)
+        PopupMenuItem(
+          value: 'remove',
+          child: Text('Remove from playlist',
+              style: TextStyle(color: colors.error)),
+        ),
+      const PopupMenuDivider(),
+      PopupMenuItem(
+        value: 'info',
+        child: Text('Song info', style: TextStyle(color: colors.textPrimary)),
+      ),
+    ];
 
     showMenu<String>(
       context: context,
@@ -245,19 +229,20 @@ class _TrackTileState extends ConsumerState<_TrackTile> {
       ),
       color: colors.surface,
       items: items,
-    ).then((value) {
+    ).then((value) async {
       if (value == null) return;
-      if (value == 'remove') {
-        ref
-            .read(libraryProvider.notifier)
-            .removeTrackFromPlaylist(selectedId, widget.track.path);
-      } else if (value == 'info') {
-        ref.read(songInfoProvider.notifier).openDrawer(widget.track);
-      } else if (value.startsWith('add:')) {
-        final playlistId = value.substring(4);
-        ref
-            .read(libraryProvider.notifier)
-            .addTrackToPlaylist(playlistId, widget.track);
+      if (!context.mounted) return;
+      switch (value) {
+        case 'rename':
+          await showRenameTrackDialog(context, ref, widget.track);
+        case 'delete':
+          await showDeleteTrackDialog(context, ref, widget.track);
+        case 'remove':
+          await ref
+              .read(libraryProvider.notifier)
+              .removeTrackFromPlaylist(selectedId, widget.track.path);
+        case 'info':
+          ref.read(songInfoProvider.notifier).openDrawer(widget.track);
       }
     });
   }

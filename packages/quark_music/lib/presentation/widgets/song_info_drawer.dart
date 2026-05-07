@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:quark_core/quark_core.dart';
 
+import '../../domain/entities/playlist.dart';
 import '../providers/library_providers.dart';
 import '../providers/song_info_providers.dart';
 import 'drawer_widgets.dart';
@@ -78,6 +79,8 @@ class _SongInfoContentState extends ConsumerState<_SongInfoContent> {
   Widget build(BuildContext context) {
     final colors = context.quarksColors;
     final textTheme = Theme.of(context).textTheme;
+    final library = ref.watch(libraryProvider).valueOrNull;
+    final categoryPlaylists = library?.playlistsInSelectedCategory ?? const <Playlist>[];
     final state = ref.watch(songInfoProvider);
     final track = state.track!;
     final busy = state.isRenaming || state.isTrimming;
@@ -194,7 +197,7 @@ class _SongInfoContentState extends ConsumerState<_SongInfoContent> {
               ],
 
               // Playlists
-              _PlaylistsSection(trackPath: track.path),
+              _PlaylistsSection(trackPath: track.path, playlists: categoryPlaylists),
               const SizedBox(height: 8),
 
               // Delete file
@@ -297,21 +300,16 @@ class _SongInfoContentState extends ConsumerState<_SongInfoContent> {
   }
 }
 
-class _PlaylistsSection extends ConsumerWidget {
+class _PlaylistsSection extends StatelessWidget {
   final String trackPath;
+  final List<Playlist> playlists;
 
-  const _PlaylistsSection({required this.trackPath});
+  const _PlaylistsSection({required this.trackPath, required this.playlists});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final colors = context.quarksColors;
     final textTheme = Theme.of(context).textTheme;
-    final library = ref.watch(libraryProvider).valueOrNull;
-    final playlists = library?.playlists
-            .where((p) => p.trackPaths.contains(trackPath))
-            .map((p) => p.name)
-            .toList() ??
-        [];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -320,23 +318,83 @@ class _PlaylistsSection extends ConsumerWidget {
         const SizedBox(height: 4),
         if (playlists.isEmpty)
           Text(
-            'Not in any playlist',
+            'No playlists in this category',
             style: textTheme.bodySmall?.copyWith(color: colors.textLight),
           )
         else
-          ...playlists.map(
-            (name) => Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Row(
-                children: [
-                  Container(width: 5, height: 5, color: colors.primary),
-                  const SizedBox(width: 8),
-                  Text(name, style: textTheme.bodySmall?.copyWith(color: colors.textPrimary)),
-                ],
-              ),
-            ),
-          ),
+          ...playlists.map((pl) => _PlaylistToggleRow(
+                playlist: pl,
+                trackPath: trackPath,
+              )),
       ],
+    );
+  }
+}
+
+class _PlaylistToggleRow extends ConsumerStatefulWidget {
+  final Playlist playlist;
+  final String trackPath;
+
+  const _PlaylistToggleRow({required this.playlist, required this.trackPath});
+
+  @override
+  ConsumerState<_PlaylistToggleRow> createState() => _PlaylistToggleRowState();
+}
+
+class _PlaylistToggleRowState extends ConsumerState<_PlaylistToggleRow> {
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.quarksColors;
+    final textTheme = Theme.of(context).textTheme;
+    final pl = widget.playlist;
+    final isIn = pl.trackPaths.contains(widget.trackPath);
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () {
+          if (isIn) {
+            ref
+                .read(libraryProvider.notifier)
+                .removeTrackFromPlaylist(pl.id, widget.trackPath);
+          } else {
+            final library = ref.read(libraryProvider).valueOrNull;
+            final track = library?.allTracks
+                .where((t) => t.path == widget.trackPath)
+                .firstOrNull;
+            if (track != null) {
+              ref
+                  .read(libraryProvider.notifier)
+                  .addTrackToPlaylist(pl.id, track);
+            }
+          }
+        },
+        child: Container(
+          color: _hovering ? colors.cardHover : Colors.transparent,
+          padding: const EdgeInsets.symmetric(vertical: 3),
+          child: Row(
+            children: [
+              Icon(
+                isIn ? Icons.check_box : Icons.check_box_outline_blank,
+                size: 12,
+                color: isIn ? colors.primary : colors.textLight,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  pl.name,
+                  style: textTheme.bodySmall?.copyWith(color: colors.textPrimary),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

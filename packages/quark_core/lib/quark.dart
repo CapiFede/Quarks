@@ -30,10 +30,21 @@ abstract class Quark {
           BuildContext context, WidgetRef ref) =>
       const [];
 
+  /// Optional widget pinned to the LEFT of the dynamic-pinned bar, outside
+  /// the horizontal scroll area. Rendered with a thin divider separating it
+  /// from the scrollable chips. Return null (default) to omit.
+  Widget? buildPinnedBarLeft(BuildContext context, WidgetRef ref) => null;
+
   /// Optional overlay rendered on top of both the per-Quark toolbars and the
   /// page itself, filling the entire tab area below the global title bar.
   /// Use this for drawers/popovers that should slide in over the toolbars.
   Widget? buildOverlay(BuildContext context, WidgetRef ref) => null;
+
+  /// Called when the user presses Escape while this Quark is the active tab.
+  /// Implementations should close the topmost open drawer/sub-view and return
+  /// true. Return false to let Escape fall through (e.g. when nothing is open).
+  /// Default: nothing to dismiss.
+  bool onEscape(WidgetRef ref) => false;
 
   /// Called once when the quark is first registered
   Future<void> initialize();

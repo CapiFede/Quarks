@@ -100,7 +100,8 @@ class _PlaylistOverlay extends ConsumerWidget {
     final colors = context.quarksColors;
     final textTheme = Theme.of(context).textTheme;
     final libraryAsync = ref.watch(libraryProvider);
-    final playlists = libraryAsync.valueOrNull?.playlists ?? [];
+    final playlists =
+        libraryAsync.valueOrNull?.playlistsInSelectedCategory ?? const [];
     final track = ref.watch(playerProvider).displayTrack;
 
     if (track == null) return const SizedBox.shrink();

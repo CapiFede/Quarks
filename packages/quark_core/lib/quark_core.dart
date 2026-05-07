@@ -1,6 +1,7 @@
 export 'providers/pin_providers.dart';
 export 'quark.dart';
 export 'quark_settings.dart';
+export 'services/log_service.dart';
 export 'services/pin_storage_service.dart';
 export 'theme/quarks_color_extension.dart';
 export 'theme/quarks_colors.dart';

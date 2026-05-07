@@ -11,6 +11,7 @@ workspace:
   - packages/quark_music
   - packages/quark_notes
   - packages/quark_calendar
+  - packages/quark_console
 
 dependencies:
   flutter:
@@ -19,6 +20,7 @@ dependencies:
   quark_music:
   quark_notes:
   quark_calendar:
+  quark_console:
   flutter_riverpod: ^2.6.1
   google_fonts: ^6.2.1
   window_manager: ^0.4.3

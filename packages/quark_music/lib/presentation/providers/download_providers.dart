@@ -70,7 +70,11 @@ class DownloadNotifier extends Notifier<DownloadState> {
     final info = await service.scan(state.url);
 
     if (info == null) {
-      state = state.copyWith(isScanning: false, errorMessage: 'Could not fetch video info');
+      state = state.copyWith(
+        isScanning: false,
+        errorMessage:
+            'Could not fetch video info — open Quark Console for details',
+      );
       return;
     }
 

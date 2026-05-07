@@ -4,6 +4,7 @@ import 'package:quark_core/quark_core.dart';
 
 import '../providers/notes_providers.dart';
 import '../widgets/category_filter_bar.dart';
+import '../widgets/new_note_tile.dart';
 import '../widgets/note_action_bar.dart';
 import '../widgets/note_card.dart';
 
@@ -65,7 +66,8 @@ class NotesPage extends ConsumerWidget {
                     ),
                   ),
                 )
-              : filteredNotes.isEmpty
+              : (filteredNotes.isEmpty &&
+                      state?.searchQuery.isNotEmpty == true)
                   ? Center(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
@@ -74,9 +76,7 @@ class NotesPage extends ConsumerWidget {
                               size: 32, color: colors.textLight),
                           const SizedBox(height: 8),
                           Text(
-                            state?.searchQuery.isNotEmpty == true
-                                ? 'Sin resultados'
-                                : 'Sin notas',
+                            'Sin resultados',
                             style: textTheme.bodySmall
                                 ?.copyWith(color: colors.textLight),
                           ),
@@ -92,9 +92,10 @@ class NotesPage extends ConsumerWidget {
                         mainAxisSpacing: 10,
                         childAspectRatio: 0.85,
                       ),
-                      itemCount: filteredNotes.length,
+                      itemCount: filteredNotes.length + 1,
                       itemBuilder: (context, i) {
-                        final note = filteredNotes[i];
+                        if (i == 0) return const NewNoteTile();
+                        final note = filteredNotes[i - 1];
                         final categoryName = state?.categories
                             .where((c) => c.id == note.categoryId)
                             .firstOrNull

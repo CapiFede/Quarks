@@ -25,6 +25,12 @@ final activeNoteIdProvider = StateProvider<String?>((ref) => null);
 // null = nothing selected; any note id = that note is selected in the list view
 final selectedNoteIdProvider = StateProvider<String?>((ref) => null);
 
+// Back handler registered by the active NoteEditorPage so that a global
+// Escape can route through the editor's _onBack (which honors the
+// unsaved-draft confirmation dialog) instead of clearing activeNoteId raw.
+final noteEditorBackHandlerProvider =
+    StateProvider<VoidCallback?>((ref) => null);
+
 final filteredNotesProvider = Provider<List<Note>>((ref) {
   final state = ref.watch(notesProvider).valueOrNull;
   if (state == null) return [];

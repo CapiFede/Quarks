@@ -1,10 +1,10 @@
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:quark_core/quark_core.dart';
 
 import '../../data/services/playlist_storage_service.dart';
 import '../../domain/entities/playlist.dart';
+import '../../domain/entities/playlist_category.dart';
 import '../../domain/entities/track.dart';
 import '../../domain/repositories/music_repository.dart';
 import 'library_state.dart';
@@ -38,18 +38,13 @@ class LibraryNotifier extends AsyncNotifier<LibraryState> {
 
     final musicDir = await _storage.musicDirPath;
     final playlists = await _storage.load();
+    final categories = await _storage.loadCategories();
     final tracks = await _repo.scanFolder(musicDir);
-
-    // First-run default: pin "All Tracks" so the playlists bar isn't empty
-    // out of the box. No-op if the user has already touched their pins.
-    await ref.read(pinStateProvider.notifier).seedIfMissing(
-      'quark_music',
-      dynamicItems: {Playlist.allTracksId},
-    );
 
     return LibraryState(
       allTracks: tracks,
       playlists: playlists,
+      categories: categories,
       scannedFolder: musicDir,
     );
   }
@@ -83,18 +78,21 @@ class LibraryNotifier extends AsyncNotifier<LibraryState> {
 
   Future<void> createPlaylist(String name) async {
     final current = state.requireValue;
+    // New playlists land in the currently-selected category so they appear
+    // in the bar right away without an extra step.
+    final initialCategoryId =
+        current.selectedCategoryId == PlaylistCategory.defaultId
+            ? null
+            : current.selectedCategoryId;
     final playlist = Playlist(
       id: Playlist.generateId(),
       name: name,
+      categoryId: initialCategoryId,
     );
     state = AsyncData(
       current.copyWith(playlists: [...current.playlists, playlist]),
     );
     await _persist();
-    // New playlists are pinned to the toolbar by default.
-    await ref
-        .read(pinStateProvider.notifier)
-        .pinDynamic('quark_music', playlist.id);
   }
 
   Future<void> deletePlaylist(String id) async {
@@ -107,7 +105,66 @@ class LibraryNotifier extends AsyncNotifier<LibraryState> {
       current.copyWith(playlists: newPlaylists, selectedPlaylistId: newSelectedId),
     );
     await _persist();
-    await ref.read(pinStateProvider.notifier).unpinDynamic('quark_music', id);
+  }
+
+  void selectCategory(String categoryId) {
+    final current = state.requireValue;
+    state = AsyncData(current.copyWith(selectedCategoryId: categoryId));
+  }
+
+  Future<void> createCategory(String name) async {
+    final current = state.requireValue;
+    final category = PlaylistCategory(
+      id: PlaylistCategory.generateId(),
+      name: name,
+      createdAt: DateTime.now(),
+    );
+    state = AsyncData(
+      current.copyWith(categories: [...current.categories, category]),
+    );
+    await _storage.saveCategories(state.requireValue.categories);
+  }
+
+  Future<void> renameCategory(String id, String newName) async {
+    final current = state.requireValue;
+    final updated = current.categories
+        .map((c) => c.id == id ? c.copyWith(name: newName) : c)
+        .toList();
+    state = AsyncData(current.copyWith(categories: updated));
+    await _storage.saveCategories(updated);
+  }
+
+  Future<void> deleteCategory(String id) async {
+    final current = state.requireValue;
+    final updatedCategories =
+        current.categories.where((c) => c.id != id).toList();
+    final updatedPlaylists = current.playlists
+        .map((p) =>
+            p.categoryId == id ? p.copyWith(categoryId: null) : p)
+        .toList();
+    final newSelected = current.selectedCategoryId == id
+        ? PlaylistCategory.defaultId
+        : current.selectedCategoryId;
+    state = AsyncData(current.copyWith(
+      categories: updatedCategories,
+      playlists: updatedPlaylists,
+      selectedCategoryId: newSelected,
+    ));
+    await _storage.saveCategories(updatedCategories);
+    await _persist();
+  }
+
+  Future<void> assignPlaylistToCategory(
+      String playlistId, String? categoryId) async {
+    final normalized =
+        categoryId == PlaylistCategory.defaultId ? null : categoryId;
+    final current = state.requireValue;
+    final updated = current.playlists
+        .map((p) =>
+            p.id == playlistId ? p.copyWith(categoryId: normalized) : p)
+        .toList();
+    state = AsyncData(current.copyWith(playlists: updated));
+    await _persist();
   }
 
   Future<void> renamePlaylist(String id, String newName) async {
@@ -164,6 +221,30 @@ class LibraryNotifier extends AsyncNotifier<LibraryState> {
       final file = File(path);
       if (await file.exists()) await file.delete();
     } catch (_) {}
+  }
+
+  Future<void> renameTrackFile(String oldPath, String newName) async {
+    final normalized = oldPath.replaceAll('\\', '/');
+    final lastSlash = normalized.lastIndexOf('/');
+    final dir = lastSlash >= 0 ? normalized.substring(0, lastSlash) : '';
+    final oldFileName = normalized.substring(lastSlash + 1);
+    final extMatch = RegExp(r'\.[^.]+$').firstMatch(oldFileName);
+    final ext = extMatch?.group(0) ?? '';
+    final sanitized = newName.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+    if (sanitized.isEmpty) return;
+    final newFileName = '$sanitized$ext';
+    final newPath = dir.isEmpty ? newFileName : '$dir/$newFileName';
+    if (newPath == normalized) return;
+
+    try {
+      final file = File(oldPath);
+      if (await file.exists()) {
+        await file.rename(newPath);
+      }
+    } catch (_) {
+      return;
+    }
+    await updateTrackPath(oldPath, newPath);
   }
 
   Future<void> updateTrackPath(String oldPath, String newPath) async {

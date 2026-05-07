@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
+import 'package:quark_core/quark_core.dart';
 
 import 'binary_manager.dart';
 
@@ -56,7 +56,7 @@ class YtdlpService {
 
   Future<VideoInfo?> scan(String url) async {
     final ytdlp = await _binaryManager.ytdlpPath;
-    debugPrint('[ytdlp] Scanning: $url');
+    LogService.instance.info('ytdlp', 'Scanning: $url');
 
     final result = await Process.run(ytdlp, [
       '--flat-playlist',
@@ -65,8 +65,14 @@ class YtdlpService {
     ]);
 
     if (result.exitCode != 0) {
-      debugPrint('[ytdlp] Scan failed: ${result.stderr}');
+      LogService.instance.error('ytdlp',
+          'Scan failed (exit ${result.exitCode}). stderr:\n${result.stderr}');
       return null;
+    }
+
+    if ((result.stdout as String).trim().isEmpty) {
+      LogService.instance.error('ytdlp',
+          'Scan produced empty output. stderr:\n${result.stderr}');
     }
 
     final lines = (result.stdout as String)
@@ -129,7 +135,8 @@ class YtdlpService {
         url,
       ];
 
-      debugPrint('[ytdlp] Starting: $ytdlp ${downloadArgs.join(' ')}');
+      LogService.instance.info(
+          'ytdlp', 'Starting: $ytdlp ${downloadArgs.join(' ')}');
       final process = await Process.start(ytdlp, downloadArgs);
       _activeProcess = process;
 
@@ -158,7 +165,7 @@ class YtdlpService {
       stderrSub.onDone(onStreamDone);
 
       await for (final line in controller.stream) {
-        debugPrint('[ytdlp] $line');
+        LogService.instance.debug('ytdlp', line);
         final progressMatch = progressRegex.firstMatch(line);
         final destMatch = destRegex.firstMatch(line);
 
@@ -182,7 +189,9 @@ class YtdlpService {
 
       final exitCode = await process.exitCode;
       _activeProcess = null;
-      debugPrint('[ytdlp] Process exited with code $exitCode');
+      final exitLevel = exitCode == 0 ? LogLevel.info : LogLevel.error;
+      LogService.instance
+          .log(exitLevel, 'ytdlp', 'Process exited with code $exitCode');
 
       if (exitCode != 0) {
         yield DownloadProgress(

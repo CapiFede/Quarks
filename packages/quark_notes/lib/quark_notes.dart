@@ -110,6 +110,20 @@ class NotesModule extends Quark {
   }
 
   @override
+  bool onEscape(WidgetRef ref) {
+    if (ref.read(categoryManagerDrawerOpenProvider)) {
+      ref.read(categoryManagerDrawerOpenProvider.notifier).state = false;
+      return true;
+    }
+    final back = ref.read(noteEditorBackHandlerProvider);
+    if (back != null) {
+      back();
+      return true;
+    }
+    return false;
+  }
+
+  @override
   Future<void> initialize() async {}
 
   @override

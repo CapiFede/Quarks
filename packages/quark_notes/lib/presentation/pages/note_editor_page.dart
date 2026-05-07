@@ -27,6 +27,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage>
   late final QuillController _quillController;
   late final TextEditingController _nameController;
   late final FocusNode _editorFocusNode;
+  // Captured during initState so dispose() can clear the back handler without
+  // touching `ref` (which is unusable after the element is disposed).
+  late final StateController<VoidCallback?> _backNotifier;
   Note? _note;
   bool _initialized = false;
   bool _dirty = false;
@@ -41,10 +44,18 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage>
     _nameController = TextEditingController();
     _editorFocusNode = FocusNode();
     _quillController = QuillController.basic();
+    _backNotifier = ref.read(noteEditorBackHandlerProvider.notifier);
     if (_isDesktop) {
       windowManager.addListener(this);
       windowManager.setPreventClose(false);
     }
+    // Expose _onBack to the global Escape handler so it works regardless of
+    // which child of this page (name field, Quill editor, color picker, …)
+    // currently has focus.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _backNotifier.state = _onBack;
+    });
   }
 
   static bool get _isDesktop =>
@@ -269,6 +280,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage>
       windowManager.removeListener(this);
       windowManager.setPreventClose(false);
     }
+    if (_backNotifier.state == _onBack) {
+      _backNotifier.state = null;
+    }
     _quillController.removeListener(_onContentChanged);
     _nameController.removeListener(_onNameChanged);
     _quillController.dispose();
@@ -433,14 +447,6 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage>
               config: QuillEditorConfig(
                 padding: const EdgeInsets.all(16),
                 placeholder: 'Escribe tu nota...',
-                onKeyPressed: (event, node) {
-                  if (event is KeyDownEvent &&
-                      event.logicalKey == LogicalKeyboardKey.escape) {
-                    _onBack();
-                    return KeyEventResult.handled;
-                  }
-                  return null;
-                },
                 customStyles: DefaultStyles(
                   paragraph: DefaultTextBlockStyle(
                     TextStyle(

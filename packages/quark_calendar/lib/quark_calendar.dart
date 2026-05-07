@@ -37,6 +37,15 @@ class CalendarModule extends Quark {
   }
 
   @override
+  bool onEscape(WidgetRef ref) {
+    if (ref.read(selectedEventIdProvider) != null) {
+      ref.read(selectedEventIdProvider.notifier).state = null;
+      return true;
+    }
+    return false;
+  }
+
+  @override
   Future<void> initialize() async {
     await NotificationService.instance.initialize();
   }
