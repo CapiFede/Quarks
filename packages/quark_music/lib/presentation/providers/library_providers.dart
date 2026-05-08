@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -30,6 +31,8 @@ final visibleTracksProvider = Provider<List<Track>>((ref) {
 class LibraryNotifier extends AsyncNotifier<LibraryState> {
   late final MusicRepository _repo;
   late final PlaylistStorageService _storage;
+  StreamSubscription<FileSystemEvent>? _watcher;
+  Timer? _watchDebounce;
 
   @override
   Future<LibraryState> build() async {
@@ -41,6 +44,9 @@ class LibraryNotifier extends AsyncNotifier<LibraryState> {
     final categories = await _storage.loadCategories();
     final tracks = await _repo.scanFolder(musicDir);
 
+    _startWatcher(musicDir);
+    ref.onDispose(_stopWatcher);
+
     return LibraryState(
       allTracks: tracks,
       playlists: playlists,
@@ -49,8 +55,42 @@ class LibraryNotifier extends AsyncNotifier<LibraryState> {
     );
   }
 
+  /// Watch the music folder so songs added or removed externally (file
+  /// explorer, drive sync, downloads from another tool) appear without the
+  /// user having to hit a refresh button. Debounced to coalesce bursty events
+  /// from things like multi-file copies or zip extraction.
+  void _startWatcher(String musicDir) {
+    if (!(Platform.isWindows || Platform.isMacOS || Platform.isLinux)) return;
+    if (!FileSystemEntity.isWatchSupported) return;
+    try {
+      final dir = Directory(musicDir);
+      _watcher = dir
+          .watch(recursive: true, events: FileSystemEvent.all)
+          .listen((_) {
+        _watchDebounce?.cancel();
+        _watchDebounce = Timer(const Duration(milliseconds: 800), () {
+          // Skip if the notifier was disposed between debounce schedule
+          // and fire — touching state then would throw.
+          if (_watcher == null) return;
+          rescanMusicFolder();
+        });
+      }, onError: (_) {});
+    } catch (_) {
+      // Watching is best-effort. If the platform/filesystem rejects the
+      // request, we silently fall back to manual refresh on app restart.
+    }
+  }
+
+  void _stopWatcher() {
+    _watchDebounce?.cancel();
+    _watchDebounce = null;
+    _watcher?.cancel();
+    _watcher = null;
+  }
+
   Future<void> rescanMusicFolder() async {
-    final current = state.requireValue;
+    final current = state.valueOrNull;
+    if (current == null || current.scannedFolder == null) return;
     state = AsyncData(current.copyWith(isScanning: true));
 
     final tracks = await _repo.scanFolder(current.scannedFolder!);

@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:quark_core/quark_core.dart';
 
 import 'presentation/pages/console_page.dart';
-import 'presentation/providers/console_providers.dart';
+import 'presentation/providers/app_logs_providers.dart';
+import 'presentation/providers/sessions_providers.dart';
+import 'presentation/widgets/app_logs_panel.dart';
 
 class ConsoleModule extends Quark {
   @override
@@ -21,29 +23,31 @@ class ConsoleModule extends Quark {
   @override
   List<QuarkSettingOption> buildSettings(
       BuildContext context, WidgetRef ref) {
-    final state = ref.watch(consoleProvider);
+    final visible = ref.watch(appLogsVisibleProvider);
     return [
       QuarkSettingOption(
-        id: 'clear_logs',
-        label: 'Clear logs',
-        icon: Icons.clear_all,
-        onTap: () => ref.read(consoleProvider.notifier).clear(),
+        id: 'app_logs',
+        label: visible ? '✓ App Logs' : '  App Logs',
+        icon: Icons.receipt_long,
+        onTap: () => ref.read(appLogsVisibleProvider.notifier).state = !visible,
       ),
-      QuarkSettingOption(
-        id: 'pause_resume',
-        label: state.paused ? 'Resume stream' : 'Pause stream',
-        icon: state.paused ? Icons.play_arrow : Icons.pause,
-        onTap: () => ref.read(consoleProvider.notifier).togglePause(),
-      ),
-      for (final level in LogLevel.values)
-        QuarkSettingOption(
-          id: 'filter_${level.name}',
-          label:
-              '${state.visibleLevels.contains(level) ? '✓ ' : '  '}${level.name.toUpperCase()}',
-          icon: Icons.filter_list,
-          onTap: () => ref.read(consoleProvider.notifier).toggleLevel(level),
-        ),
     ];
+  }
+
+  @override
+  Widget? buildOverlay(BuildContext context, WidgetRef ref) {
+    final visible = ref.watch(appLogsVisibleProvider);
+    if (!visible) return null;
+    return const AppLogsPanel();
+  }
+
+  @override
+  bool onEscape(WidgetRef ref) {
+    if (ref.read(appLogsVisibleProvider)) {
+      ref.read(appLogsVisibleProvider.notifier).state = false;
+      return true;
+    }
+    return false;
   }
 
   @override
@@ -52,5 +56,7 @@ class ConsoleModule extends Quark {
   }
 
   @override
-  void dispose() {}
+  void dispose() {
+    PtyRunnerCache.instance.disposeAll();
+  }
 }

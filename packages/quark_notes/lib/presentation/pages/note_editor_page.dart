@@ -37,6 +37,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage>
   // For existing notes this is true from the start; for 'new' notes it becomes
   // true only when the user types a name for the first time.
   bool _isSaved = false;
+  // While true, content edits push the first 15 characters into the name field.
+  // Flips to false the moment the user types in the name field themselves.
+  late bool _nameAutoFilled;
+  // Re-entry guard so programmatic name updates don't disable auto-fill.
+  bool _autoFillingName = false;
 
   @override
   void initState() {
@@ -44,6 +49,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage>
     _nameController = TextEditingController();
     _editorFocusNode = FocusNode();
     _quillController = QuillController.basic();
+    _nameAutoFilled = widget.noteId == 'new';
     _backNotifier = ref.read(noteEditorBackHandlerProvider.notifier);
     if (_isDesktop) {
       windowManager.addListener(this);
@@ -120,10 +126,14 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage>
 
   void _onContentChanged() {
     if (!_dirty) setState(() => _dirty = true);
+    _maybeAutoFillName();
     if (!_isSaved) _updatePreventClose();
   }
 
   void _onNameChanged() {
+    if (!_autoFillingName) {
+      _nameAutoFilled = false;
+    }
     if (!_dirty) setState(() => _dirty = true);
     // First save: persist the note as soon as it gets a name.
     final name = _nameController.text.trim();
@@ -139,6 +149,19 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage>
       }
       _updatePreventClose();
     }
+  }
+
+  void _maybeAutoFillName() {
+    if (!_nameAutoFilled) return;
+    final raw = _quillController.document.toPlainText();
+    final flattened = raw.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (flattened.isEmpty) return;
+    final autoName =
+        flattened.length > 15 ? flattened.substring(0, 15) : flattened;
+    if (autoName == _nameController.text) return;
+    _autoFillingName = true;
+    _nameController.text = autoName;
+    _autoFillingName = false;
   }
 
   // ── Unsaved-draft guard ───────────────────────────────────────────────────
@@ -315,7 +338,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage>
     final categories = state?.categories ?? [];
 
     return Container(
-      color: noteColor,
+      color: colors.background,
       child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -364,54 +387,67 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage>
               ],
             ),
           ),
-          // Quill toolbar
+          // Combined toolbar: Quill formatting + color picker + category
           Container(
-            decoration: BoxDecoration(
-              color: colors.surface,
-              border: Border(
-                bottom: BorderSide(color: colors.border, width: 1),
-              ),
-            ),
-            child: QuillSimpleToolbar(
-              controller: _quillController,
-              config: const QuillSimpleToolbarConfig(
-                showFontFamily: false,
-                showFontSize: false,
-                showStrikeThrough: false,
-                showInlineCode: false,
-                showCodeBlock: false,
-                showIndent: false,
-                showLink: false,
-                showSubscript: false,
-                showSuperscript: false,
-                showUndo: false,
-                showRedo: false,
-                showDividers: false,
-                showColorButton: false,
-                showBackgroundColorButton: false,
-                showClearFormat: true,
-                showAlignmentButtons: true,
-                showListBullets: true,
-                showListNumbers: true,
-                showBoldButton: true,
-                showItalicButton: true,
-                showUnderLineButton: true,
-                toolbarIconAlignment: WrapAlignment.start,
-              ),
-            ),
-          ),
-          // Note metadata bar (color + category)
-          Container(
-            height: 36,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            height: 40,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
             decoration: BoxDecoration(
               color: noteColor,
               border: Border(
-                bottom: BorderSide(color: colors.border.withAlpha(80), width: 1),
+                bottom:
+                    BorderSide(color: colors.border.withAlpha(80), width: 1),
               ),
             ),
             child: Row(
               children: [
+                Expanded(
+                  child: QuillSimpleToolbar(
+                    controller: _quillController,
+                    config: QuillSimpleToolbarConfig(
+                      multiRowsDisplay: false,
+                      color: Colors.transparent,
+                      toolbarSize: 26,
+                      toolbarSectionSpacing: 2,
+                      sectionDividerSpace: 6,
+                      sectionDividerColor: colors.border.withAlpha(120),
+                      showFontFamily: false,
+                      showFontSize: false,
+                      showStrikeThrough: false,
+                      showInlineCode: false,
+                      showCodeBlock: false,
+                      showIndent: false,
+                      showLink: false,
+                      showSubscript: false,
+                      showSuperscript: false,
+                      showUndo: false,
+                      showRedo: false,
+                      showDividers: false,
+                      showColorButton: false,
+                      showBackgroundColorButton: false,
+                      showClearFormat: true,
+                      showAlignmentButtons: true,
+                      showListBullets: true,
+                      showListNumbers: true,
+                      showQuote: false,
+                      showBoldButton: true,
+                      showItalicButton: true,
+                      showUnderLineButton: true,
+                      buttonOptions: const QuillSimpleToolbarButtonOptions(
+                        base: QuillToolbarBaseButtonOptions(
+                          iconSize: 13,
+                          iconButtonFactor: 1.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  width: 1,
+                  height: 18,
+                  color: colors.border.withAlpha(120),
+                ),
+                const SizedBox(width: 8),
                 QuarkColorPicker(
                   selectedColorValue: note.colorValue,
                   onColorSelected: (v) async {
@@ -421,9 +457,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage>
                     await ref.read(notesProvider.notifier).saveNote(updated);
                   },
                 ),
-                const Spacer(),
-                // Category selector
-                if (categories.isNotEmpty)
+                if (categories.isNotEmpty) ...[
+                  const SizedBox(width: 8),
                   _CategoryDropdown(
                     categories: categories,
                     selectedCategoryId: note.categoryId,
@@ -436,6 +471,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage>
                           .saveNote(updated);
                     },
                   ),
+                ],
               ],
             ),
           ),

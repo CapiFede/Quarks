@@ -14,6 +14,10 @@ dependencies:
     sdk: flutter
   quark_core:
   flutter_riverpod: ^2.6.1
+  flutter_pty: ^0.4.2
+  xterm: ^4.0.0
+  path: ^1.9.0
+  path_provider: ^2.1.5
 
 dev_dependencies:
   flutter_test:

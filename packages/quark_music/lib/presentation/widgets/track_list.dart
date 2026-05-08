@@ -15,11 +15,51 @@ class TrackList extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tracks = ref.watch(visibleTracksProvider);
+    final libraryAsync = ref.watch(libraryProvider);
     final playerState = ref.watch(playerProvider);
     final theme = Theme.of(context);
     final colors = context.quarksColors;
 
     if (tracks.isEmpty) {
+      // Distinguish "library is loading", "library errored", and "library
+      // loaded but empty" so a silent scan failure isn't masked behind a
+      // generic empty-state message.
+      if (libraryAsync.isLoading) {
+        return Center(
+          child: Text(
+            'Scanning...',
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: colors.textSecondary,
+            ),
+          ),
+        );
+      }
+      if (libraryAsync.hasError) {
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Could not scan music folder',
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    color: colors.error,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '${libraryAsync.error}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colors.textSecondary,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+        );
+      }
       return Center(
         child: Text(
           'Scan a folder to find music',

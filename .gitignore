@@ -8,6 +8,7 @@ build/
 .claude/
 
 # Flutter generated
+**/.flutter-plugins
 **/.flutter-plugins-dependencies
 **/flutter/generated_plugins.cmake
 **/android/.gradle
@@ -26,6 +27,9 @@ Thumbs.db
 .pub-cache/
 .pub/
 pubspec.lock
+
+# Tests
+coverage/
 
 # Secrets
 packages/quark_music/lib/data/services/drive_config.dart

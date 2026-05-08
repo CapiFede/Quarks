@@ -170,8 +170,9 @@ class _TitleBar extends StatelessWidget {
 
     final colors = context.quarksColors;
     final messenger = ScaffoldMessenger.of(context);
-    final current = ref.read(themeModeProvider);
-    final isDark = current == ThemeMode.dark;
+    final prefs = ref.read(appPreferencesProvider);
+    final isDark = prefs.themeMode == ThemeMode.dark;
+    final autoStart = prefs.launchAtStartup;
     final version = ref.read(appVersionProvider).valueOrNull ?? '';
 
     showMenu<String>(
@@ -201,6 +202,27 @@ class _TitleBar extends StatelessWidget {
             ],
           ),
         ),
+        if (_isDesktop)
+          PopupMenuItem<String>(
+            value: 'auto_start',
+            height: 32,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  autoStart ? Icons.check_box : Icons.check_box_outline_blank,
+                  size: 13,
+                  color: colors.textPrimary,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Iniciar con Windows',
+                  style: TextStyle(fontSize: 12, color: colors.textPrimary),
+                ),
+              ],
+            ),
+          ),
         if (_isDesktop)
           PopupMenuItem<String>(
             value: 'check_updates',
@@ -234,10 +256,24 @@ class _TitleBar extends StatelessWidget {
           ),
         ],
       ],
-    ).then((value) {
+    ).then((value) async {
       if (value == 'theme') {
-        ref.read(themeModeProvider.notifier).state =
-            isDark ? ThemeMode.light : ThemeMode.dark;
+        await ref.read(appPreferencesProvider.notifier).setThemeMode(
+              isDark ? ThemeMode.light : ThemeMode.dark,
+            );
+      } else if (value == 'auto_start') {
+        try {
+          await ref
+              .read(appPreferencesProvider.notifier)
+              .setLaunchAtStartup(!autoStart);
+        } catch (e) {
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text('No se pudo cambiar el inicio automático: $e'),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
       } else if (value == 'check_updates') {
         _checkForUpdatesManually(messenger);
       }
