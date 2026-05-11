@@ -6,6 +6,7 @@ class PlaylistChip extends StatefulWidget {
   final bool isSelected;
   final VoidCallback onTap;
   final void Function(TapDownDetails details)? onSecondaryTap;
+  final VoidCallback? onClose;
 
   const PlaylistChip({
     super.key,
@@ -13,6 +14,7 @@ class PlaylistChip extends StatefulWidget {
     required this.isSelected,
     required this.onTap,
     this.onSecondaryTap,
+    this.onClose,
   });
 
   @override
@@ -21,6 +23,7 @@ class PlaylistChip extends StatefulWidget {
 
 class _PlaylistChipState extends State<PlaylistChip> {
   bool _hovering = false;
+  bool _closeHover = false;
 
   @override
   Widget build(BuildContext context) {
@@ -54,9 +57,32 @@ class _PlaylistChipState extends State<PlaylistChip> {
                 bottom: BorderSide(color: borderColor, width: 2),
               ),
             ),
-            child: Text(
-              widget.name,
-              style: textTheme.labelMedium?.copyWith(color: textColor),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  widget.name,
+                  style: textTheme.labelMedium?.copyWith(color: textColor),
+                ),
+                if (widget.onClose != null) ...[
+                  const SizedBox(width: 4),
+                  MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    onEnter: (_) => setState(() => _closeHover = true),
+                    onExit: (_) => setState(() => _closeHover = false),
+                    child: GestureDetector(
+                      onTap: widget.onClose,
+                      child: Icon(
+                        Icons.close,
+                        size: 11,
+                        color: _closeHover
+                            ? colors.error
+                            : textColor.withValues(alpha: 0.7),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
         ),

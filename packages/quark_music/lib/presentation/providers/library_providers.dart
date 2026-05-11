@@ -113,21 +113,60 @@ class LibraryNotifier extends AsyncNotifier<LibraryState> {
 
   void selectPlaylist(String id) {
     final current = state.requireValue;
-    state = AsyncData(current.copyWith(selectedPlaylistId: id));
+    // The unassigned filter only makes sense on All Tracks; clear it whenever
+    // the user switches to a real playlist so they don't see an empty list and
+    // wonder why their tracks vanished.
+    final clearedFilter =
+        id == Playlist.allTracksId ? current.showUnassignedOnly : false;
+    state = AsyncData(current.copyWith(
+      selectedPlaylistId: id,
+      showUnassignedOnly: clearedFilter,
+    ));
   }
 
-  Future<void> createPlaylist(String name) async {
+  void toggleUnassignedFilter() {
     final current = state.requireValue;
-    // New playlists land in the currently-selected category so they appear
-    // in the bar right away without an extra step.
-    final initialCategoryId =
-        current.selectedCategoryId == PlaylistCategory.defaultId
-            ? null
-            : current.selectedCategoryId;
+    state = AsyncData(
+      current.copyWith(showUnassignedOnly: !current.showUnassignedOnly),
+    );
+  }
+
+  /// Pin the All Tracks chip to the bar AND select it. Used by the "View all
+  /// tracks" gear option — selection-only would feel broken because once
+  /// categories exist the chip is otherwise hidden.
+  void showAllTracksChip() {
+    final current = state.requireValue;
+    state = AsyncData(current.copyWith(
+      allTracksChipPinned: true,
+      selectedPlaylistId: Playlist.allTracksId,
+    ));
+  }
+
+  /// Hide the All Tracks chip. If it's currently selected, fall back to the
+  /// first playlist in the active category so the visible track list doesn't
+  /// stay stuck on "all tracks" with no chip selected.
+  void hideAllTracksChip() {
+    final current = state.requireValue;
+    final wasSelected =
+        current.selectedPlaylistId == Playlist.allTracksId;
+    final fallback = current.playlistsInSelectedCategory.firstOrNull?.id ??
+        Playlist.allTracksId;
+    state = AsyncData(current.copyWith(
+      allTracksChipPinned: false,
+      selectedPlaylistId:
+          wasSelected ? fallback : current.selectedPlaylistId,
+      // Filter only makes sense on All Tracks; drop it if we just left it.
+      showUnassignedOnly:
+          wasSelected ? false : current.showUnassignedOnly,
+    ));
+  }
+
+  Future<void> createPlaylist(String name, {required String categoryId}) async {
+    final current = state.requireValue;
     final playlist = Playlist(
       id: Playlist.generateId(),
       name: name,
-      categoryId: initialCategoryId,
+      categoryId: categoryId,
     );
     state = AsyncData(
       current.copyWith(playlists: [...current.playlists, playlist]),
@@ -159,8 +198,27 @@ class LibraryNotifier extends AsyncNotifier<LibraryState> {
       name: name,
       createdAt: DateTime.now(),
     );
+    // If the user was sitting on the (now hidden) default sentinel, jump to
+    // the new category so the chip bar reflects what they just made instead
+    // of staying on a categoryId that no longer corresponds to anything in UI.
+    final newSelectedCategoryId =
+        current.selectedCategoryId == PlaylistCategory.defaultId
+            ? category.id
+            : current.selectedCategoryId;
+    // When the user creates their first category, the All Tracks chip was
+    // previously force-shown by virtue of categories being empty. Without
+    // pinning it here, the chip would silently vanish the moment they finish
+    // the category dialog — leaving an empty chip bar (the new category has
+    // no playlists yet) with no clear path back to All Tracks except the gear
+    // menu.
+    final shouldPinAllTracks =
+        current.categories.isEmpty ? true : current.allTracksChipPinned;
     state = AsyncData(
-      current.copyWith(categories: [...current.categories, category]),
+      current.copyWith(
+        categories: [...current.categories, category],
+        selectedCategoryId: newSelectedCategoryId,
+        allTracksChipPinned: shouldPinAllTracks,
+      ),
     );
     await _storage.saveCategories(state.requireValue.categories);
   }

@@ -47,7 +47,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
       final processing = playerState.processingState;
       if (processing == ja.ProcessingState.completed &&
           _lastProcessingState != ja.ProcessingState.completed) {
-        _onTrackCompleted();
+        unawaited(_onTrackCompleted());
       }
       _lastProcessingState = processing;
     }));
@@ -85,6 +85,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
       playingTracks: tracks,
       status: PlaybackStatus.playing,
       playedIndices: {index},
+      playbackHistory: const [],
     );
     await _audio.play(track);
   }
@@ -123,10 +124,13 @@ class PlayerNotifier extends Notifier<PlayerState> {
   Future<void> next() async {
     if (!state.hasNext) return;
 
+    final prev = state.currentIndex;
+    if (prev >= 0) _pushHistory(prev);
+
     if (state.shuffle) {
       await _playRandomUnplayed();
     } else {
-      await playAtIndex(state.currentIndex + 1);
+      await playAtIndex(prev + 1);
     }
   }
 
@@ -135,9 +139,18 @@ class PlayerNotifier extends Notifier<PlayerState> {
       await _audio.seek(Duration.zero);
       return;
     }
-    if (state.hasPrevious) {
-      await playAtIndex(state.currentIndex - 1);
-    }
+    if (state.playbackHistory.isEmpty) return;
+    final history = [...state.playbackHistory];
+    final target = history.removeLast();
+    state = state.copyWith(playbackHistory: history);
+    await playAtIndex(target);
+  }
+
+  void _pushHistory(int index) {
+    if (index < 0) return;
+    state = state.copyWith(
+      playbackHistory: [...state.playbackHistory, index],
+    );
   }
 
   Future<void> seek(Duration position) async {
@@ -147,6 +160,10 @@ class PlayerNotifier extends Notifier<PlayerState> {
   Future<void> setVolume(double volume) async {
     state = state.copyWith(volume: volume);
     await _audio.setVolume(volume);
+  }
+
+  void toggleLoop() {
+    state = state.copyWith(loop: !state.loop);
   }
 
   Future<void> toggleShuffle() async {
@@ -181,16 +198,25 @@ class PlayerNotifier extends Notifier<PlayerState> {
     await playAtIndex(nextIndex);
   }
 
-  void _onTrackCompleted() {
+  Future<void> _onTrackCompleted() async {
+    if (state.loop && state.currentTrack != null) {
+      _lastProcessingState = null;
+      await _audio.play(state.currentTrack!);
+      return;
+    }
+
     if (!state.hasNext) {
       state = state.copyWith(status: PlaybackStatus.stopped);
       return;
     }
 
+    final prev = state.currentIndex;
+    if (prev >= 0) _pushHistory(prev);
+
     if (state.shuffle) {
-      _playRandomUnplayed();
+      await _playRandomUnplayed();
     } else {
-      playAtIndex(state.currentIndex + 1);
+      await playAtIndex(prev + 1);
     }
   }
 }

@@ -4,6 +4,8 @@ import 'package:quark_core/quark_core.dart';
 
 import '../../data/services/binary_manager.dart';
 import '../../data/services/ytdlp_service.dart';
+import '../../domain/entities/playlist.dart';
+import '../../domain/entities/playlist_category.dart';
 import '../providers/download_providers.dart';
 import '../providers/download_state.dart';
 import '../providers/library_providers.dart';
@@ -136,6 +138,9 @@ class _DownloadForm extends ConsumerStatefulWidget {
 class _DownloadFormState extends ConsumerState<_DownloadForm> {
   late final TextEditingController _urlController;
   late final TextEditingController _filenameController;
+  // Category IDs that the user has manually collapsed. Default-expanded so
+  // the playlist checkboxes are visible without an extra click.
+  final Set<String> _collapsed = {};
 
   @override
   void initState() {
@@ -169,8 +174,25 @@ class _DownloadFormState extends ConsumerState<_DownloadForm> {
     final textTheme = Theme.of(context).textTheme;
     final state = widget.state;
     final libraryAsync = ref.watch(libraryProvider);
-    final playlists = libraryAsync.valueOrNull?.playlists ?? [];
+    final library = libraryAsync.valueOrNull;
+    final playlists = library?.playlists ?? const <Playlist>[];
+    final categories = library?.categories ?? const <PlaylistCategory>[];
     final busy = state.isDownloading || state.isScanning;
+    final justFinished = !state.isDownloading && state.successMessage != null;
+
+    // Real category sections only. Stragglers without a category are rendered
+    // flat at the end (no header), mirroring the All Playlists drawer.
+    final groups = <_PlaylistGroup>[
+      for (final cat in categories)
+        _PlaylistGroup(
+          category: cat,
+          playlists: playlists.where((p) => p.categoryId == cat.id).toList(),
+        ),
+    ].where((g) => g.playlists.isNotEmpty).toList();
+    final orphanPlaylists =
+        playlists.where((p) => p.categoryId == null).toList();
+    final hasAnyPlaylists =
+        groups.isNotEmpty || orphanPlaylists.isNotEmpty;
 
     return Column(
       children: [
@@ -252,17 +274,37 @@ class _DownloadFormState extends ConsumerState<_DownloadForm> {
               ],
 
               // Playlists (after scan)
-              if (state.isScanned && playlists.isNotEmpty) ...[
+              if (state.isScanned && hasAnyPlaylists) ...[
                 Text('ADD TO PLAYLISTS', style: textTheme.labelSmall?.copyWith(color: colors.textSecondary)),
                 const SizedBox(height: 8),
-                for (final pl in playlists)
-                  PlaylistCheckbox(
-                    name: pl.name,
-                    checked: state.selectedPlaylistIds.contains(pl.id),
-                    onChanged: busy
-                        ? null
-                        : () => ref.read(downloadProvider.notifier).togglePlaylist(pl.id),
+                for (final group in groups)
+                  _CategorySection(
+                    group: group,
+                    selectedIds: state.selectedPlaylistIds,
+                    collapsed: _collapsed.contains(group.category.id),
+                    busy: busy,
+                    onToggleSection: () => setState(() {
+                      if (!_collapsed.add(group.category.id)) {
+                        _collapsed.remove(group.category.id);
+                      }
+                    }),
+                    onTogglePlaylist: (id) => ref
+                        .read(downloadProvider.notifier)
+                        .togglePlaylist(id),
                   ),
+                if (orphanPlaylists.isNotEmpty) ...[
+                  if (groups.isNotEmpty) const SizedBox(height: 8),
+                  for (final pl in orphanPlaylists)
+                    PlaylistCheckbox(
+                      name: pl.name,
+                      checked: state.selectedPlaylistIds.contains(pl.id),
+                      onChanged: busy
+                          ? null
+                          : () => ref
+                              .read(downloadProvider.notifier)
+                              .togglePlaylist(pl.id),
+                    ),
+                ],
                 const SizedBox(height: 16),
               ],
 
@@ -296,7 +338,7 @@ class _DownloadFormState extends ConsumerState<_DownloadForm> {
         ),
 
         // Bottom action bar
-        if (state.isScanned)
+        if (state.isScanned || justFinished)
           Padding(
             padding: const EdgeInsets.all(16),
             child: state.isDownloading
@@ -305,12 +347,115 @@ class _DownloadFormState extends ConsumerState<_DownloadForm> {
                     onTap: () => ref.read(downloadProvider.notifier).cancelDownload(),
                     isDestructive: true,
                   )
-                : ActionButton(
-                    label: 'DOWNLOAD',
-                    onTap: state.url.isEmpty
-                        ? null
-                        : () => ref.read(downloadProvider.notifier).startDownload(),
+                : justFinished
+                    ? ActionButton(
+                        label: 'DONE',
+                        onTap: () => ref
+                            .read(downloadProvider.notifier)
+                            .finishAndClose(),
+                      )
+                    : ActionButton(
+                        label: 'DOWNLOAD',
+                        onTap: state.url.isEmpty
+                            ? null
+                            : () => ref.read(downloadProvider.notifier).startDownload(),
+                      ),
+          ),
+      ],
+    );
+  }
+}
+
+class _PlaylistGroup {
+  final PlaylistCategory category;
+  final List<Playlist> playlists;
+
+  const _PlaylistGroup({required this.category, required this.playlists});
+}
+
+class _CategorySection extends StatelessWidget {
+  final _PlaylistGroup group;
+  final Set<String> selectedIds;
+  final bool collapsed;
+  final bool busy;
+  final VoidCallback onToggleSection;
+  final ValueChanged<String> onTogglePlaylist;
+
+  const _CategorySection({
+    required this.group,
+    required this.selectedIds,
+    required this.collapsed,
+    required this.busy,
+    required this.onToggleSection,
+    required this.onTogglePlaylist,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.quarksColors;
+    final textTheme = Theme.of(context).textTheme;
+    final selectedInGroup =
+        group.playlists.where((p) => selectedIds.contains(p.id)).length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onToggleSection,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+              child: Row(
+                children: [
+                  Icon(
+                    collapsed ? Icons.chevron_right : Icons.expand_more,
+                    size: 14,
+                    color: colors.textLight,
                   ),
+                  const SizedBox(width: 4),
+                  Icon(Icons.folder_outlined,
+                      size: 11, color: colors.textLight),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      group.category.name.toUpperCase(),
+                      style: textTheme.labelSmall?.copyWith(
+                        color: colors.textLight,
+                        letterSpacing: 1.2,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Text(
+                    selectedInGroup > 0
+                        ? '$selectedInGroup/${group.playlists.length}'
+                        : '${group.playlists.length}',
+                    style: textTheme.labelSmall?.copyWith(
+                      color: selectedInGroup > 0
+                          ? colors.primary
+                          : colors.textLight.withValues(alpha: 0.7),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (!collapsed)
+          Padding(
+            padding: const EdgeInsets.only(left: 18),
+            child: Column(
+              children: [
+                for (final pl in group.playlists)
+                  PlaylistCheckbox(
+                    name: pl.name,
+                    checked: selectedIds.contains(pl.id),
+                    onChanged: busy ? null : () => onTogglePlaylist(pl.id),
+                  ),
+              ],
+            ),
           ),
       ],
     );

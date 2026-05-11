@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:quark_core/quark_core.dart';
 
+import '../../domain/entities/playlist.dart';
+import '../../domain/entities/playlist_category.dart';
 import '../providers/library_providers.dart';
 import '../providers/music_providers.dart';
 import 'drawer_widgets.dart';
@@ -99,70 +101,133 @@ class _PlaylistOverlay extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = context.quarksColors;
     final textTheme = Theme.of(context).textTheme;
-    final libraryAsync = ref.watch(libraryProvider);
-    final playlists =
-        libraryAsync.valueOrNull?.playlistsInSelectedCategory ?? const [];
+    final library = ref.watch(libraryProvider).valueOrNull;
     final track = ref.watch(playerProvider).displayTrack;
 
     if (track == null) return const SizedBox.shrink();
 
-    const popupWidth = 200.0;
+    final allPlaylists = library?.playlists ?? const <Playlist>[];
+    final categories = library?.categories ?? const <PlaylistCategory>[];
+    // When All Tracks is selected the user has no "current category" context,
+    // so we expand the dropdown to the entire library — grouped by category
+    // — instead of the usual filtered slice.
+    final showAllGrouped =
+        library?.selectedPlaylistId == Playlist.allTracksId;
+
+    void toggle(Playlist pl) {
+      if (pl.trackPaths.contains(track.path)) {
+        ref
+            .read(libraryProvider.notifier)
+            .removeTrackFromPlaylist(pl.id, track.path);
+      } else {
+        ref.read(libraryProvider.notifier).addTrackToPlaylist(pl.id, track);
+      }
+    }
+
+    Widget checkboxFor(Playlist pl) => Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: PlaylistCheckbox(
+            name: pl.name,
+            checked: pl.trackPaths.contains(track.path),
+            onChanged: () => toggle(pl),
+          ),
+        );
+
+    final List<Widget> body;
+    if (showAllGrouped) {
+      // Whole-library view, grouped by category. Empty categories are
+      // skipped; orphan playlists (legacy uncategorized) hang off the end
+      // without a header — same pattern as the All Playlists drawer.
+      final groups = <(PlaylistCategory, List<Playlist>)>[
+        for (final cat in categories)
+          (cat, allPlaylists.where((p) => p.categoryId == cat.id).toList()),
+      ].where((g) => g.$2.isNotEmpty).toList();
+      final orphans =
+          allPlaylists.where((p) => p.categoryId == null).toList();
+
+      if (groups.isEmpty && orphans.isEmpty) {
+        body = [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: Text(
+              'No playlists',
+              style:
+                  textTheme.bodySmall?.copyWith(color: colors.textLight),
+            ),
+          ),
+        ];
+      } else {
+        body = [
+          for (var i = 0; i < groups.length; i++) ...[
+            if (i > 0) const SizedBox(height: 6),
+            Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              child: Text(
+                groups[i].$1.name.toUpperCase(),
+                style: textTheme.labelSmall?.copyWith(
+                  color: colors.textLight,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ),
+            for (final pl in groups[i].$2) checkboxFor(pl),
+          ],
+          if (orphans.isNotEmpty) ...[
+            if (groups.isNotEmpty) const SizedBox(height: 6),
+            for (final pl in orphans) checkboxFor(pl),
+          ],
+        ];
+      }
+    } else {
+      final playlists = library?.playlistsInSelectedCategory ?? const [];
+      if (playlists.isEmpty) {
+        body = [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: Text(
+              'No playlists',
+              style:
+                  textTheme.bodySmall?.copyWith(color: colors.textLight),
+            ),
+          ),
+        ];
+      } else {
+        body = [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: Text(
+              'PLAYLISTS',
+              style: textTheme.labelSmall
+                  ?.copyWith(color: colors.textSecondary),
+            ),
+          ),
+          const SizedBox(height: 4),
+          for (final pl in playlists) checkboxFor(pl),
+        ];
+      }
+    }
+
+    const popupWidth = 220.0;
 
     final popupContent = Material(
       color: Colors.transparent,
       child: PixelBorder(
         backgroundColor: colors.surface,
         padding: const EdgeInsets.symmetric(vertical: 8),
-        child: SizedBox(
-          width: popupWidth,
-          child: playlists.isEmpty
-              ? Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 4),
-                  child: Text(
-                    'No playlists',
-                    style: textTheme.bodySmall
-                        ?.copyWith(color: colors.textLight),
-                  ),
-                )
-              : Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 4),
-                      child: Text(
-                        'PLAYLISTS',
-                        style: textTheme.labelSmall
-                            ?.copyWith(color: colors.textSecondary),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    for (final pl in playlists)
-                      Padding(
-                        padding:
-                            const EdgeInsets.symmetric(horizontal: 4),
-                        child: PlaylistCheckbox(
-                          name: pl.name,
-                          checked:
-                              pl.trackPaths.contains(track.path),
-                          onChanged: () {
-                            if (pl.trackPaths.contains(track.path)) {
-                              ref
-                                  .read(libraryProvider.notifier)
-                                  .removeTrackFromPlaylist(
-                                      pl.id, track.path);
-                            } else {
-                              ref
-                                  .read(libraryProvider.notifier)
-                                  .addTrackToPlaylist(pl.id, track);
-                            }
-                          },
-                        ),
-                      ),
-                  ],
-                ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            maxHeight: 360,
+            minWidth: popupWidth,
+            maxWidth: popupWidth,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: body,
+            ),
+          ),
         ),
       ),
     );

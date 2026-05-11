@@ -24,14 +24,18 @@ class _CategoryDropdownState extends ConsumerState<CategoryDropdown> {
 
     final colors = context.quarksColors;
     final textTheme = Theme.of(context).textTheme;
-
-    final selectedId = library.selectedCategoryId;
-    final selectedCategory = library.categories
-            .where((c) => c.id == selectedId)
-            .firstOrNull ??
-        PlaylistCategory.defaultCategory();
-
     final color = _hovering ? colors.textPrimary : colors.textSecondary;
+    final isEmpty = library.categories.isEmpty;
+
+    // With no categories, the dropdown collapses into a one-shot
+    // "New category" affordance — same chrome, but tapping skips the menu
+    // and goes straight to the create dialog.
+    final selectedCategory = isEmpty
+        ? null
+        : (library.categories
+                .where((c) => c.id == library.selectedCategoryId)
+                .firstOrNull ??
+            library.categories.first);
 
     return Padding(
       padding: const EdgeInsets.only(right: 6),
@@ -40,11 +44,14 @@ class _CategoryDropdownState extends ConsumerState<CategoryDropdown> {
         onExit: (_) => setState(() => _hovering = false),
         cursor: SystemMouseCursors.click,
         child: GestureDetector(
-          onTapDown: (details) => _showMenu(context, ref, details, library),
-          onSecondaryTapDown: selectedCategory.isDefault
+          onTapDown: isEmpty
               ? null
-              : (details) =>
-                  _showCategoryActionsMenu(context, ref, details, selectedCategory),
+              : (details) => _showMenu(context, ref, details, library),
+          onTap: isEmpty ? () => showCreateCategoryDialog(context, ref) : null,
+          onSecondaryTapDown: selectedCategory == null
+              ? null
+              : (details) => _showCategoryActionsMenu(
+                  context, ref, details, selectedCategory),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
             decoration: BoxDecoration(
@@ -57,10 +64,15 @@ class _CategoryDropdownState extends ConsumerState<CategoryDropdown> {
                 Icon(Icons.folder_outlined, size: 11, color: color),
                 const SizedBox(width: 4),
                 Text(
-                  selectedCategory.name,
+                  selectedCategory?.name ?? 'New category',
                   style: textTheme.labelMedium?.copyWith(color: color),
                 ),
-                Icon(Icons.arrow_drop_down, size: 14, color: color),
+                const SizedBox(width: 2),
+                Icon(
+                  isEmpty ? Icons.add : Icons.arrow_drop_down,
+                  size: isEmpty ? 12 : 14,
+                  color: color,
+                ),
               ],
             ),
           ),
@@ -78,8 +90,7 @@ class _CategoryDropdownState extends ConsumerState<CategoryDropdown> {
     final colors = context.quarksColors;
     final pos = details.globalPosition;
     final selectedId = library.selectedCategoryId;
-    final defaultCat = PlaylistCategory.defaultCategory();
-    final categories = [defaultCat, ...library.categories];
+    final categories = library.categories as List<PlaylistCategory>;
 
     showMenu<String>(
       context: context,

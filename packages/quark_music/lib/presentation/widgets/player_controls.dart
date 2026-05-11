@@ -116,6 +116,14 @@ class PlayerControls extends ConsumerWidget {
                     ref.read(playerProvider.notifier).toggleShuffle(),
               ),
               const SizedBox(width: 8),
+              // Loop (current song)
+              _IconControl(
+                icon: Icons.repeat_one,
+                size: 16,
+                color: state.loop ? colors.primary : colors.textLight,
+                onTap: () => ref.read(playerProvider.notifier).toggleLoop(),
+              ),
+              const SizedBox(width: 8),
               const PlaylistDropdown(),
             ],
           ),

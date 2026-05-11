@@ -37,6 +37,12 @@ class MusicModule extends Quark {
       BuildContext context, WidgetRef ref) {
     return [
       QuarkSettingOption(
+        id: 'view_all_tracks',
+        label: 'View all tracks',
+        icon: Icons.library_music,
+        onTap: () => ref.read(libraryProvider.notifier).showAllTracksChip(),
+      ),
+      QuarkSettingOption(
         id: 'new_playlist',
         label: 'New playlist',
         icon: Icons.playlist_add,
@@ -86,14 +92,35 @@ class MusicModule extends Quark {
 
     final items = <QuarkPinnedItem>[];
 
-    // The "default" (uncategorized) view always includes the synthetic
-    // All Tracks playlist as the first chip so the bar is never empty.
-    final visiblePlaylists = <Playlist>[
-      if (library.selectedCategoryId == '__default__') Playlist.allTracks(),
-      ...library.playlistsInSelectedCategory,
-    ];
+    // All Tracks chip shows when either:
+    //   - No categories exist yet (forced; can't be closed because there'd be
+    //     nothing left in the bar), or
+    //   - The user opted in via the gear menu (pinned; closable with X).
+    final hasCategories = library.categories.isNotEmpty;
+    final showAllTracks =
+        !hasCategories || library.allTracksChipPinned;
+    final allTracksClosable = hasCategories && library.allTracksChipPinned;
 
-    for (final pl in visiblePlaylists) {
+    if (showAllTracks) {
+      items.add(QuarkPinnedItem(
+        id: 'playlist_${Playlist.allTracksId}',
+        builder: (ctx) => PlaylistChip(
+          name: 'All Tracks',
+          isSelected:
+              library.selectedPlaylistId == Playlist.allTracksId,
+          onTap: () => ref
+              .read(libraryProvider.notifier)
+              .selectPlaylist(Playlist.allTracksId),
+          onClose: allTracksClosable
+              ? () => ref
+                  .read(libraryProvider.notifier)
+                  .hideAllTracksChip()
+              : null,
+        ),
+      ));
+    }
+
+    for (final pl in library.playlistsInSelectedCategory) {
       items.add(QuarkPinnedItem(
         id: 'playlist_${pl.id}',
         builder: (ctx) => PlaylistChip(
@@ -101,9 +128,8 @@ class MusicModule extends Quark {
           isSelected: library.selectedPlaylistId == pl.id,
           onTap: () =>
               ref.read(libraryProvider.notifier).selectPlaylist(pl.id),
-          onSecondaryTap: pl.isAllTracks
-              ? null
-              : (details) => _showChipContextMenu(ctx, ref, pl, details),
+          onSecondaryTap: (details) =>
+              _showChipContextMenu(ctx, ref, pl, details),
         ),
       ));
     }

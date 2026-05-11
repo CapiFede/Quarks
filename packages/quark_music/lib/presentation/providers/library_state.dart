@@ -12,6 +12,13 @@ class LibraryState {
   final String selectedCategoryId;
   final bool isScanning;
   final String? scannedFolder;
+  // Only meaningful while All Tracks is selected; restricts the visible list
+  // to tracks that aren't in any user playlist.
+  final bool showUnassignedOnly;
+  // Whether the All Tracks chip is forcibly kept in the chip bar. When no
+  // categories exist the chip is always shown regardless; this flag covers
+  // the "user opted in via the gear menu after categories existed" case.
+  final bool allTracksChipPinned;
 
   const LibraryState({
     this.allTracks = const [],
@@ -21,11 +28,22 @@ class LibraryState {
     this.selectedCategoryId = PlaylistCategory.defaultId,
     this.isScanning = false,
     this.scannedFolder,
+    this.showUnassignedOnly = false,
+    this.allTracksChipPinned = false,
   });
 
   List<Track> get visibleTracks {
     if (selectedPlaylistId == Playlist.allTracksId) {
-      return allTracks;
+      if (!showUnassignedOnly) return allTracks;
+      final assigned = <String>{};
+      for (final p in playlists) {
+        for (final path in p.trackPaths) {
+          assigned.add(path.replaceAll('\\', '/'));
+        }
+      }
+      return allTracks
+          .where((t) => !assigned.contains(t.path.replaceAll('\\', '/')))
+          .toList();
     }
     final playlist = playlists
         .where((p) => p.id == selectedPlaylistId)
@@ -60,6 +78,8 @@ class LibraryState {
     String? selectedCategoryId,
     bool? isScanning,
     Object? scannedFolder = _sentinel,
+    bool? showUnassignedOnly,
+    bool? allTracksChipPinned,
   }) {
     return LibraryState(
       allTracks: allTracks ?? this.allTracks,
@@ -71,6 +91,9 @@ class LibraryState {
       scannedFolder: identical(scannedFolder, _sentinel)
           ? this.scannedFolder
           : scannedFolder as String?,
+      showUnassignedOnly: showUnassignedOnly ?? this.showUnassignedOnly,
+      allTracksChipPinned:
+          allTracksChipPinned ?? this.allTracksChipPinned,
     );
   }
 }

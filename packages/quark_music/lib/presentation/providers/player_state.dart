@@ -13,6 +13,8 @@ class PlayerState {
   final List<Track> playingTracks;
   final bool shuffle;
   final Set<int> playedIndices;
+  final bool loop;
+  final List<int> playbackHistory;
 
   const PlayerState({
     this.currentTrack,
@@ -25,6 +27,8 @@ class PlayerState {
     this.playingTracks = const [],
     this.shuffle = false,
     this.playedIndices = const {},
+    this.loop = false,
+    this.playbackHistory = const [],
   });
 
   PlayerState copyWith({
@@ -38,6 +42,8 @@ class PlayerState {
     List<Track>? playingTracks,
     bool? shuffle,
     Set<int>? playedIndices,
+    bool? loop,
+    List<int>? playbackHistory,
   }) {
     return PlayerState(
       currentTrack: currentTrack ?? this.currentTrack,
@@ -50,12 +56,14 @@ class PlayerState {
       playingTracks: playingTracks ?? this.playingTracks,
       shuffle: shuffle ?? this.shuffle,
       playedIndices: playedIndices ?? this.playedIndices,
+      loop: loop ?? this.loop,
+      playbackHistory: playbackHistory ?? this.playbackHistory,
     );
   }
 
   bool get hasNext =>
       shuffle ? playedIndices.length < playingTracks.length : currentIndex < playingTracks.length - 1;
-  bool get hasPrevious => currentIndex > 0;
+  bool get hasPrevious => playbackHistory.isNotEmpty;
   bool get isPlaying => status == PlaybackStatus.playing;
 
   /// The track shown in the player bar (selected if any, otherwise current).

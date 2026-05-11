@@ -58,6 +58,23 @@ class DownloadNotifier extends Notifier<DownloadState> {
     state = state.copyWith(drawerOpen: false);
   }
 
+  /// Close the drawer after a successful download and wipe the form so the
+  /// next open starts fresh — otherwise the previous video info, success
+  /// banner and selected playlists would still be sitting there.
+  void finishAndClose() {
+    state = state.copyWith(
+      drawerOpen: false,
+      url: '',
+      clearCustomFilename: true,
+      clearVideoInfo: true,
+      clearProgress: true,
+      clearSuccess: true,
+      clearError: true,
+      selectedPlaylistIds: {},
+      downloadedPaths: [],
+    );
+  }
+
   void setUrl(String url) {
     state = state.copyWith(url: url, clearError: true, clearSuccess: true, clearVideoInfo: true);
   }
@@ -183,21 +200,25 @@ class DownloadNotifier extends Notifier<DownloadState> {
   }
 
   Future<void> _onDownloadComplete(List<String> paths) async {
-    // Rescan folder to pick up new tracks
+    // Library tracks use forward-slash paths (Track.fromPath normalizes), but
+    // p.join on Windows yields backslashes — without this the playlist entries
+    // wouldn't match scanned tracks and the song would appear unassigned.
+    final normalizedPaths =
+        paths.map((p) => p.replaceAll('\\', '/')).toList();
+
     await ref.read(libraryProvider.notifier).rescanMusicFolder();
 
-    // Add to selected playlists
     final libraryNotifier = ref.read(libraryProvider.notifier);
     for (final playlistId in state.selectedPlaylistIds) {
-      await libraryNotifier.addTracksToPlaylist(playlistId, paths);
+      await libraryNotifier.addTracksToPlaylist(playlistId, normalizedPaths);
     }
 
     state = state.copyWith(
       isDownloading: false,
-      downloadedPaths: paths,
+      downloadedPaths: normalizedPaths,
       url: '',
       clearCustomFilename: true,
-      successMessage: '${paths.length} track(s) downloaded',
+      successMessage: '${normalizedPaths.length} track(s) downloaded',
       selectedPlaylistIds: {},
     );
   }

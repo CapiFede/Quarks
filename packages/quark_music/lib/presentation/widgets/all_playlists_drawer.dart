@@ -25,17 +25,10 @@ class AllPlaylistsDrawer extends ConsumerWidget {
     final playlists = library?.playlists ?? const [];
     final categories = library?.categories ?? const [];
 
-    // Group playlists by category. The default (uncategorized) bucket also
-    // hosts the synthetic All Tracks pinned at the top.
-    final defaultCat = PlaylistCategory.defaultCategory();
+    // Real category sections only — the synthetic "Sin categoría" section is
+    // gone. Stragglers without a category render at the end as a flat list
+    // without a header.
     final groups = <_CategoryGroup>[
-      _CategoryGroup(
-        category: defaultCat,
-        playlists: [
-          Playlist.allTracks(),
-          ...playlists.where((p) => p.categoryId == null),
-        ],
-      ),
       for (final cat in categories)
         _CategoryGroup(
           category: cat,
@@ -43,6 +36,8 @@ class AllPlaylistsDrawer extends ConsumerWidget {
               playlists.where((p) => p.categoryId == cat.id).toList(),
         ),
     ];
+    final orphans =
+        playlists.where((p) => p.categoryId == null).toList();
 
     return Positioned(
       top: 0,
@@ -91,11 +86,15 @@ class AllPlaylistsDrawer extends ConsumerWidget {
               ),
             ),
             Expanded(
-              child: ListView.builder(
+              child: ListView(
                 padding: const EdgeInsets.symmetric(horizontal: 8),
-                itemCount: groups.length,
-                itemBuilder: (context, i) =>
-                    _CategorySection(group: groups[i]),
+                children: [
+                  for (final g in groups) _CategorySection(group: g),
+                  if (orphans.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    for (final pl in orphans) _PlaylistTile(playlist: pl),
+                  ],
+                ],
               ),
             ),
           ],
@@ -136,11 +135,14 @@ class _CategorySection extends ConsumerWidget {
                 Icon(Icons.folder_outlined,
                     size: 11, color: colors.textLight),
                 const SizedBox(width: 6),
-                Text(
-                  group.category.name.toUpperCase(),
-                  style: textTheme.labelSmall?.copyWith(
-                    color: colors.textLight,
-                    letterSpacing: 1.2,
+                Expanded(
+                  child: Text(
+                    group.category.name.toUpperCase(),
+                    style: textTheme.labelSmall?.copyWith(
+                      color: colors.textLight,
+                      letterSpacing: 1.2,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 const SizedBox(width: 6),
@@ -149,6 +151,11 @@ class _CategorySection extends ConsumerWidget {
                   style: textTheme.labelSmall?.copyWith(
                     color: colors.textLight.withValues(alpha: 0.7),
                   ),
+                ),
+                const SizedBox(width: 4),
+                _AddPlaylistButton(
+                  onTap: () => showCreatePlaylistInCategoryDialog(
+                      context, ref, group.category),
                 ),
               ],
             ),
@@ -285,9 +292,7 @@ class _PlaylistTileState extends ConsumerState<_PlaylistTile> {
     final colors = context.quarksColors;
     final pos = details.globalPosition;
     final library = ref.read(libraryProvider).valueOrNull;
-    final categories = library?.categories ?? const [];
-    final defaultCat = PlaylistCategory.defaultCategory();
-    final allCategories = [defaultCat, ...categories];
+    final categories = library?.categories ?? const <PlaylistCategory>[];
 
     showMenu<String>(
       context: context,
@@ -302,34 +307,37 @@ class _PlaylistTileState extends ConsumerState<_PlaylistTile> {
           value: 'delete',
           child: Text('Delete', style: TextStyle(color: colors.error)),
         ),
-        const PopupMenuDivider(),
-        PopupMenuItem(
-          enabled: false,
-          height: 24,
-          child: Text(
-            'Move to category',
-            style: TextStyle(color: colors.textLight, fontSize: 10),
-          ),
-        ),
-        for (final cat in allCategories)
+        if (categories.isNotEmpty) ...[
+          const PopupMenuDivider(),
           PopupMenuItem(
-            value: 'move:${cat.id}',
-            child: Row(
-              children: [
-                Icon(
-                  (pl.categoryId ?? PlaylistCategory.defaultId) == cat.id
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_unchecked,
-                  size: 11,
-                  color: (pl.categoryId ?? PlaylistCategory.defaultId) == cat.id
-                      ? colors.primary
-                      : colors.textLight,
-                ),
-                const SizedBox(width: 8),
-                Text(cat.name, style: TextStyle(color: colors.textPrimary)),
-              ],
+            enabled: false,
+            height: 24,
+            child: Text(
+              'Move to category',
+              style: TextStyle(color: colors.textLight, fontSize: 10),
             ),
           ),
+          for (final cat in categories)
+            PopupMenuItem(
+              value: 'move:${cat.id}',
+              child: Row(
+                children: [
+                  Icon(
+                    pl.categoryId == cat.id
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_unchecked,
+                    size: 11,
+                    color: pl.categoryId == cat.id
+                        ? colors.primary
+                        : colors.textLight,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(cat.name,
+                      style: TextStyle(color: colors.textPrimary)),
+                ],
+              ),
+            ),
+        ],
       ],
     ).then((value) async {
       if (!context.mounted) return;
@@ -348,5 +356,42 @@ class _PlaylistTileState extends ConsumerState<_PlaylistTile> {
           }
       }
     });
+  }
+}
+
+class _AddPlaylistButton extends StatefulWidget {
+  final VoidCallback onTap;
+
+  const _AddPlaylistButton({required this.onTap});
+
+  @override
+  State<_AddPlaylistButton> createState() => _AddPlaylistButtonState();
+}
+
+class _AddPlaylistButtonState extends State<_AddPlaylistButton> {
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.quarksColors;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      cursor: SystemMouseCursors.click,
+      child: Tooltip(
+        message: 'New playlist in this category',
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(2),
+            child: Icon(
+              Icons.add,
+              size: 12,
+              color: _hovering ? colors.primary : colors.textLight,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
