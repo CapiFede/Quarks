@@ -4,17 +4,11 @@ import 'package:launch_at_startup/launch_at_startup.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import 'preferences.dart';
-import 'quarks_registry.dart';
 
 /// App version string read once from package info
 final appVersionProvider = FutureProvider<String>((ref) async {
   final info = await PackageInfo.fromPlatform();
   return info.version;
-});
-
-/// The single quark registry instance
-final quarkRegistryProvider = Provider<QuarkRegistry>((ref) {
-  return QuarkRegistry();
 });
 
 /// Persistence layer for [AppPreferences]. Overridden in main with the

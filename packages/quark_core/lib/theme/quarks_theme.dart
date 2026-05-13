@@ -164,7 +164,7 @@ abstract final class QuarksTheme {
   }
 
   static TextTheme _buildTextTheme(Color primary, Color secondary) {
-    final base = GoogleFonts.tiny5TextTheme();
+    final base = GoogleFonts.nunitoTextTheme();
 
     return base.copyWith(
       displayLarge: base.displayLarge?.copyWith(

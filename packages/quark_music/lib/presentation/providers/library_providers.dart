@@ -43,15 +43,33 @@ class LibraryNotifier extends AsyncNotifier<LibraryState> {
     final playlists = await _storage.load();
     final categories = await _storage.loadCategories();
     final tracks = await _repo.scanFolder(musicDir);
+    final savedDefaultId = await _storage.loadDefaultCategoryId();
+    // Only honour the saved default if the category still exists.
+    final validDefaultId = savedDefaultId != null &&
+            categories.any((c) => c.id == savedDefaultId)
+        ? savedDefaultId
+        : null;
 
     _startWatcher(musicDir);
     ref.onDispose(_stopWatcher);
+
+    // If no default is configured but categories exist, select the first one
+    // so the chip bar and dropdown agree on which category is "current" from
+    // the start. Without this, selectedCategoryId stays as the '__default__'
+    // sentinel, which the dropdown overrides visually with categories.first —
+    // causing a mismatch where chips show orphan playlists instead.
+    final firstCategoryId =
+        categories.isNotEmpty ? categories.first.id : null;
+    final initialCategoryId =
+        validDefaultId ?? firstCategoryId ?? PlaylistCategory.defaultId;
 
     return LibraryState(
       allTracks: tracks,
       playlists: playlists,
       categories: categories,
       scannedFolder: musicDir,
+      defaultCategoryId: validDefaultId,
+      selectedCategoryId: initialCategoryId,
     );
   }
 
@@ -243,13 +261,25 @@ class LibraryNotifier extends AsyncNotifier<LibraryState> {
     final newSelected = current.selectedCategoryId == id
         ? PlaylistCategory.defaultId
         : current.selectedCategoryId;
+    final newDefaultId =
+        current.defaultCategoryId == id ? null : current.defaultCategoryId;
     state = AsyncData(current.copyWith(
       categories: updatedCategories,
       playlists: updatedPlaylists,
       selectedCategoryId: newSelected,
+      defaultCategoryId: newDefaultId,
     ));
     await _storage.saveCategories(updatedCategories);
+    if (newDefaultId != current.defaultCategoryId) {
+      await _storage.saveDefaultCategoryId(null);
+    }
     await _persist();
+  }
+
+  Future<void> setDefaultCategory(String? categoryId) async {
+    final current = state.requireValue;
+    state = AsyncData(current.copyWith(defaultCategoryId: categoryId));
+    await _storage.saveDefaultCategoryId(categoryId);
   }
 
   Future<void> assignPlaylistToCategory(

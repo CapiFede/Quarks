@@ -11,6 +11,7 @@ class PlaylistStorageService {
   static const _musicDirName = 'music';
   static const _playlistsDirName = 'playlists';
   static const _categoriesFileName = 'categories.json';
+  static const _settingsFileName = 'music_settings.json';
 
   Future<Directory> _rootDir() async {
     // Desktop: keep sibling folders next to the exe so portable installs work.
@@ -132,6 +133,25 @@ class PlaylistStorageService {
     final file = File(p.join(dir.path, _categoriesFileName));
     await file.writeAsString(
         jsonEncode(categories.map((c) => c.toJson()).toList()));
+  }
+
+  Future<String?> loadDefaultCategoryId() async {
+    final dir = await _playlistsDir;
+    final file = File(p.join(dir.path, _settingsFileName));
+    if (!await file.exists()) return null;
+    try {
+      final content = await file.readAsString();
+      final json = jsonDecode(content) as Map<String, dynamic>;
+      return json['defaultCategoryId'] as String?;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> saveDefaultCategoryId(String? id) async {
+    final dir = await _playlistsDir;
+    final file = File(p.join(dir.path, _settingsFileName));
+    await file.writeAsString(jsonEncode({'defaultCategoryId': id}));
   }
 
   String _sanitizeFilename(String name) {

@@ -11,6 +11,8 @@ workspace:
   - packages/quark_notes
   - packages/quark_calendar
   - packages/quark_console
+  - packages/quark_books
+  - packages/quark_settings
 
 dependencies:
   flutter:
@@ -20,6 +22,8 @@ dependencies:
   quark_notes:
   quark_calendar:
   quark_console:
+  quark_books:
+  quark_settings:
   flutter_riverpod: ^2.6.1
   google_fonts: ^6.2.1
   window_manager: ^0.4.3
@@ -44,6 +48,8 @@ dependency_overrides:
     path: vendor/flutter_pty
   xterm:
     path: vendor/xterm
+  just_audio_media_kit:
+    path: vendor/just_audio_media_kit
 
 flutter:
   uses-material-design: true

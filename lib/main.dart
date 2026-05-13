@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_quill/flutter_quill.dart' show FlutterQuillLocalizations;
 import 'package:launch_at_startup/launch_at_startup.dart';
+import 'package:quark_books/quark_books.dart';
+import 'package:quark_settings/quark_settings.dart';
 import 'package:quark_calendar/quark_calendar.dart';
 import 'package:quark_console/quark_console.dart';
 import 'package:quark_music/quark_music.dart';
@@ -13,7 +15,6 @@ import 'package:quark_core/quark_core.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'preferences.dart';
-import 'quarks_registry.dart';
 import 'presentation/quarks_shell.dart';
 import 'quarks_providers.dart';
 
@@ -61,8 +62,10 @@ void main() async {
   final registry = QuarkRegistry();
   registry.register(MusicModule());
   registry.register(NotesModule());
+  registry.register(BooksModule());
   registry.register(CalendarModule());
   registry.register(ConsoleModule());
+  registry.register(SettingsModule());
   await registry.initializeAll();
 
   runApp(
@@ -73,6 +76,15 @@ void main() async {
         appPreferencesProvider.overrideWith(
           () => _SeededPreferencesNotifier(loadedPrefs),
         ),
+        // AiDrawer reads `activeQuarkProvider` to derive the contributed
+        // AiContext; quark_core defines a null default and the launcher fills
+        // it in from the open-tabs state.
+        activeQuarkProvider.overrideWith((ref) {
+          final tabs = ref.watch(tabsProvider);
+          if (tabs.isHome) return null;
+          final registry = ref.read(quarkRegistryProvider);
+          return registry.getById(tabs.openTabs[tabs.activeIndex]);
+        }),
       ],
       child: const QuarksApp(),
     ),

@@ -6,19 +6,60 @@ import '../../domain/entities/playlist.dart';
 import '../../domain/entities/track.dart';
 import '../providers/library_providers.dart';
 import '../providers/music_providers.dart';
+import '../providers/player_state.dart';
 import '../providers/song_info_providers.dart';
 import 'track_dialogs.dart';
 
-class TrackList extends ConsumerWidget {
+class TrackList extends ConsumerStatefulWidget {
   const TrackList({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<TrackList> createState() => _TrackListState();
+}
+
+class _TrackListState extends ConsumerState<TrackList> {
+  final _scrollController = ScrollController();
+  // Exact tile height — matches itemExtent on the ListView so scroll-to-center
+  // math is always precise. Value: 16px padding + 17px title + 2px gap +
+  // 14px artist + 1px border = 50px.
+  static const _kItemHeight = 50.0;
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _scrollToTrack(Track track) {
+    final tracks = ref.read(visibleTracksProvider);
+    final index = tracks.indexWhere((t) => t.path == track.path);
+    if (index < 0 || !_scrollController.hasClients) return;
+    final viewportHeight = _scrollController.position.viewportDimension;
+    final targetOffset =
+        (index * _kItemHeight) - (viewportHeight / 2) + (_kItemHeight / 2);
+    _scrollController.animateTo(
+      targetOffset.clamp(0.0, _scrollController.position.maxScrollExtent),
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeInOut,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final tracks = ref.watch(visibleTracksProvider);
     final libraryAsync = ref.watch(libraryProvider);
     final playerState = ref.watch(playerProvider);
     final theme = Theme.of(context);
     final colors = context.quarksColors;
+
+    ref.listen<PlayerState>(playerProvider, (prev, next) {
+      if (next.currentTrack != null &&
+          next.currentTrack?.path != prev?.currentTrack?.path) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _scrollToTrack(next.currentTrack!);
+        });
+      }
+    });
 
     if (tracks.isEmpty) {
       // Distinguish "library is loading", "library errored", and "library
@@ -71,6 +112,8 @@ class TrackList extends ConsumerWidget {
     }
 
     return ListView.builder(
+      controller: _scrollController,
+      itemExtent: _kItemHeight,  // fixed extent keeps scroll math exact
       itemCount: tracks.length,
       itemBuilder: (context, index) {
         final track = tracks[index];
@@ -158,7 +201,7 @@ class _TrackTileState extends ConsumerState<_TrackTile> {
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 10),
+                        horizontal: 16, vertical: 8),
                     child: Row(
                       children: [
                         Icon(

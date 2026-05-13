@@ -19,6 +19,9 @@ class LibraryState {
   // categories exist the chip is always shown regardless; this flag covers
   // the "user opted in via the gear menu after categories existed" case.
   final bool allTracksChipPinned;
+  // Category that is auto-selected when quark_music starts. Null means no
+  // default is set (falls back to the synthetic default category).
+  final String? defaultCategoryId;
 
   const LibraryState({
     this.allTracks = const [],
@@ -30,6 +33,7 @@ class LibraryState {
     this.scannedFolder,
     this.showUnassignedOnly = false,
     this.allTracksChipPinned = false,
+    this.defaultCategoryId,
   });
 
   List<Track> get visibleTracks {
@@ -80,6 +84,7 @@ class LibraryState {
     Object? scannedFolder = _sentinel,
     bool? showUnassignedOnly,
     bool? allTracksChipPinned,
+    Object? defaultCategoryId = _sentinel,
   }) {
     return LibraryState(
       allTracks: allTracks ?? this.allTracks,
@@ -92,8 +97,10 @@ class LibraryState {
           ? this.scannedFolder
           : scannedFolder as String?,
       showUnassignedOnly: showUnassignedOnly ?? this.showUnassignedOnly,
-      allTracksChipPinned:
-          allTracksChipPinned ?? this.allTracksChipPinned,
+      allTracksChipPinned: allTracksChipPinned ?? this.allTracksChipPinned,
+      defaultCategoryId: identical(defaultCategoryId, _sentinel)
+          ? this.defaultCategoryId
+          : defaultCategoryId as String?,
     );
   }
 }

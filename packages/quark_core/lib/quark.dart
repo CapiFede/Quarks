@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'ai/domain/ai_context.dart';
 import 'quark_settings.dart';
 
 abstract class Quark {
@@ -45,6 +46,11 @@ abstract class Quark {
   /// true. Return false to let Escape fall through (e.g. when nothing is open).
   /// Default: nothing to dismiss.
   bool onEscape(WidgetRef ref) => false;
+
+  /// Optional AI context the global drawer attaches when this Quark is active.
+  /// Return null (default) when the Quark has no domain-specific context.
+  /// The drawer calls this from a widget build, so [ref] is a [WidgetRef].
+  AiContext? buildAiContext(BuildContext context, WidgetRef ref) => null;
 
   /// Called once when the quark is first registered
   Future<void> initialize();

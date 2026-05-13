@@ -9,7 +9,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:quark_core/quark_core.dart';
 import 'package:window_manager/window_manager.dart';
 
-import '../quarks_registry.dart';
 import '../quarks_providers.dart';
 import 'widgets/quark_card.dart';
 
@@ -36,20 +35,33 @@ class _QuarksShellState extends ConsumerState<QuarksShell> {
     super.dispose();
   }
 
-  // Global Escape: ask the active Quark to close its topmost drawer/sub-view.
-  // Runs before focus-based key dispatch, so it works regardless of which
-  // text field, editor, or button currently has focus.
+  // Global hotkeys. Runs before focus-based key dispatch, so it works
+  // regardless of which text field, editor, or button currently has focus.
   bool _handleGlobalKey(KeyEvent event) {
     if (event is! KeyDownEvent) return false;
-    if (event.logicalKey != LogicalKeyboardKey.escape) return false;
 
-    final tabs = ref.read(tabsProvider);
-    if (tabs.isHome) return false;
-    final registry = ref.read(quarkRegistryProvider);
-    final quark = registry.getById(tabs.openTabs[tabs.activeIndex]);
-    if (quark == null) return false;
+    // F4 toggles the global AI drawer.
+    if (event.logicalKey == LogicalKeyboardKey.f4) {
+      final open = ref.read(aiDrawerOpenProvider);
+      ref.read(aiDrawerOpenProvider.notifier).state = !open;
+      return true;
+    }
 
-    return quark.onEscape(ref);
+    if (event.logicalKey == LogicalKeyboardKey.escape) {
+      // Drawer takes priority — Escape closes it before falling through.
+      if (ref.read(aiDrawerOpenProvider)) {
+        ref.read(aiDrawerOpenProvider.notifier).state = false;
+        return true;
+      }
+      final tabs = ref.read(tabsProvider);
+      if (tabs.isHome) return false;
+      final registry = ref.read(quarkRegistryProvider);
+      final quark = registry.getById(tabs.openTabs[tabs.activeIndex]);
+      if (quark == null) return false;
+      return quark.onEscape(ref);
+    }
+
+    return false;
   }
 
   @override
@@ -80,33 +92,40 @@ class _QuarksShellState extends ConsumerState<QuarksShell> {
 
     return Scaffold(
       body: _WindowFrame(
-        child: Column(
+        child: Stack(
           children: [
-            _TitleBar(tabs: tabs, registry: registry, ref: ref),
-            // Toolbars appear here when a quark is active — BEFORE the content
-            // so they don't change the content's position in the tree.
-            if (quark != null) ...[
-              QuarkToolbar(quark: quark),
-              QuarkPinnedBar(quark: quark),
-            ],
-            // Content is ALWAYS at this position with a stable key so Flutter
-            // never remounts it (preserves scroll, text, etc. across tab/home switches).
-            Expanded(
-              key: const ValueKey('quark_content'),
-              child: Stack(
-                children: [
-                  Positioned.fill(child: persistentContent),
-                  if (quark != null)
-                    Positioned.fill(
-                      child: Consumer(
-                        builder: (ctx, ref, _) =>
-                            quark.buildOverlay(ctx, ref) ??
-                            const SizedBox.shrink(),
-                      ),
-                    ),
+            Column(
+              children: [
+                _TitleBar(tabs: tabs, registry: registry, ref: ref),
+                // Toolbars appear here when a quark is active — BEFORE the content
+                // so they don't change the content's position in the tree.
+                if (quark != null) ...[
+                  QuarkToolbar(quark: quark),
+                  QuarkPinnedBar(quark: quark),
                 ],
-              ),
+                // Content is ALWAYS at this position with a stable key so Flutter
+                // never remounts it (preserves scroll, text, etc. across tab/home switches).
+                Expanded(
+                  key: const ValueKey('quark_content'),
+                  child: Stack(
+                    children: [
+                      Positioned.fill(child: persistentContent),
+                      if (quark != null)
+                        Positioned.fill(
+                          child: Consumer(
+                            builder: (ctx, ref, _) =>
+                                quark.buildOverlay(ctx, ref) ??
+                                const SizedBox.shrink(),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
             ),
+            // Global AI drawer overlays everything (titlebar included). It
+            // animates in from the right when F4 toggles aiDrawerOpenProvider.
+            const AiDrawer(),
           ],
         ),
       ),

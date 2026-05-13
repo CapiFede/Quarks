@@ -119,6 +119,9 @@ class _CategorySection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = context.quarksColors;
     final textTheme = Theme.of(context).textTheme;
+    final defaultCategoryId =
+        ref.watch(libraryProvider).valueOrNull?.defaultCategoryId;
+    final isDefault = defaultCategoryId == group.category.id;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -145,6 +148,10 @@ class _CategorySection extends ConsumerWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
+                if (isDefault) ...[
+                  const SizedBox(width: 4),
+                  Icon(Icons.star, size: 10, color: colors.primary),
+                ],
                 const SizedBox(width: 6),
                 Text(
                   '${group.playlists.length}',
@@ -187,6 +194,9 @@ class _CategorySection extends ConsumerWidget {
   ) {
     final colors = context.quarksColors;
     final pos = details.globalPosition;
+    final isDefault =
+        ref.read(libraryProvider).valueOrNull?.defaultCategoryId ==
+            category.id;
     showMenu<String>(
       context: context,
       position: RelativeRect.fromLTRB(pos.dx, pos.dy, pos.dx, pos.dy),
@@ -201,6 +211,24 @@ class _CategorySection extends ConsumerWidget {
           value: 'delete',
           child: Text('Delete', style: TextStyle(color: colors.error)),
         ),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          value: isDefault ? 'unset_default' : 'set_default',
+          child: Row(
+            children: [
+              Icon(
+                isDefault ? Icons.star : Icons.star_border,
+                size: 12,
+                color: isDefault ? colors.primary : colors.textLight,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                isDefault ? 'Remove default' : 'Set as default',
+                style: TextStyle(color: colors.textPrimary),
+              ),
+            ],
+          ),
+        ),
       ],
     ).then((value) async {
       if (!context.mounted) return;
@@ -209,6 +237,12 @@ class _CategorySection extends ConsumerWidget {
           await showRenameCategoryDialog(context, ref, category);
         case 'delete':
           await ref.read(libraryProvider.notifier).deleteCategory(category.id);
+        case 'set_default':
+          await ref
+              .read(libraryProvider.notifier)
+              .setDefaultCategory(category.id);
+        case 'unset_default':
+          await ref.read(libraryProvider.notifier).setDefaultCategory(null);
       }
     });
   }
