@@ -84,9 +84,22 @@ class _DriveSyncContent extends ConsumerWidget {
                   textTheme.bodySmall?.copyWith(color: colors.textPrimary),
             ),
             const SizedBox(height: 20),
-            ActionButton(
-              label: state.isSyncing ? 'SINCRONIZANDO...' : 'SINCRONIZAR AHORA',
-              onTap: state.isSyncing ? null : () => notifier.syncNow(),
+            Row(
+              children: [
+                Expanded(
+                  child: ActionButton(
+                    label: state.isSyncing ? '...' : 'PUSH',
+                    onTap: state.isSyncing ? null : () => notifier.pushNow(),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ActionButton(
+                    label: state.isSyncing ? '...' : 'PULL',
+                    onTap: state.isSyncing ? null : () => notifier.pullNow(),
+                  ),
+                ),
+              ],
             ),
             if (state.isSyncing && state.syncProgress != null) ...[
               const SizedBox(height: 12),

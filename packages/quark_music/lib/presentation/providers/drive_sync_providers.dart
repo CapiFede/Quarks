@@ -109,7 +109,19 @@ class DriveSyncNotifier extends Notifier<DriveSyncState> {
     }
   }
 
-  Future<void> syncNow() async {
+  Future<void> pushNow() => _runSync(
+        (service, musicDir, playlistsDir) =>
+            service.push(musicDirPath: musicDir, playlistsDirPath: playlistsDir),
+      );
+
+  Future<void> pullNow() => _runSync(
+        (service, musicDir, playlistsDir) =>
+            service.pull(musicDirPath: musicDir, playlistsDirPath: playlistsDir),
+      );
+
+  Future<void> _runSync(
+    Stream<SyncProgress> Function(DriveSyncService, String, String) buildStream,
+  ) async {
     if (state.isSyncing) return;
 
     final storage = ref.read(playlistStorageServiceProvider);
@@ -126,33 +138,34 @@ class DriveSyncNotifier extends Notifier<DriveSyncState> {
     WakelockPlus.enable();
 
     _syncSub?.cancel();
-    _syncSub = ref
-        .read(driveSyncServiceProvider)
-        .sync(musicDirPath: musicDir, playlistsDirPath: playlistsDir)
-        .listen(
-          (progress) {
-            state = state.copyWith(syncProgress: progress);
-            if (progress.phase == SyncPhase.done) {
-              WakelockPlus.disable();
-              _onSyncDone(progress.title);
-            } else if (progress.phase == SyncPhase.error) {
-              WakelockPlus.disable();
-              state = state.copyWith(
-                isSyncing: false,
-                errorMessage: progress.error,
-                clearSyncProgress: true,
-              );
-            }
-          },
-          onError: (Object e) {
-            WakelockPlus.disable();
-            state = state.copyWith(
-              isSyncing: false,
-              errorMessage: e.toString(),
-              clearSyncProgress: true,
-            );
-          },
+    _syncSub = buildStream(
+      ref.read(driveSyncServiceProvider),
+      musicDir,
+      playlistsDir,
+    ).listen(
+      (progress) {
+        state = state.copyWith(syncProgress: progress);
+        if (progress.phase == SyncPhase.done) {
+          WakelockPlus.disable();
+          _onSyncDone(progress.title);
+        } else if (progress.phase == SyncPhase.error) {
+          WakelockPlus.disable();
+          state = state.copyWith(
+            isSyncing: false,
+            errorMessage: progress.error,
+            clearSyncProgress: true,
+          );
+        }
+      },
+      onError: (Object e) {
+        WakelockPlus.disable();
+        state = state.copyWith(
+          isSyncing: false,
+          errorMessage: e.toString(),
+          clearSyncProgress: true,
         );
+      },
+    );
   }
 
   Future<void> _onSyncDone(String label) async {

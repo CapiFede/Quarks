@@ -287,6 +287,267 @@ class DriveSyncService {
     }
   }
 
+  Stream<SyncProgress> push({
+    required String musicDirPath,
+    required String playlistsDirPath,
+  }) async* {
+    yield const SyncProgress(
+      phase: SyncPhase.scanning,
+      title: 'Escaneando...',
+      percent: 0,
+    );
+
+    try {
+      final api = await _getApi();
+      if (api == null) {
+        yield const SyncProgress(
+          phase: SyncPhase.error,
+          error: 'No autenticado. Conectá tu Drive primero.',
+        );
+        return;
+      }
+
+      final quarksId = await _ensureFolder(api, 'Quarks', null);
+      final musicFolderId = await _ensureFolder(api, 'music', quarksId);
+      final playlistsFolderId =
+          await _ensureFolder(api, 'playlists', quarksId);
+
+      final remoteFiles = <String, drive.File>{
+        ...await _listFolder(api, musicFolderId, 'music'),
+        ...await _listFolder(api, playlistsFolderId, 'playlists'),
+      };
+
+      final localFiles = <String, File>{};
+      final musicDir = Directory(musicDirPath);
+      if (await musicDir.exists()) {
+        await for (final e in musicDir.list()) {
+          if (e is File && e.path.endsWith('.mp3')) {
+            localFiles['music/${p.basename(e.path)}'] = e;
+          }
+        }
+      }
+      final playlistsDir = Directory(playlistsDirPath);
+      if (await playlistsDir.exists()) {
+        await for (final e in playlistsDir.list()) {
+          if (e is File && e.path.endsWith('.json')) {
+            localFiles['playlists/${p.basename(e.path)}'] = e;
+          }
+        }
+      }
+
+      final ops = <_Op>[];
+      for (final entry in localFiles.entries) {
+        final path = entry.key;
+        final remote = remoteFiles[path];
+        final parentId =
+            path.startsWith('music/') ? musicFolderId : playlistsFolderId;
+        ops.add(_Op.upload(
+          path,
+          entry.value,
+          driveId: remote?.id,
+          parentFolderId: remote == null ? parentId : null,
+        ));
+      }
+      for (final entry in remoteFiles.entries) {
+        if (!localFiles.containsKey(entry.key)) {
+          ops.add(_Op.deleteRemote(entry.key, entry.value.id!));
+        }
+      }
+
+      if (ops.isEmpty) {
+        await _saveManifest({});
+        yield const SyncProgress(
+          phase: SyncPhase.done,
+          percent: 1.0,
+          title: 'Sin cambios',
+        );
+        return;
+      }
+
+      final total = ops.length;
+      int done = 0;
+      final nextManifest = <String, _ManifestEntry>{};
+
+      for (final op in ops) {
+        done++;
+        switch (op.type) {
+          case _OpType.upload:
+            yield SyncProgress(
+              phase: SyncPhase.uploading,
+              currentItem: done,
+              totalItems: total,
+              title: p.basename(op.path),
+              percent: (done - 1) / total,
+            );
+            final mtime = await op.localFile!.lastModified();
+            final driveId = await _upload(
+              api,
+              op.localFile!,
+              p.basename(op.path),
+              op.driveId,
+              op.parentFolderId,
+              mtime,
+            );
+            nextManifest[op.path] =
+                _ManifestEntry(driveId: driveId, mtime: mtime);
+
+          case _OpType.deleteRemote:
+            yield SyncProgress(
+              phase: SyncPhase.deleting,
+              currentItem: done,
+              totalItems: total,
+              title: p.basename(op.path),
+              percent: done / total,
+            );
+            try {
+              await api.files.delete(op.driveId!);
+            } catch (_) {}
+
+          default:
+            break;
+        }
+      }
+
+      await _saveManifest(nextManifest);
+      yield SyncProgress(
+        phase: SyncPhase.done,
+        percent: 1.0,
+        currentItem: total,
+        totalItems: total,
+        title: 'Subido a Drive',
+      );
+    } catch (e) {
+      yield SyncProgress(phase: SyncPhase.error, error: e.toString());
+    }
+  }
+
+  Stream<SyncProgress> pull({
+    required String musicDirPath,
+    required String playlistsDirPath,
+  }) async* {
+    yield const SyncProgress(
+      phase: SyncPhase.scanning,
+      title: 'Escaneando...',
+      percent: 0,
+    );
+
+    try {
+      final api = await _getApi();
+      if (api == null) {
+        yield const SyncProgress(
+          phase: SyncPhase.error,
+          error: 'No autenticado. Conectá tu Drive primero.',
+        );
+        return;
+      }
+
+      final quarksId = await _ensureFolder(api, 'Quarks', null);
+      final musicFolderId = await _ensureFolder(api, 'music', quarksId);
+      final playlistsFolderId =
+          await _ensureFolder(api, 'playlists', quarksId);
+
+      final remoteFiles = <String, drive.File>{
+        ...await _listFolder(api, musicFolderId, 'music'),
+        ...await _listFolder(api, playlistsFolderId, 'playlists'),
+      };
+
+      final localFiles = <String, File>{};
+      final musicDir = Directory(musicDirPath);
+      if (await musicDir.exists()) {
+        await for (final e in musicDir.list()) {
+          if (e is File && e.path.endsWith('.mp3')) {
+            localFiles['music/${p.basename(e.path)}'] = e;
+          }
+        }
+      }
+      final playlistsDir = Directory(playlistsDirPath);
+      if (await playlistsDir.exists()) {
+        await for (final e in playlistsDir.list()) {
+          if (e is File && e.path.endsWith('.json')) {
+            localFiles['playlists/${p.basename(e.path)}'] = e;
+          }
+        }
+      }
+
+      final ops = <_Op>[];
+      for (final entry in remoteFiles.entries) {
+        final path = entry.key;
+        final remote = entry.value;
+        ops.add(_Op.download(
+          path,
+          remote.id!,
+          _resolveLocal(path, musicDirPath, playlistsDirPath),
+          remote.modifiedTime!,
+        ));
+      }
+      for (final entry in localFiles.entries) {
+        if (!remoteFiles.containsKey(entry.key)) {
+          ops.add(_Op.deleteLocal(entry.key, entry.value));
+        }
+      }
+
+      if (ops.isEmpty) {
+        await _saveManifest({});
+        yield const SyncProgress(
+          phase: SyncPhase.done,
+          percent: 1.0,
+          title: 'Sin cambios',
+        );
+        return;
+      }
+
+      final total = ops.length;
+      int done = 0;
+      final nextManifest = <String, _ManifestEntry>{};
+
+      for (final op in ops) {
+        done++;
+        switch (op.type) {
+          case _OpType.download:
+            yield SyncProgress(
+              phase: SyncPhase.downloading,
+              currentItem: done,
+              totalItems: total,
+              title: p.basename(op.path),
+              percent: (done - 1) / total,
+            );
+            await _download(api, op.driveId!, op.localPath!);
+            await File(op.localPath!).setLastModified(op.remoteMtime!);
+            nextManifest[op.path] = _ManifestEntry(
+              driveId: op.driveId!,
+              mtime: op.remoteMtime!,
+            );
+
+          case _OpType.deleteLocal:
+            yield SyncProgress(
+              phase: SyncPhase.deleting,
+              currentItem: done,
+              totalItems: total,
+              title: p.basename(op.path),
+              percent: done / total,
+            );
+            try {
+              await op.localFile!.delete();
+            } catch (_) {}
+
+          default:
+            break;
+        }
+      }
+
+      await _saveManifest(nextManifest);
+      yield SyncProgress(
+        phase: SyncPhase.done,
+        percent: 1.0,
+        currentItem: total,
+        totalItems: total,
+        title: 'Descargado de Drive',
+      );
+    } catch (e) {
+      yield SyncProgress(phase: SyncPhase.error, error: e.toString());
+    }
+  }
+
   String _resolveLocal(
     String relativePath,
     String musicDirPath,
