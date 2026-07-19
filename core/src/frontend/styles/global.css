@@ -1,0 +1,37 @@
+/* Reset y layout base de la ventana. Los tokens viven en tokens.css. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  /* La ventana no scrollea: cada quark maneja su propio overflow. */
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Inputs y textareas sí permiten selección. */
+input,
+textarea,
+[contenteditable="true"] {
+  user-select: text;
+}
+
+/* Texto que el usuario puede seleccionar y copiar (mensajes del chat, etc.).
+   Contrarresta el `user-select: none` del body de forma localizada. */
+.q-selectable,
+.q-selectable * {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}

@@ -1,0 +1,61 @@
+/* =============================================================================
+ * Quark Console — estilos scoped (.q-console-*). Solo tokens --q-* del DS,
+ * más overrides mínimos del .xterm para que herede el background del quark.
+ * ===========================================================================*/
+
+.q-console-page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  background: #0e1116;
+}
+
+.q-console-host {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  /* xterm mide el container con clientWidth/Height; cero rompe el fit. */
+  position: relative;
+  padding: 6px 8px;
+  background: #0e1116;
+}
+
+/* Cada terminal vive en su propio div detached (q-console-terminal); se
+ * appendea al host visible al activarse. Forzamos que ocupe todo el host y
+ * que xterm pueda medirlo bien. */
+.q-console-terminal {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+}
+
+/* xterm crea su propio .xterm con position: relative; tomamos todo el espacio. */
+.q-console-terminal .xterm {
+  width: 100%;
+  height: 100%;
+}
+
+.q-console-terminal .xterm-viewport {
+  background-color: transparent !important;
+}
+
+.q-console-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: var(--q-background);
+}
+
+.q-console-empty-text {
+  font-size: 13px;
+  color: var(--q-text-secondary);
+}

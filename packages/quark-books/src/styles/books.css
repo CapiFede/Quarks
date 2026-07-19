@@ -1,0 +1,606 @@
+/* =============================================================================
+ * Quark Books — estilos scoped.
+ * Solo tokens --q-* del design system. Sin colores hardcodeados, sin gradientes,
+ * sin blur. Espejo de Quarks Design System/ui_kit/BooksQuark.jsx (§4 README).
+ * ===========================================================================*/
+
+/* ── Layout principal ──────────────────────────────────────────────────────── */
+
+.q-books-page {
+  flex: 1;
+  display: flex;
+  background: var(--q-background);
+  min-height: 0;
+  height: 100%;
+}
+
+/* ── Sidebar ───────────────────────────────────────────────────────────────── */
+
+.q-books-sidebar {
+  width: 240px;
+  flex: 0 0 240px;
+  background: var(--q-surface);
+  border-right: 1px solid var(--q-border);
+  overflow: auto;
+  min-height: 0;
+  position: relative;
+  user-select: none;
+}
+
+.q-books-book-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px 6px;
+}
+
+.q-books-book-header[data-clickable="true"] {
+  cursor: pointer;
+  transition: background var(--q-dur-fast) var(--q-ease);
+}
+
+.q-books-book-header[data-clickable="true"]:hover {
+  background: var(--q-card-hover);
+}
+
+.q-books-book-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--q-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+/* Fila "Nuevo libro" del estado vacío (sin libros en el space). */
+.q-books-new-book-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  margin: 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--q-text-secondary);
+  border: 1px dashed var(--q-border-light);
+  transition: background var(--q-dur-fast) var(--q-ease), color var(--q-dur-fast) var(--q-ease);
+}
+
+.q-books-new-book-row:hover {
+  background: var(--q-card-hover);
+  color: var(--q-text-primary);
+}
+
+.q-books-folder-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px 5px 18px;
+  cursor: default;
+  transition: background var(--q-dur-fast) var(--q-ease);
+}
+
+.q-books-folder-row:hover {
+  background: var(--q-card-hover);
+}
+
+.q-books-folder-row[data-into-active="true"] {
+  background: var(--q-primary-soft);
+  box-shadow: inset 0 0 0 1px var(--q-primary);
+  border-radius: 4px;
+}
+
+.q-books-folder-row[data-into-active="true"] .q-books-folder-name {
+  color: var(--q-primary);
+}
+
+.q-books-folder-name {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--q-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.q-books-chapter-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px 5px 16px;
+  cursor: default;
+  border-left: 2px solid transparent;
+  transition: background var(--q-dur-fast) var(--q-ease);
+}
+
+.q-books-chapter-row:hover {
+  background: var(--q-card-hover);
+}
+
+.q-books-chapter-row[data-active="true"] {
+  background: var(--q-primary-soft-9);
+  border-left: 2px solid var(--q-primary);
+}
+
+.q-books-chapter-row[data-dragging="true"] {
+  opacity: 0.45;
+}
+
+.q-books-chapter-icon {
+  flex: 0 0 auto;
+  color: var(--q-text-light);
+}
+
+.q-books-chapter-row[data-active="true"] .q-books-chapter-icon {
+  color: var(--q-primary);
+}
+
+.q-books-chapter-title {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--q-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.q-books-chapter-row[data-active="true"] .q-books-chapter-title {
+  color: var(--q-primary);
+  font-weight: 600;
+}
+
+/* Capítulo borrador (sin persistir): título atenuado en cursiva. */
+.q-books-chapter-row[data-placeholder="true"] .q-books-chapter-title {
+  font-style: italic;
+  color: var(--q-text-light);
+}
+
+.q-books-chapter-row[data-placeholder="true"][data-active="true"] .q-books-chapter-title {
+  color: var(--q-primary);
+}
+
+.q-books-chapter-words {
+  font-size: 10px;
+  color: var(--q-text-light);
+  font-family: var(--q-font-mono);
+  font-variant-numeric: tabular-nums;
+  flex: 0 0 auto;
+}
+
+/* Drop zone entre items: oculta en reposo, expandida durante el drag para
+ * que sea fácil de apuntar con el cursor. */
+.q-books-dropzone {
+  height: 4px;
+  margin: -2px 12px;
+  border-radius: 1px;
+  transition:
+    height var(--q-dur-fast) var(--q-ease),
+    margin var(--q-dur-fast) var(--q-ease),
+    background var(--q-dur-fast) var(--q-ease);
+}
+
+.q-books-sidebar[data-dragging="true"] .q-books-dropzone {
+  height: 14px;
+  margin: -2px 12px;
+}
+
+.q-books-dropzone[data-active="true"] {
+  background: var(--q-primary);
+}
+
+/* Menú contextual (right-click) */
+.q-books-context-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 200px;
+  padding: 4px;
+  background: var(--q-surface);
+  border: 1px solid var(--q-border-dark);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+/* ── Editor ────────────────────────────────────────────────────────────────── */
+
+.q-books-editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--q-background);
+  min-height: 0;
+}
+
+.q-books-editor-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 32px 8px;
+  border-bottom: 1px solid var(--q-border);
+}
+
+.q-books-chapter-heading {
+  flex: 1;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--q-text-primary);
+  cursor: default;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.q-books-chapter-meta {
+  font-size: 11px;
+  color: var(--q-text-light);
+  font-family: var(--q-font-mono);
+  font-variant-numeric: tabular-nums;
+  flex: 0 0 auto;
+}
+
+/* ── Body: pila vertical de páginas con proporciones de libro de novela ───── */
+
+/* Canvas oscuro detrás de las páginas: el gap entre cards muestra este fondo
+ * para que cada hoja se vea físicamente separada de la siguiente. */
+.q-books-body {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 28px 16px 60px;
+  background: var(--q-background-dark, var(--q-background));
+  min-height: 0;
+  /* Scroll libre: sin scroll-snap, el usuario puede dejar la vista entre dos
+   * páginas. El snap anterior forzaba saltar de hoja en hoja. */
+}
+
+.q-books-page-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+  width: 100%;
+  max-width: 100%;
+}
+
+/* ── Hoja del editor: papel continuo con cortes de página ─────────────────────
+ * El editor es una sola hoja de papel que crece con el contenido (layout de
+ * bloque normal → selección/caret/click robustos). Los cortes de página son
+ * DECORACIONES de ProseMirror (widgets no-editables) que materializan el espacio
+ * entre páginas + la línea separadora; no se insertan en el documento (no tocan
+ * markdown ni undo). El ancho, los márgenes y el "alto de página" se inyectan
+ * como CSS vars desde RichEditor (BOOK_PAGE). El corte real lo hace el PDF. */
+.q-books-paper {
+  position: relative;
+  width: var(--q-books-page-w);
+  background-color: var(--q-surface);
+  border: 1px solid var(--q-border);
+  border-radius: 4px;
+  box-shadow:
+    0 1px 0 var(--q-border),
+    0 12px 28px rgba(0, 0, 0, 0.22);
+  padding: var(--q-books-page-my) var(--q-books-page-mx);
+  flex: 0 0 auto;
+}
+
+/* Corte de página: widget no-editable cuyo alto (inline, desde RichEditor)
+ * RELLENA lo que sobra de la página + los márgenes, así la línea queda clavada en
+ * la grilla y el texto no queda pegado al separador. */
+.q-books-pagebreak {
+  position: relative;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Línea separadora a todo el ancho de la hoja (los `-mx` compensan el padding
+ * lateral para llegar a los bordes del papel). El `top` lo setea RichEditor.
+ * Visible: línea de trazos en color de texto secundario. */
+.q-books-pagebreak-line {
+  position: absolute;
+  left: calc(-1 * var(--q-books-page-mx));
+  right: calc(-1 * var(--q-books-page-mx));
+  border-top: 2px dashed var(--q-text-secondary);
+}
+
+/* Etiqueta "página N" centrada sobre la línea, como una píldora marcada. */
+.q-books-pagebreak-label {
+  position: absolute;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 3px 14px;
+  background: var(--q-text-secondary);
+  border-radius: 999px;
+  font-family: var(--q-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--q-surface);
+}
+
+/* Card de hoja fija (proporción 2:3): hoy solo la usa la vista comparativa. */
+.q-books-page-card {
+  --q-books-page-w: min(540px, calc(100vw - 320px));
+  --q-books-page-h: calc(var(--q-books-page-w) * 1.5);
+  width: var(--q-books-page-w);
+  height: var(--q-books-page-h);
+  background: var(--q-surface);
+  border: 1px solid var(--q-border);
+  border-radius: 4px;
+  box-shadow:
+    0 1px 0 var(--q-border),
+    0 12px 28px rgba(0, 0, 0, 0.22);
+  display: flex;
+  flex-direction: column;
+  padding: 56px 60px 32px;
+  position: relative;
+  overflow: hidden;
+  scroll-margin-top: 28px;
+  flex: 0 0 auto;
+}
+
+/* Tipografía del cuerpo. La familia/tamaño/interlineado se controlan desde la
+ * toolbar (TypographyMenu) vía estas variables, inyectadas en `.q-books-page`.
+ * Los fallbacks son los defaults estilo novela por si faltara la variable. */
+.q-books-prose {
+  font-family: var(--q-books-font-family, var(--q-font-serif));
+  font-size: var(--q-books-font-size, 16px);
+  line-height: var(--q-books-line-height, 1.45);
+  color: var(--q-text-primary);
+  padding: 0;
+  margin: 0;
+  letter-spacing: 0;
+  word-break: normal;
+  overflow-wrap: break-word;
+  tab-size: 4;
+}
+
+/* Superficie editable (ProseMirror): el texto, sobre el papel y por encima de
+ * las guías. `min-height` = un alto de página, para que una hoja vacía ya se vea
+ * completa. */
+.q-books-surface {
+  position: relative;
+  z-index: 1;
+  outline: none;
+  min-height: var(--q-books-content-h);
+  caret-color: var(--q-primary-light);
+  cursor: text;
+}
+
+/* Resaltado de búsqueda (clases que pone la extensión search-and-replace; el
+ * match activo agrega `-current`). */
+.q-books-search {
+  background-color: var(--q-primary-soft);
+  border-radius: 2px;
+}
+.q-books-search.q-books-search-current {
+  background-color: var(--q-primary);
+  color: var(--q-on-primary, #fff);
+}
+
+/* Estilos de bloque compartidos por el editor y la vista comparativa
+ * (ambos usan `.q-books-prose`).
+ *
+ * OJO con la especificidad: el design system define `.q p`, `.q h1/2/3` con
+ * tamaños FIJOS que apuntan directo a esos elementos y le ganarían al `font-size`
+ * que hereda la superficie. Por eso prefijamos con `.q ` (sube la especificidad)
+ * y aplicamos el tamaño del cuerpo DIRECTO a los párrafos, para que el control
+ * de "Tamaño" agrande las letras de verdad. Los encabezados escalan con el
+ * cuerpo usando `em`. */
+.q .q-books-prose h1,
+.q .q-books-prose h2,
+.q .q-books-prose h3 {
+  margin: 18px 0 6px;
+  font-weight: 700;
+  color: var(--q-text-primary);
+  line-height: 1.25;
+}
+.q .q-books-prose h1 { font-size: 1.5em; }
+.q .q-books-prose h2 { font-size: 1.25em; }
+.q .q-books-prose h3 { font-size: 1.05em; font-weight: 600; }
+
+.q .q-books-prose p {
+  font-size: var(--q-books-font-size, 16px);
+  margin: 0 0 12px;
+}
+
+.q .q-books-prose ul {
+  margin: 0 0 12px;
+  padding-left: 22px;
+}
+
+.q .q-books-prose li {
+  font-size: var(--q-books-font-size, 16px);
+  margin: 2px 0;
+}
+
+.q .q-books-prose blockquote {
+  margin: 0 0 12px;
+  padding-left: 12px;
+  border-left: 2px solid var(--q-border);
+  color: var(--q-text-secondary);
+}
+
+.q .q-books-prose blockquote p {
+  margin: 4px 0;
+}
+
+/* Layout del bloque de markdown en la vista comparativa (read-only). */
+.q-books-preview {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.q-books-preview strong { font-weight: 700; color: var(--q-text-primary); }
+.q-books-preview em { font-style: italic; }
+
+/* ── Footer ────────────────────────────────────────────────────────────────── */
+
+.q-books-editor-footer {
+  height: 24px;
+  background: var(--q-surface);
+  border-top: 1px solid var(--q-border);
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 0 14px;
+  font-size: 10px;
+  font-family: var(--q-font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--q-text-light);
+  flex: 0 0 24px;
+}
+
+.q-books-footer-left {
+  justify-self: start;
+}
+
+.q-books-footer-center {
+  justify-self: center;
+}
+
+.q-books-footer-right {
+  justify-self: end;
+}
+
+/* ── Vista comparativa lado-a-lado ─────────────────────────────────────────── */
+
+/* Contenedor del split: ocupa el lugar del editor cuando hay `compare` activo.
+ * Dos paneles flex-1 + un divisor vertical fino. Cada panel mantiene su
+ * estructura interna (header/body/footer) gracias a `.q-books-editor`. */
+.q-books-split {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  min-width: 0;
+  min-height: 0;
+}
+
+.q-books-split > .q-books-editor {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.q-books-split-divider {
+  width: 1px;
+  background: var(--q-border);
+  flex: 0 0 1px;
+}
+
+/* En modo split la card de comparación mantiene el cap de 540px pero mide sobre
+ * la columna del split (`100%`) en lugar del viewport: si el panel es angosto,
+ * la card se achica a su ancho. */
+.q-books-split .q-books-page-card {
+  --q-books-page-w: min(540px, calc(100% - 32px));
+}
+
+/* Panel derecho del split (read-only). Mismo molde que el editor para que
+ * los headers / footers se alineen entre los dos lados. */
+.q-books-compare-pane {
+  background: var(--q-background);
+}
+
+.q-books-compare-header {
+  gap: 10px;
+}
+
+.q-books-compare-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.q-books-compare-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--q-text-secondary);
+}
+
+.q-books-compare-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.q-books-compare-btn {
+  appearance: none;
+  border: 1px solid var(--q-border-dark);
+  background: var(--q-surface);
+  color: var(--q-text-primary);
+  font-family: var(--q-font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: default;
+  transition:
+    background var(--q-dur-fast) var(--q-ease),
+    border-color var(--q-dur-fast) var(--q-ease),
+    color var(--q-dur-fast) var(--q-ease);
+}
+
+.q-books-compare-btn:hover {
+  background: var(--q-card-hover);
+}
+
+.q-books-compare-btn-reject:hover {
+  color: var(--q-error);
+  border-color: var(--q-error);
+}
+
+.q-books-compare-btn-replace {
+  color: var(--q-text-secondary);
+}
+
+.q-books-compare-btn-replace:hover {
+  color: var(--q-primary);
+  border-color: var(--q-primary);
+}
+
+.q-books-compare-btn-accept {
+  background: var(--q-primary);
+  border-color: var(--q-primary);
+  color: var(--q-on-primary, #fff);
+}
+
+.q-books-compare-btn-accept:hover {
+  background: var(--q-primary-light, var(--q-primary));
+  border-color: var(--q-primary-light, var(--q-primary));
+}
+
+/* Banner del summary que manda la IA arriba del card (cuando hay). */
+.q-books-compare-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 32px;
+  background: var(--q-primary-soft-9, var(--q-card-hover));
+  border-bottom: 1px solid var(--q-border);
+  font-size: 11px;
+  color: var(--q-text-secondary);
+  font-style: italic;
+}
+
+/* La card del panel comparativo es scrolleable internamente: no replicamos la
+ * auto-paginación por overflow (el contenido es read-only). */
+.q-books-compare-card {
+  height: auto;
+  min-height: var(--q-books-page-h);
+  max-height: calc(var(--q-books-page-h) * 2);
+  overflow: auto;
+}
+
+.q-books-compare-prose {
+  height: auto;
+  overflow: visible;
+}

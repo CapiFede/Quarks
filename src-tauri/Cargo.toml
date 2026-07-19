@@ -1,0 +1,140 @@
+[package]
+name = "quarks"
+version = "0.4.5"
+description = "A Tauri App"
+authors = ["you"]
+license = ""
+repository = ""
+edition = "2021"
+rust-version = "1.77.2"
+# `cargo run` debe usar la app, no el helper `quark-pty-host` (también `[[bin]]`
+# del mismo crate). Sin esto Cargo no puede elegir y aborta con
+# "could not determine which binary to run".
+default-run = "quarks"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+# Binario helper del quark-console: hostea PTYs elevados (admin) en su propio
+# proceso, lanzado vía ShellExecuteEx + verbo `runas`. Se comunica con la app
+# por named pipe. Vive como [[bin]] del mismo crate para compartir el módulo
+# `app_lib::console::protocol` (framing común). Solo se compila en desktop:
+# en Android no se usa. Ver `console/transport/elevated.rs`.
+[[bin]]
+name = "quark-pty-host"
+path = "src/bin/pty_host.rs"
+required-features = []
+
+[build-dependencies]
+tauri-build = { version = "2.6.2", features = [] }
+
+# Dependencias comunes a todas las plataformas (incluido Android).
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+tauri = { version = "2.11.2", features = [] }
+tauri-plugin-log = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-http = "2"
+tauri-plugin-dialog = "2"
+# Clipboard del SO: lo usamos para leer imágenes del portapapeles. En WebKitGTK
+# (Linux) el evento `paste` del WebView no expone imágenes, así que el frontend
+# cae a `readImage()` de este plugin como fallback.
+tauri-plugin-clipboard-manager = "2"
+# Deep links — receptor de URLs externas (custom URI schemes + App Links).
+# En Android es el path para terminar el OAuth: Google redirige a un scheme
+# registrado por la app y `onOpenUrl()` del plugin nos entrega la URL con el
+# `code`. En desktop también funciona (single-instance + Custom Tab schemes).
+tauri-plugin-deep-link = "2"
+
+# Music quark — IO de archivos (siempre disponible, incluido Android):
+#   walkdir: escaneo recursivo de la carpeta de canciones.
+#   lofty:   lectura/escritura de tags y portadas embebidas.
+#   base64:  serializa la portada como data URL para el frontend.
+# Lo PESADO del quark (rodio para reproducir, ureq+zip para descargar yt-dlp/
+# ffmpeg) vive en el bloque desktop-only de abajo. En Android la reproducción
+# se hace en el frontend con HTMLAudioElement.
+walkdir = "2"
+lofty = "0.21"
+base64 = "0.22"
+
+# Dependencias desktop-only (Windows / macOS / Linux).
+#
+# Lo que vive acá NO compila para Android — sea por el crate (rodio/keyring no
+# tienen backend Android sin trabajo extra), por el modelo de ejecución (ureq +
+# binarios externos descargados al filesystem para yt-dlp/ffmpeg no aplican en
+# el sandbox de Android), o por la API (autostart, OAuth loopback en localhost
+# son patrones de escritorio).
+[target.'cfg(not(target_os = "android"))'.dependencies]
+tauri-plugin-autostart = "2"
+# Account (sync genérico): loopback OAuth + abrir el browser + HTTP sin CORS.
+# Android usa Custom Tabs + deep links — habrá que reescribirlo cuando portemos.
+tauri-plugin-oauth = "2"
+# Updater: descarga + verifica firma del NSIS/MSI desde GitHub Releases.
+# En Android no aplica — el canal de updates es la Play Store.
+tauri-plugin-updater = "2"
+# Process: relaunch() tras instalar el update (macOS/Linux no relanza solo).
+tauri-plugin-process = "2"
+
+# Reproducción del music quark (decodificación vía symphonia para amplio
+# soporte de formatos). Sin backend Android viable hoy: en Android usamos
+# HTMLAudioElement en el frontend (ver packages/quark-music/services/android*).
+rodio = { version = "0.20", default-features = false, features = ["symphonia-all"] }
+
+# Descarga de música (yt-dlp + ffmpeg): cliente HTTP blocking (rustls, sin
+# OpenSSL del sistema) + unzip del paquete de ffmpeg de BtbN.
+ureq = { version = "2", features = ["tls"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+# Console quark: PTY real multiplataforma (mismo crate que usa WezTerm). Lo
+# usan tanto el módulo `console` del lib (sesiones locales in-process) como el
+# binario `quark-pty-host` (sesiones elevadas). En Android no hay PTY shell:
+# por eso queda desktop-only.
+portable-pty = "0.8"
+# Concurrencia liviana para los hilos de IO del PTY (lectura, escritura, exit).
+parking_lot = "0.12"
+# UUIDs para namespacing de named pipes en sesiones elevadas.
+uuid = { version = "1", features = ["v4"] }
+
+# Secretos (API keys, tokens OAuth) en el almacén nativo del SO, por plataforma:
+#   Windows → Credential Manager · Linux → Secret Service (D-Bus) · macOS → Keychain.
+# Android queda fuera (usaría Android Keystore vía un plugin custom).
+# Expuesto al frontend como comandos Tauri (ver src/secrets.rs).
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+# APIs Win32 que usa el console quark: ShellExecuteExW (UAC `runas`) en el
+# transporte elevado y los pipes nombrados del lado servidor. Solo Windows.
+windows = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_System_Pipes",
+  "Win32_System_IO",
+  "Win32_System_Registry",
+  "Win32_System_Threading",
+  "Win32_Storage_FileSystem",
+  "Win32_Security",
+] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["sync-secret-service"] }
+# Controles de media del SO (MPRIS): teclas multimedia del teclado/auriculares y
+# el widget del reproductor de GNOME/KDE manejan la reproducción del quark Música.
+# Backend zbus (D-Bus puro en Rust, sin linkear libdbus del sistema) — igual que
+# keyring acá usa sync-secret-service. Souvlaki es cross-platform; por ahora solo
+# lo activamos en Linux (Windows/macOS quedan como no-op en el módulo `mpris`).
+souvlaki = { version = "0.8", default-features = false, features = ["use_zbus"] }
+# Auto-download de ffmpeg en Linux: el build estático de John Van Sickle viene
+# como `.tar.xz`. `lzma-rs` descomprime xz en Rust puro (sin liblzma del
+# sistema, así no rompe el AppImage) y `tar` desempaqueta el tarball.
+lzma-rs = "0.3"
+tar = "0.4"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }

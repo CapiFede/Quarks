@@ -1,0 +1,34 @@
+{
+  "$schema": "../gen/schemas/android-schema.json",
+  "identifier": "android",
+  "description": "Permisos del core en Android. Subset del default.json desktop sin: control de ventana (no aplica), autostart (no aplica), OAuth loopback (hay que rehacerlo con Custom Tabs + deep links).",
+  "windows": ["main"],
+  "platforms": ["android"],
+  "permissions": [
+    "core:default",
+
+    "fs:allow-appdata-read-recursive",
+    "fs:allow-appdata-write-recursive",
+    "fs:allow-appdata-meta-recursive",
+
+    "dialog:allow-open",
+    "dialog:allow-confirm",
+
+    "deep-link:default",
+
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "https://accounts.google.com/*" }]
+    },
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://oauth2.googleapis.com/*" },
+        { "url": "https://www.googleapis.com/*" },
+        { "url": "https://openidconnect.googleapis.com/*" },
+        { "url": "https://openrouter.ai/*" },
+        { "url": "https://**" }
+      ]
+    }
+  ]
+}

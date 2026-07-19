@@ -1,0 +1,62 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Quarks",
+  "version": "0.4.5",
+  "identifier": "com.quarks.app",
+  "build": {
+    "frontendDist": "../core/dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "cargo build --manifest-path src-tauri/Cargo.toml --bin quark-pty-host && pnpm --filter @quarks/core dev",
+    "beforeBuildCommand": "cargo build --manifest-path src-tauri/Cargo.toml --release --bin quark-pty-host && pnpm --filter @quarks/core build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Quarks",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": false,
+        "transparent": false,
+        "center": true,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "android": {
+      "debugApplicationIdSuffix": ".debug"
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "mobile": [
+        {
+          "scheme": ["com.googleusercontent.apps.292611669762-0u9470h2dg8i0f623iaui2ikug0r4bbp"]
+        }
+      ]
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk1QTQyRjE5QjY4NzU3ODkKUldTSlY0ZTJHUytrbGJmMko3ZVBEVEg2NEtJR0w1ZDRGdlFEdXRuRm1JQVpzeVFqODhTZ3pJbXUK",
+      "endpoints": [
+        "https://github.com/CapiFede/Quarks-V2-releases/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

@@ -1,0 +1,1 @@
+{"root":["./src/musicquark.tsx","./src/index.ts","./src/store.ts","./src/types.ts","./src/util.ts","./src/hooks/usemusicstore.ts","./src/sections/musicpage.tsx","./src/sections/musictoolbar.tsx","./src/sections/player.tsx","./src/sections/tracklist.tsx","./src/sections/trackpanel.tsx","./src/services/library.ts"],"version":"5.9.3"}

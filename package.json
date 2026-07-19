@@ -1,0 +1,23 @@
+{
+  "name": "quarks",
+  "version": "0.4.5",
+  "private": true,
+  "description": "Suite de micro-apps minimalistas (quarks). Cada quark hace una sola cosa bien.",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "tauri": "tauri",
+    "core:dev": "pnpm --filter @quarks/core dev",
+    "core:build": "pnpm --filter @quarks/core build",
+    "typecheck": "pnpm -r exec tsc --noEmit",
+    "release": "node scripts/release.mjs"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "typescript": "^5.7.0"
+  },
+  "packageManager": "pnpm@11.3.0",
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "paths": {
+      "@quarks/core": ["./core/src/quark/index.ts"],
+      "@quarks/quark-music": ["./packages/quark-music/src/index.ts"],
+      "@quarks/quark-books": ["./packages/quark-books/src/index.ts"],
+      "@quarks/quark-notes": ["./packages/quark-notes/src/index.ts"],
+      "@quarks/quark-utils": ["./packages/quark-utils/src/index.ts"],
+      "@quarks/quark-console": ["./packages/quark-console/src/index.ts"],
+      "@quarks/quark-editor": ["./packages/quark-editor/src/index.ts"]
+    },
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "forceConsistentCasingInFileNames": true
+  }
+}

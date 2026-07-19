@@ -1,0 +1,565 @@
+/* =============================================================================
+ * Quark Notes — estilos scoped.
+ * Solo tokens --q-* del design system. Espejo de
+ * `Quarks Design System/ui_kit/NotesQuark.jsx` (master-detail: sidebar + editor).
+ * ===========================================================================*/
+
+/* ── Layout principal ──────────────────────────────────────────────────────── */
+
+.q-notes-page {
+  flex: 1;
+  display: flex;
+  background: var(--q-background);
+  min-height: 0;
+  height: 100%;
+}
+
+/* ── Sidebar ───────────────────────────────────────────────────────────────── */
+
+.q-notes-sidebar {
+  width: 260px;
+  flex: 0 0 260px;
+  background: var(--q-surface);
+  border-right: 1px solid var(--q-border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  user-select: none;
+}
+
+/* ── Lista de notas ────────────────────────────────────────────────────────── */
+
+.q-notes-list {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.q-notes-search {
+  padding: 8px;
+  border-bottom: 1px solid var(--q-border);
+}
+
+.q-notes-list-empty {
+  padding: 24px 12px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--q-text-light);
+}
+
+.q-notes-list-item {
+  position: relative;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--q-border);
+  border-left: 2px solid transparent;
+  cursor: default;
+  background: var(--q-tint, transparent);
+  transition: background var(--q-dur-fast) var(--q-ease);
+}
+
+/* Hover en nota neutral: card-hover plano. */
+.q-notes-list-item:hover {
+  background: var(--q-card-hover);
+}
+
+/* Para notas tintadas el fondo es sólido (el tinte = swatch). Hover y active
+   oscurecen un poco la nota layereando negro semi-transparente encima — así
+   el color de la nota se preserva pero hay feedback visible. */
+.q-notes-list-item[data-tinted="true"]:hover {
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.07), rgba(0, 0, 0, 0.07)),
+    var(--q-tint);
+}
+
+/* Activo (NEUTRAL): borde acento + fondo card-hover. Texto sigue claro. */
+.q-notes-list-item[data-active="true"] {
+  border-left-color: var(--q-accent, var(--q-primary));
+  background: var(--q-card-hover);
+}
+
+/* Activo (TINTADA): borde negro semi-transparente (el acento del color sería
+   invisible sobre el mismo color) + fondo oscurecido para diferenciar de hover. */
+.q-notes-list-item[data-active="true"][data-tinted="true"] {
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.12)),
+    var(--q-tint);
+  border-left-color: rgba(0, 0, 0, 0.40);
+}
+
+/* ── Texto en notas tintadas ─────────────────────────────────────────────────
+   Pasteles claros piden texto oscuro para contraste. Definimos overrides
+   via custom-props scoped al item: si en el futuro hace falta otro color,
+   se cambia acá y se propaga a título, preview, fecha y delete. */
+.q-notes-list-item[data-tinted="true"] {
+  --q-on-tint-strong: rgba(28, 30, 34, 0.95);
+  --q-on-tint-mid:    rgba(28, 30, 34, 0.72);
+  --q-on-tint-dim:    rgba(28, 30, 34, 0.55);
+}
+.q-notes-list-item[data-tinted="true"] .q-notes-list-item-title {
+  color: var(--q-on-tint-strong);
+}
+.q-notes-list-item[data-tinted="true"] .q-notes-list-item-preview {
+  color: var(--q-on-tint-mid);
+}
+.q-notes-list-item[data-tinted="true"] .q-notes-list-item-preview-empty {
+  color: var(--q-on-tint-dim);
+}
+.q-notes-list-item[data-tinted="true"] .q-notes-list-item-date {
+  color: var(--q-on-tint-dim);
+}
+.q-notes-list-item[data-tinted="true"] .q-notes-list-item-delete {
+  color: var(--q-on-tint-mid);
+}
+.q-notes-list-item[data-tinted="true"] .q-notes-list-item-delete[data-armed="true"]:hover {
+  background: rgba(0, 0, 0, 0.14);
+  color: #8B1F1F;
+}
+
+/* Botón de borrar: absolute a la izquierda. Aparece solo cuando el ítem está
+   "armed" (después de 500ms con el mouse encima). El body de texto se corre
+   a la derecha al hover Y cuando la nota está activa, así el activo siempre
+   se ve "empujado hacia adelante" (indicador visual permanente de selección). */
+.q-notes-list-item-delete {
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--q-text-secondary);
+  opacity: 0;
+  pointer-events: none;
+  cursor: default;
+  transition:
+    opacity var(--q-dur-fast) var(--q-ease),
+    background var(--q-dur-fast) var(--q-ease),
+    color var(--q-dur-fast) var(--q-ease);
+  z-index: 1;
+}
+
+.q-notes-list-item-delete[data-armed="true"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.q-notes-list-item-delete[data-armed="true"]:hover {
+  background: rgba(255, 255, 255, 0.10);
+  color: var(--q-error);
+}
+
+.q-notes-list-item-body {
+  transition: padding-left var(--q-dur-fast) var(--q-ease);
+}
+
+/* Shift hacia adelante: en hover (preparándose para mostrar el delete) Y
+   permanente cuando la nota está activa. */
+.q-notes-list-item:hover .q-notes-list-item-body,
+.q-notes-list-item[data-active="true"] .q-notes-list-item-body {
+  padding-left: 24px;
+}
+
+.q-notes-list-item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.q-notes-list-item-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--q-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.q-notes-list-item-date {
+  font-size: 10px;
+  color: var(--q-text-light);
+  font-family: var(--q-font-mono);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.q-notes-list-item-preview {
+  font-size: 11px;
+  color: var(--q-text-secondary);
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.q-notes-list-item-preview-empty {
+  color: var(--q-text-light);
+}
+
+/* Item "fantasma" arriba de la lista para crear nota rápida. Centrado. */
+.q-notes-list-item-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--q-border-light);
+  border-radius: 6px;
+  margin: 8px;
+  padding: 9px 11px;
+  background: transparent;
+  color: var(--q-text-light);
+  cursor: default;
+  transition:
+    background var(--q-dur-fast) var(--q-ease),
+    border-color var(--q-dur-fast) var(--q-ease),
+    color var(--q-dur-fast) var(--q-ease);
+}
+
+.q-notes-list-item-add:hover {
+  background: var(--q-primary-soft-9);
+  border-color: var(--q-primary-light);
+  color: var(--q-primary-light);
+}
+
+.q-notes-list-item-add-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ── Editor ────────────────────────────────────────────────────────────────── */
+
+.q-notes-editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--q-background);
+  min-height: 0;
+}
+
+.q-notes-editor-header {
+  padding: 14px 24px 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.q-notes-title-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: var(--q-font-sans);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--q-text-primary);
+  padding: 0;
+}
+
+.q-notes-editor-meta {
+  font-size: 11px;
+  color: var(--q-text-light);
+  font-family: var(--q-font-mono);
+  font-variant-numeric: tabular-nums;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.q-notes-editor-status {
+  text-transform: lowercase;
+}
+
+.q-notes-pills {
+  padding: 0 24px 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.q-notes-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--q-surface-alt);
+  border: 1px solid var(--q-border);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--q-text-secondary);
+  cursor: pointer;
+  transition:
+    background var(--q-dur-fast) var(--q-ease),
+    color var(--q-dur-fast) var(--q-ease);
+}
+
+.q-notes-pill:hover {
+  background: var(--q-card-hover);
+  color: var(--q-text-primary);
+}
+
+.q-notes-pill[data-muted="true"] {
+  color: var(--q-text-light);
+}
+
+/* Pill en estado "on" (p.ej. JSON activo): tinte primario suave + texto acentuado. */
+.q-notes-pill[data-active="true"] {
+  background: var(--q-primary-soft-9);
+  border-color: var(--q-primary);
+  color: var(--q-primary-light);
+}
+
+.q-notes-pill-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.q-notes-body {
+  flex: 1;
+  overflow: auto;
+  padding: 8px 24px 24px;
+  display: flex;
+  justify-content: stretch;
+}
+
+.q-notes-textarea {
+  width: 100%;
+  height: 100%;
+  min-height: 60vh;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--q-text-primary);
+  font-family: var(--q-font-sans);
+  font-size: 14px;
+  line-height: 1.55;
+  caret-color: var(--q-primary-light);
+}
+
+.q-notes-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 24px;
+  text-align: center;
+}
+
+.q-notes-empty-hint {
+  font-size: 11px;
+  color: var(--q-text-light);
+}
+
+/* ── Popovers ──────────────────────────────────────────────────────────────── */
+
+.q-notes-popover {
+  position: absolute;
+  z-index: 1000;
+  min-width: 180px;
+  padding: 6px;
+  background: var(--q-surface);
+  border: 1px solid var(--q-border-dark);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+.q-notes-popover-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: default;
+  color: var(--q-text-secondary);
+  white-space: nowrap;
+  transition:
+    background var(--q-dur-fast) var(--q-ease),
+    color var(--q-dur-fast) var(--q-ease);
+}
+
+.q-notes-popover-item:hover {
+  background: var(--q-card-hover);
+  color: var(--q-text-primary);
+}
+
+.q-notes-popover-item[data-active="true"] {
+  background: var(--q-primary-soft-9);
+  color: var(--q-primary);
+}
+
+.q-notes-popover-item[data-destructive="true"] {
+  color: var(--q-error);
+}
+
+.q-notes-popover-divider {
+  height: 1px;
+  background: var(--q-border);
+  margin: 4px 6px;
+}
+
+/* ── Picker de color (grilla compacta de swatches) ─────────────────────────── */
+
+.q-notes-color-popover {
+  min-width: unset;
+  padding: 8px;
+}
+
+.q-notes-color-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 26px);
+  gap: 6px;
+}
+
+.q-notes-color-swatch-button {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid transparent;
+  cursor: default;
+  transition:
+    transform var(--q-dur-fast) var(--q-ease),
+    border-color var(--q-dur-fast) var(--q-ease);
+}
+
+.q-notes-color-swatch-button:hover {
+  transform: scale(1.12);
+}
+
+.q-notes-color-swatch-button[data-active="true"] {
+  border-color: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.30);
+}
+
+/* Neutral va con borde grisáceo siempre, así "no color" no se ve igual que
+   los swatches saturados — más cerca del placeholder de "ninguno". */
+.q-notes-color-swatch-button[data-neutral="true"] {
+  border-color: var(--q-border-light);
+}
+
+/* ── Editor JSON (overlay textarea + highlight) ─────────────────────────────
+   El <pre> dibuja los tokens coloreados; el <textarea> va encima con texto
+   transparente para que se vea el caret y la selección. Ambos comparten
+   font-family / font-size / line-height / padding para que la grilla calce
+   1:1 (cualquier desalineación se nota cuando el usuario tipea).
+*/
+
+.q-notes-json {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 60vh;
+}
+
+.q-notes-json-pre,
+.q-notes-json-textarea {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  font-family: var(--q-font-mono);
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre;
+  tab-size: 2;
+  overflow: auto;
+}
+
+.q-notes-json-pre {
+  pointer-events: none;
+  color: #D4D4D4;
+  background: transparent;
+  /* Espaciado de las dos puntas se ve igual al textarea aunque no scrollee. */
+  overflow: hidden;
+}
+
+.q-notes-json-textarea {
+  background: transparent;
+  color: transparent;
+  caret-color: var(--q-primary-light);
+  outline: none;
+  resize: none;
+  cursor: text;
+  /* La selección sí es visible (color del browser) — el texto debajo es transparente,
+     pero el highlight de selección se pinta encima como un overlay del navegador. */
+}
+
+/* Modo wrap: ambas capas envuelven líneas largas. Quitamos overflow-x para que
+   no aparezca scroll horizontal innecesario. */
+.q-notes-json[data-wrap="true"] .q-notes-json-pre,
+.q-notes-json[data-wrap="true"] .q-notes-json-textarea {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  overflow-x: hidden;
+}
+
+/* Scrollbars custom — aplican a TODOS los scrolls dentro de la pane de notas
+   (sidebar, textarea de texto, editor JSON). Más anchas que el default del
+   browser (especialmente la horizontal en JSON largo) y con cursor pointer
+   sobre el thumb para que se note que es agarrable. */
+.q-notes-page ::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+
+.q-notes-page ::-webkit-scrollbar-track {
+  background: transparent;
+  cursor: pointer;
+}
+
+.q-notes-page ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.q-notes-page ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+  background-clip: content-box;
+  cursor: pointer;
+}
+
+.q-notes-page ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.q-notes-json-textarea::selection {
+  background: rgba(127, 229, 216, 0.30);
+}
+
+/* El textarea tiene color:transparent — sin override el placeholder hereda
+   transparente y desaparece. Lo forzamos al gris tenue del design system. */
+.q-notes-json-textarea::placeholder {
+  color: var(--q-text-light);
+  opacity: 1;
+}
+
+/* Paleta tipo VS Code dark+: tokens estándar de JSON. */
+.q-json-key     { color: #9CDCFE; }            /* clave: light blue          */
+.q-json-string  { color: #CE9178; }            /* string: peach              */
+.q-json-number  { color: #B5CEA8; }            /* número: sage               */
+.q-json-boolean { color: #569CD6; font-weight: 600; } /* true/false: blue    */
+.q-json-null    { color: #569CD6; font-style: italic; } /* null: blue italic */
+.q-json-punct   { color: #D4D4D4; }            /* { } [ ] , : grises claros  */
+.q-json-ws      { color: inherit; }
+.q-json-plain   { color: #D4D4D4; }

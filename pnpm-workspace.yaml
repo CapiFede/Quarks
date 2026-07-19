@@ -1,0 +1,19 @@
+packages:
+  - "core"
+  - "packages/*"
+
+allowBuilds:
+  esbuild: true
+  # @huggingface/transformers trae estos como transitive deps "por las dudas":
+  #   - onnxruntime-node: runtime ONNX para Node (no lo usamos; WebView usa onnxruntime-web)
+  #   - protobufjs: schema para ONNX (codegen postinstall, no necesario en runtime)
+  #   - sharp: image processing (la pipeline de feature-extraction no lo usa)
+  # Ninguno se carga en runtime desde el WebView, así que no necesitan compilar.
+  onnxruntime-node: false
+  protobufjs: false
+  sharp: false
+
+# pnpm bloquea postinstall scripts por seguridad. esbuild (bundler de Vite)
+# necesita el suyo para instalar su binario nativo; lo permitimos explícitamente.
+onlyBuiltDependencies:
+  - esbuild

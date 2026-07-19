@@ -1,0 +1,540 @@
+/* =============================================================================
+ * Quark Utils — estilos scoped (.q-utils-*). Solo tokens --q-* del design system.
+ * ===========================================================================*/
+
+.q-utils-page {
+  flex: 1;
+  display: flex;
+  background: var(--q-background);
+  min-height: 0;
+  height: 100%;
+  position: relative;
+}
+
+/* ── Sidebar izquierdo ─────────────────────────────────────────────────────── */
+
+.q-utils-sidebar {
+  width: 160px;
+  flex: 0 0 160px;
+  background: var(--q-surface);
+  border-right: 1px solid var(--q-border);
+  overflow: auto;
+  min-height: 0;
+  padding: 8px 0;
+  user-select: none;
+}
+
+.q-utils-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: default;
+  color: var(--q-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  transition:
+    background var(--q-dur-fast) var(--q-ease),
+    color var(--q-dur-fast) var(--q-ease);
+}
+
+.q-utils-sidebar-item:hover {
+  background: var(--q-card-hover);
+  color: var(--q-text-primary);
+}
+
+.q-utils-sidebar-item[data-active="true"] {
+  background: var(--q-primary-soft);
+  color: var(--q-primary-light);
+}
+
+/* ── Panel principal ───────────────────────────────────────────────────────── */
+
+.q-utils-panel {
+  flex: 1;
+  padding: 28px 32px;
+  overflow: auto;
+  min-width: 0;
+}
+
+.q-utils-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 640px;
+}
+
+.q-utils-clocks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 36px 48px;
+  align-items: start;
+}
+
+/* Cada columna apila sus secciones (izq: timer + cronómetro; der: alarmas). */
+.q-utils-col {
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+  min-width: 0;
+}
+
+/* En ventanas angostas las columnas se apilan para no espachurrar el contenido. */
+@media (max-width: 760px) {
+  .q-utils-clocks {
+    grid-template-columns: 1fr;
+  }
+}
+
+.q-utils-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--q-text-primary);
+}
+
+.q-utils-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.q-utils-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--q-text-light);
+}
+
+.q-utils-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.q-utils-empty {
+  font-size: 12px;
+  color: var(--q-text-light);
+  font-style: italic;
+}
+
+.q-utils-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--q-text-light);
+  padding: 8px 12px;
+  background: var(--q-surface);
+  border-radius: 8px;
+}
+
+/* ── Display grande (timer / cronómetro / random) ──────────────────────────── */
+
+.q-utils-display {
+  font-size: 64px;
+  font-weight: 300;
+  line-height: 1;
+  color: var(--q-text-primary);
+  font-variant-numeric: tabular-nums;
+  padding: 8px 0;
+}
+
+.q-utils-display[data-state="done"] {
+  color: var(--q-primary);
+}
+
+.q-utils-display-sm {
+  font-size: 36px;
+}
+
+/* ── Inputs numéricos ──────────────────────────────────────────────────────── */
+
+.q-utils-time-input {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.q-utils-time-sep {
+  font-size: 24px;
+  color: var(--q-text-light);
+  padding-bottom: 6px;
+}
+
+.q-utils-num {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.q-utils-num-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--q-text-light);
+}
+
+.q-utils-num input {
+  width: 76px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--q-border-light);
+  border-radius: 8px;
+  background: var(--q-surface);
+  color: var(--q-text-primary);
+  font-family: var(--q-font-sans);
+  font-size: 14px;
+  outline: none;
+  transition:
+    border-color var(--q-dur-fast) var(--q-ease),
+    box-shadow var(--q-dur-fast) var(--q-ease);
+}
+
+.q-utils-num input:focus {
+  border-color: var(--q-primary-light);
+  box-shadow: 0 0 0 3px var(--q-primary-soft);
+}
+
+/* ── Chips (presets de timer) ──────────────────────────────────────────────── */
+
+.q-utils-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.q-utils-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 4px 12px;
+  background: var(--q-surface);
+  border: 1px solid var(--q-border-light);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--q-text-primary);
+}
+
+.q-utils-chip-label {
+  cursor: default;
+}
+
+.q-utils-chip-label:hover {
+  color: var(--q-primary-light);
+}
+
+.q-utils-chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  color: var(--q-text-light);
+  cursor: default;
+}
+
+.q-utils-chip-x:hover {
+  background: var(--q-card-hover);
+  color: var(--q-error);
+}
+
+/* ── Laps ──────────────────────────────────────────────────────────────────── */
+
+.q-utils-laps {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--q-border-light);
+  border-radius: 8px;
+  overflow: hidden;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.q-utils-lap-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  border-bottom: 1px solid var(--q-border-light);
+}
+
+.q-utils-lap-row:last-child {
+  border-bottom: none;
+}
+
+.q-utils-lap-idx {
+  flex: 0 0 40px;
+  color: var(--q-text-light);
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.q-utils-lap-delta {
+  flex: 1;
+  color: var(--q-text-primary);
+}
+
+.q-utils-lap-total {
+  color: var(--q-text-secondary);
+}
+
+/* ── Alarmas ───────────────────────────────────────────────────────────────── */
+
+.q-utils-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: var(--q-surface);
+  border: 1px solid var(--q-border-light);
+  border-radius: 10px;
+}
+
+.q-utils-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.q-utils-list-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--q-surface);
+  border: 1px solid var(--q-border-light);
+  border-radius: 8px;
+}
+
+.q-utils-list-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.q-utils-list-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--q-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.q-utils-list-sub {
+  font-size: 11px;
+  color: var(--q-text-light);
+  margin-top: 2px;
+}
+
+.q-utils-list-eta {
+  color: var(--q-primary-light);
+  font-weight: 600;
+}
+
+.q-utils-segmented {
+  display: inline-flex;
+  background: var(--q-surface-alt);
+  border-radius: 8px;
+  padding: 2px;
+}
+
+.q-utils-segmented button {
+  border: none;
+  background: transparent;
+  color: var(--q-text-secondary);
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--q-font-sans);
+  border-radius: 6px;
+  cursor: default;
+  transition:
+    background var(--q-dur-fast) var(--q-ease),
+    color var(--q-dur-fast) var(--q-ease);
+}
+
+.q-utils-segmented button[data-active="true"] {
+  background: var(--q-surface);
+  color: var(--q-text-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+/* ── Overlay de alarma sonando ─────────────────────────────────────────────── */
+
+.q-utils-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.q-utils-overlay-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 28px 36px;
+  background: var(--q-surface);
+  border-radius: 14px;
+  min-width: 280px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+
+.q-utils-overlay-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--q-text-primary);
+  text-align: center;
+}
+
+.q-utils-overlay-sub {
+  font-size: 14px;
+  color: var(--q-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Animación de resultado (random / coin) ────────────────────────────────── */
+
+/* Pop suave: feedback inmediato cuando el número cambia (incluso al mismo valor). */
+@keyframes q-utils-pop {
+  0%   { transform: scale(0.6); opacity: 0; }
+  60%  { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(1);   opacity: 1; }
+}
+
+.q-utils-pop {
+  display: inline-block;
+  animation: q-utils-pop 220ms var(--q-ease) both;
+}
+
+/* Flip 3D para la moneda: gira sobre el eje Y, cambiando la "cara" al medio. */
+@keyframes q-utils-flip {
+  0%   { transform: rotateY(0deg)   scale(0.95); opacity: 0.4; }
+  50%  { transform: rotateY(540deg) scale(1.05); opacity: 1; }
+  100% { transform: rotateY(720deg) scale(1);    opacity: 1; }
+}
+
+.q-utils-flip {
+  display: inline-block;
+  animation: q-utils-flip 520ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  transform-origin: center;
+}
+
+/* =============================================================================
+ * Tab System (CachyOS): snapshot, recordatorios y panel de log.
+ * ===========================================================================*/
+
+.q-sys {
+  max-width: 720px;
+}
+
+.q-sys-log {
+  font-family: var(--q-font-mono, monospace);
+}
+
+/* ── Recordatorios bajo el botón ──────────────────────────────────────────────── */
+
+.q-sys-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.q-sys-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--q-text-light);
+}
+
+.q-sys-note strong {
+  color: var(--q-text-secondary);
+  font-weight: 600;
+}
+
+.q-sys-note code {
+  font-family: var(--q-font-mono, monospace);
+  word-break: break-all;
+}
+
+/* Comando en su propia línea, resaltado como bloque. */
+.q-sys-cmd {
+  display: block;
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: var(--q-background);
+  border: 1px solid var(--q-border);
+  border-radius: 6px;
+  color: var(--q-text-secondary);
+}
+
+/* ── Panel de log ─────────────────────────────────────────────────────────────── */
+
+.q-sys-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.q-sys-log-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.q-sys-clear {
+  background: none;
+  border: none;
+  color: var(--q-text-secondary);
+  font-size: 11px;
+  cursor: default;
+}
+
+.q-sys-clear:hover:not(:disabled) {
+  color: var(--q-text-primary);
+}
+
+.q-sys-log {
+  max-height: 240px;
+  overflow: auto;
+  background: var(--q-background);
+  border: 1px solid var(--q-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--q-text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.q-sys-log-line {
+  font-variant-ligatures: none;
+}
+
+@keyframes q-sys-spin {
+  to { transform: rotate(360deg); }
+}
+
+.q-sys-spin {
+  display: inline-block;
+  animation: q-sys-spin 900ms linear infinite;
+  color: var(--q-primary-light);
+}
