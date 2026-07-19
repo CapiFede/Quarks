@@ -1,0 +1,41 @@
+# ── Dependencias ─────────────────────────────────────────────────────────────
+node_modules/
+.pnpm-store/
+
+# ── Build outputs (JS / Vite) ────────────────────────────────────────────────
+dist/
+dist-ssr/
+.vite/
+*.tsbuildinfo
+
+# ── Rust / Tauri ─────────────────────────────────────────────────────────────
+# target/ pesa varios GB — nunca va al repo. Cargo.lock SÍ se trackea (es una app).
+src-tauri/target/
+# Schemas autogenerados por `tauri build`. gen/android y gen/apple se trackean
+# aparte cuando existan (llevan ediciones manuales, ej. el manifest de OAuth).
+src-tauri/gen/schemas/
+
+# ── Secretos y entorno ───────────────────────────────────────────────────────
+# El repo es público: nada de claves ni .env reales. Los .env.example sí van.
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.key
+*.pem
+*.p12
+*.keystore
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ── Editor / OS ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

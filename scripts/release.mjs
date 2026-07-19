@@ -266,17 +266,16 @@ if (dryRun) {
   process.exit(0);
 }
 
-log("git push (código → repo privado)…");
+log("git push (código + tag)…");
 run("git", ["push"]);
 run("git", ["push", "origin", tag]);
 
-// El release vive en el repo que indica `plugins.updater.endpoints` (puede ser
-// distinto al repo de código). Para mantener el código privado y los releases
-// públicos, ese endpoint apunta a un repo público vacío que solo guarda los
-// binarios + latest.json. Sin `--target`, gh crea el tag apuntando al default
-// branch del repo (`main` o `master`, lo que GitHub haya seteado) — si el repo
-// está totalmente vacío sin commits, falla con un mensaje pidiendo crear el
-// repo / README primero.
+// El release vive en el repo que indica `plugins.updater.endpoints`. Hoy es el
+// mismo repo del código (`Quarks`, público): el tag ya se pusheó arriba, así que
+// `gh release create` lo reusa y la release queda apuntando al commit taggeado.
+// El endpoint puede apuntar a otro repo (ej. uno público separado si el código
+// vuelve a ser privado); en ese caso gh crea el tag ahí sobre su default branch,
+// y ese repo necesita al menos un commit (un README) o gh falla.
 const publicRepo = `${repoUrl.owner}/${repoUrl.name}`;
 log(`gh release create ${tag} en ${publicRepo}…`);
 const ghArgs = [

@@ -55,7 +55,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk1QTQyRjE5QjY4NzU3ODkKUldTSlY0ZTJHUytrbGJmMko3ZVBEVEg2NEtJR0w1ZDRGdlFEdXRuRm1JQVpzeVFqODhTZ3pJbXUK",
       "endpoints": [
-        "https://github.com/CapiFede/Quarks-V2-releases/releases/latest/download/latest.json"
+        "https://github.com/CapiFede/Quarks/releases/latest/download/latest.json"
       ]
     }
   }
