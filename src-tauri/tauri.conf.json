@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../core/dist",
     "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "cargo build --manifest-path src-tauri/Cargo.toml --bin quark-pty-host && pnpm --filter @quarks/core dev",
-    "beforeBuildCommand": "cargo build --manifest-path src-tauri/Cargo.toml --release --bin quark-pty-host && pnpm --filter @quarks/core build"
+    "beforeDevCommand": "pnpm --filter @quarks/core dev",
+    "beforeBuildCommand": "pnpm --filter @quarks/core build"
   },
   "app": {
     "windows": [

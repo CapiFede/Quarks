@@ -13,6 +13,7 @@
  */
 
 let pending: string | null = null;
+let pendingSpace: string | null = null;
 const listeners = new Set<() => void>();
 
 /**
@@ -32,6 +33,26 @@ export function getPendingQuark(): string | null {
 /** El Shell limpia el pedido tras consumirlo (sin notificar, para no relanzar). */
 export function clearPendingQuark(): void {
   pending = null;
+}
+
+/**
+ * Pide activar el space `id`. Mismo molde que `requestOpenQuark`: lo publica un
+ * quark que necesita saltar de space (p. ej. Música al abrir una playlist de
+ * otro space desde "Manejar playlists"); lo consume el Shell.
+ */
+export function requestActivateSpace(id: string): void {
+  pendingSpace = id;
+  for (const l of listeners) l();
+}
+
+/** Lectura síncrona del space pedido (o null). La usa el Shell al notificar. */
+export function getPendingSpace(): string | null {
+  return pendingSpace;
+}
+
+/** El Shell limpia el pedido tras consumirlo. */
+export function clearPendingSpace(): void {
+  pendingSpace = null;
 }
 
 /** Suscripción para el Shell. */

@@ -7,26 +7,12 @@ license = ""
 repository = ""
 edition = "2021"
 rust-version = "1.77.2"
-# `cargo run` debe usar la app, no el helper `quark-pty-host` (también `[[bin]]`
-# del mismo crate). Sin esto Cargo no puede elegir y aborta con
-# "could not determine which binary to run".
-default-run = "quarks"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
 name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
-
-# Binario helper del quark-console: hostea PTYs elevados (admin) en su propio
-# proceso, lanzado vía ShellExecuteEx + verbo `runas`. Se comunica con la app
-# por named pipe. Vive como [[bin]] del mismo crate para compartir el módulo
-# `app_lib::console::protocol` (framing común). Solo se compila en desktop:
-# en Android no se usa. Ver `console/transport/elevated.rs`.
-[[bin]]
-name = "quark-pty-host"
-path = "src/bin/pty_host.rs"
-required-features = []
 
 [build-dependencies]
 tauri-build = { version = "2.6.2", features = [] }
@@ -91,36 +77,12 @@ rodio = { version = "0.20", default-features = false, features = ["symphonia-all
 ureq = { version = "2", features = ["tls"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
-# Console quark: PTY real multiplataforma (mismo crate que usa WezTerm). Lo
-# usan tanto el módulo `console` del lib (sesiones locales in-process) como el
-# binario `quark-pty-host` (sesiones elevadas). En Android no hay PTY shell:
-# por eso queda desktop-only.
-portable-pty = "0.8"
-# Concurrencia liviana para los hilos de IO del PTY (lectura, escritura, exit).
-parking_lot = "0.12"
-# UUIDs para namespacing de named pipes en sesiones elevadas.
-uuid = { version = "1", features = ["v4"] }
-
 # Secretos (API keys, tokens OAuth) en el almacén nativo del SO, por plataforma:
 #   Windows → Credential Manager · Linux → Secret Service (D-Bus) · macOS → Keychain.
 # Android queda fuera (usaría Android Keystore vía un plugin custom).
 # Expuesto al frontend como comandos Tauri (ver src/secrets.rs).
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }
-
-# APIs Win32 que usa el console quark: ShellExecuteExW (UAC `runas`) en el
-# transporte elevado y los pipes nombrados del lado servidor. Solo Windows.
-windows = { version = "0.59", features = [
-  "Win32_Foundation",
-  "Win32_UI_Shell",
-  "Win32_UI_WindowsAndMessaging",
-  "Win32_System_Pipes",
-  "Win32_System_IO",
-  "Win32_System_Registry",
-  "Win32_System_Threading",
-  "Win32_Storage_FileSystem",
-  "Win32_Security",
-] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3", features = ["sync-secret-service"] }

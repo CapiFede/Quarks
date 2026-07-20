@@ -2,8 +2,9 @@
 #
 # Setup de entorno de desarrollo para Quarks en Debian/Ubuntu.
 # Instala las deps nativas de Tauri v2 + las específicas del repo (ALSA para
-# rodio), Rust vía rustup y pnpm vía corepack, y deja el repo listo con
-# `pnpm install`. Idempotente: se puede correr varias veces sin romper nada.
+# rodio), Rust vía rustup, pnpm standalone y GitHub CLI (gh, para cortar
+# releases), y deja el repo listo con `pnpm install`. Idempotente: se puede
+# correr varias veces sin romper nada.
 #
 # Uso:  ./scripts/setup-debian.sh
 #
@@ -50,7 +51,33 @@ sudo apt-get update
 sudo apt-get install -y "${APT_PKGS[@]}"
 ok "Librerías del sistema instaladas."
 
-# --- 2. Rust (rustup) ----------------------------------------------------
+# --- 2. GitHub CLI (gh) --------------------------------------------------
+# Necesario para cortar releases: `pnpm release` usa `gh release create` para
+# publicar el GitHub Release, y ese release es lo que dispara el build de Windows
+# en CI (ver .github/workflows/windows-release.yml). En Debian reciente `gh` está
+# en los repos; si no, caemos al repo oficial de GitHub (cli.github.com).
+if command -v gh >/dev/null 2>&1; then
+  ok "gh ya presente: $(gh --version | head -1)"
+else
+  step "Instalando GitHub CLI (gh)…"
+  if sudo apt-get install -y gh 2>/dev/null; then
+    ok "gh instalado desde los repos de la distro."
+  else
+    warn "gh no está en los repos de la distro; agrego el repo oficial de GitHub…"
+    sudo mkdir -p -m 755 /etc/apt/keyrings
+    wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+      | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg >/dev/null
+    sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+      | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+    sudo apt-get update
+    sudo apt-get install -y gh
+    ok "gh instalado desde cli.github.com."
+  fi
+  warn "Autenticá una vez con 'gh auth login' antes de correr 'pnpm release'."
+fi
+
+# --- 3. Rust (rustup) ----------------------------------------------------
 # El repo pide rust-version >= 1.77.2. Usamos rustup, no el rustc de apt.
 MIN_RUST="1.77.2"
 if command -v rustc >/dev/null 2>&1; then
@@ -64,7 +91,7 @@ else
   warn "Abrí una terminal nueva o corré '. \$HOME/.cargo/env' para tener cargo en el PATH."
 fi
 
-# --- 3. Node + pnpm ------------------------------------------------------
+# --- 4. Node + pnpm ------------------------------------------------------
 command -v node >/dev/null 2>&1 || die "Node no está instalado. Instalá Node >= 20 (nvm o apt) y volvé a correr esto."
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
 [ "$NODE_MAJOR" -ge 20 ] || die "Node $(node -v) es muy viejo — el repo pide >= 20."
@@ -88,7 +115,7 @@ else
   warn "Abrí una terminal nueva o corré 'source ~/.bashrc' para tener pnpm en el PATH."
 fi
 
-# --- 4. deps del repo ----------------------------------------------------
+# --- 5. deps del repo ----------------------------------------------------
 step "Instalando dependencias del workspace (pnpm install)…"
 pnpm install
 ok "Dependencias instaladas."
@@ -104,4 +131,6 @@ Notas:
   · ffmpeg/yt-dlp NO hace falta instalarlos: el quark de música los baja solo.
   · Los secretos (keyring) usan Secret Service (D-Bus). En un Debian con
     GNOME/KDE ya hay backend; en un entorno pelado instalá 'gnome-keyring'.
+  · Para cortar releases: 'gh auth login' una vez, y tené la clave de firma en
+    ~/.config/com.quarks.app/quarks.env (ver scripts/release.mjs).
 EOF

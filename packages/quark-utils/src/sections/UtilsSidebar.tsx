@@ -11,7 +11,6 @@ interface ItemSpec {
 const ITEMS: ItemSpec[] = [
   { id: "clocks", label: "Relojes", icon: "schedule" },
   { id: "random", label: "Random", icon: "casino" },
-  { id: "system", label: "System", icon: "tune" },
 ];
 
 export interface UtilsSidebarProps {

@@ -347,6 +347,174 @@
   caret-color: var(--q-primary-light);
 }
 
+/* ── Barra de formato (modo texto, rich-text) ──────────────────────────────── */
+
+.q-notes-format-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+  padding-left: 10px;
+  border-left: 1px solid var(--q-border);
+}
+
+.q-notes-format-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--q-border);
+  margin: 0 4px;
+  flex: 0 0 auto;
+}
+
+.q-notes-format-menu-label {
+  padding: 4px 10px 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--q-text-light);
+}
+
+/* ── Editor rich-text (TipTap) ──────────────────────────────────────────────
+   `.q-notes-rich` es el wrapper de EditorContent; `.q-notes-prose` la
+   superficie editable (ProseMirror). Mismos tamaños de letra que el textarea
+   anterior. OJO con la especificidad: el design system define `.q p`, `.q h1/2/3`
+   con tamaños fijos — prefijamos con `.q ` para ganarles (mismo truco que books). */
+
+.q-notes-rich {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.q-notes-prose {
+  flex: 1;
+  min-height: 60vh;
+  outline: none;
+  cursor: text;
+  color: var(--q-text-primary);
+  font-family: var(--q-font-sans);
+  font-size: 14px;
+  line-height: 1.55;
+  caret-color: var(--q-primary-light);
+  white-space: pre-wrap;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+.q .q-notes-prose p {
+  font-size: 14px;
+  margin: 0 0 6px;
+}
+
+.q .q-notes-prose h1,
+.q .q-notes-prose h2,
+.q .q-notes-prose h3 {
+  margin: 14px 0 6px;
+  font-weight: 700;
+  color: var(--q-text-primary);
+  line-height: 1.25;
+}
+.q .q-notes-prose h1 { font-size: 24px; }
+.q .q-notes-prose h2 { font-size: 19px; }
+.q .q-notes-prose h3 { font-size: 16px; font-weight: 600; }
+
+.q .q-notes-prose ul,
+.q .q-notes-prose ol {
+  margin: 0 0 6px;
+  padding-left: 22px;
+}
+
+.q .q-notes-prose li {
+  font-size: 14px;
+  margin: 2px 0;
+}
+
+.q .q-notes-prose li p {
+  margin: 0;
+}
+
+.q .q-notes-prose blockquote {
+  margin: 0 0 6px;
+  padding-left: 12px;
+  border-left: 2px solid var(--q-border);
+  color: var(--q-text-secondary);
+}
+
+/* Tablas simples: bordes finos, headers con fondo sutil. Los headers/celdas
+   pintados llevan `background-color` inline (atributo del editor) y el texto
+   se invierte a oscuro para mantener contraste sobre pasteles claros. */
+.q .q-notes-prose table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  max-width: 640px;
+  margin: 6px 0 10px;
+  overflow: hidden;
+}
+
+.q .q-notes-prose th,
+.q .q-notes-prose td {
+  position: relative;
+  border: 1px solid var(--q-border-light);
+  padding: 5px 9px;
+  font-size: 13px;
+  text-align: left;
+  vertical-align: top;
+  min-width: 48px;
+}
+
+.q .q-notes-prose th {
+  background: var(--q-surface-alt);
+  font-weight: 600;
+}
+
+.q .q-notes-prose th p,
+.q .q-notes-prose td p {
+  font-size: 13px;
+  margin: 0;
+}
+
+.q .q-notes-prose th[style*="background-color"],
+.q .q-notes-prose td[style*="background-color"] {
+  color: rgba(28, 30, 34, 0.92);
+}
+
+/* Celdas seleccionadas (CellSelection de ProseMirror). */
+.q .q-notes-prose .selectedCell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(127, 229, 216, 0.18);
+  pointer-events: none;
+}
+
+/* Cursor de hueco (gapcursor) entre bloques no editables. */
+.q-notes-prose .ProseMirror-gapcursor {
+  display: none;
+  pointer-events: none;
+  position: absolute;
+}
+.q-notes-prose .ProseMirror-gapcursor::after {
+  content: "";
+  display: block;
+  position: absolute;
+  top: -2px;
+  width: 20px;
+  border-top: 1px solid var(--q-text-secondary);
+  animation: q-notes-blink 1.1s steps(2, start) infinite;
+}
+.q-notes-prose.ProseMirror-focused .ProseMirror-gapcursor {
+  display: block;
+}
+
+@keyframes q-notes-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
 .q-notes-empty {
   flex: 1;
   display: flex;

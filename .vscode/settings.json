@@ -1,0 +1,54 @@
+{
+  // ─────────────────────────────────────────────────────────────────────────
+  // Oculta del explorador todo lo que NO se toca durante el desarrollo normal.
+  // Tu código vive en core/src, packages/*/src y src-tauri/src.
+  // Para ver algo oculto puntualmente: usá la búsqueda (Ctrl+P) o poné el valor
+  // en `false` acá abajo.
+  // ─────────────────────────────────────────────────────────────────────────
+  "files.exclude": {
+    // Dependencias
+    "**/node_modules": true,
+    "**/.pnpm-store": true,
+
+    // Build outputs (Vite / TS)
+    "**/dist": true,
+    "**/dist-ssr": true,
+    "**/.vite": true,
+    "**/*.tsbuildinfo": true,
+
+    // Rust / Tauri: target pesa varios GB; schemas son autogenerados
+    "src-tauri/target": true,
+    "src-tauri/gen/schemas": true,
+
+    // Lock files (se regeneran solos, casi nunca se editan a mano)
+    "**/pnpm-lock.yaml": true,
+    "**/Cargo.lock": true,
+
+    // Metadata de git / editor
+    "**/.git": true,
+    "**/.gitattributes": true,
+    "**/.DS_Store": true,
+    "**/Thumbs.db": true,
+
+    // Imágenes/branding del root (assets, no código)
+    "image.png": true,
+    "quarks-mark-circle-1024.png": true
+  },
+
+  // Que la búsqueda tampoco toque lo pesado/generado (más rápida y limpia)
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "src-tauri/target": true,
+    "src-tauri/gen/schemas": true,
+    "**/pnpm-lock.yaml": true,
+    "**/Cargo.lock": true
+  },
+
+  // No vigilar target/ ni node_modules: gran mejora de performance en Tauri
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "src-tauri/target/**": true,
+    "**/dist/**": true
+  }
+}

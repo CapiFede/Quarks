@@ -42,14 +42,6 @@ export default defineConfig({
         coreRoot,
         "../packages/quark-utils/src/index.ts",
       ),
-      "@quarks/quark-console": resolve(
-        coreRoot,
-        "../packages/quark-console/src/index.ts",
-      ),
-      "@quarks/quark-editor": resolve(
-        coreRoot,
-        "../packages/quark-editor/src/index.ts",
-      ),
     },
     // Una sola copia de React aunque el quark declare su propia dependencia,
     // si no los hooks rompen ("invalid hook call").

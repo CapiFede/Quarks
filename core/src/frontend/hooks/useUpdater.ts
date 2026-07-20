@@ -50,7 +50,7 @@ export function useUpdater(): UpdaterController {
     setError(null);
     if (!silent) setStatus("checking");
     try {
-      const info = await checkForUpdate();
+      const info = await checkForUpdate({ silent });
       if (info) {
         setUpdate(info);
         setStatus("available");

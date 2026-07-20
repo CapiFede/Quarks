@@ -1,8 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon, publishSelection } from "@quarks/core";
+import type { Editor } from "@tiptap/react";
 import type { NotesStore } from "../store";
 import type { EditorStatus, NoteIndex } from "../types";
 import { useNoteSelection } from "../hooks/useNoteSelection";
+import { RichTextEditor } from "./RichTextEditor";
+import { FormatBar } from "./FormatBar";
 import {
   colorSwatch,
   formatJson,
@@ -21,12 +24,14 @@ export interface NoteEditorProps {
 }
 
 /**
- * Editor de la nota activa. Título arriba (input plano), pill de color, y
- * textarea con paste-as-plain-text. La paginación / formato rich-text del plan
- * se difiere; el design system muestra textarea plano y nos ceñimos a eso.
+ * Editor de la nota activa. Título arriba (input plano), pills (color / JSON /
+ * wrap) + barra de formato, y el cuerpo: editor rich-text (TipTap, HTML como
+ * fuente de verdad) en modo texto, o el editor JSON con highlight en modo json.
  */
 export function NoteEditor({ store, note, content, editorStatus }: NoteEditorProps) {
   const [titleDraft, setTitleDraft] = useState(note.title);
+  /** Instancia de TipTap de la nota abierta (la consume la barra de formato). */
+  const [editor, setEditor] = useState<Editor | null>(null);
   // Sincronizar el input cuando cambia la nota activa (no en cada keystroke).
   useEffect(() => {
     setTitleDraft(note.title);
@@ -91,33 +96,18 @@ export function NoteEditor({ store, note, content, editorStatus }: NoteEditorPro
         <ColorPill store={store} note={note} />
         <JsonPill store={store} note={note} />
         {note.mode === "json" && <WrapPill store={store} note={note} />}
+        {note.mode !== "json" && <FormatBar editor={editor} />}
       </div>
 
       <div className="q-notes-body">
         {note.mode === "json" ? (
           <JsonEditor store={store} content={content} wrap={note.wrap} />
         ) : (
-          <textarea
-            className="q-notes-textarea"
-            value={content}
-            onChange={(e) => store.updateContent(e.target.value)}
-            onPaste={(e) => {
-              // Pegar como texto plano: removemos todo el formato del clipboard.
-              const text = e.clipboardData.getData("text/plain");
-              if (text === undefined || text === null) return;
-              e.preventDefault();
-              const target = e.target as HTMLTextAreaElement;
-              const start = target.selectionStart;
-              const end = target.selectionEnd;
-              const next = content.slice(0, start) + text + content.slice(end);
-              store.updateContent(next);
-              // Restaurar el cursor en el próximo tick (después del re-render).
-              requestAnimationFrame(() => {
-                target.selectionStart = target.selectionEnd = start + text.length;
-              });
-            }}
-            placeholder="Empezá a escribir…"
-            spellCheck
+          <RichTextEditor
+            key={note.id}
+            content={content}
+            onUpdate={(html) => store.updateContent(html)}
+            onEditorReady={setEditor}
           />
         )}
       </div>

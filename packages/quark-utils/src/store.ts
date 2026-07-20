@@ -143,12 +143,9 @@ export class UtilsStore {
     this.set({
       loaded: true,
       // Migración: las versiones previas guardaban "timer"/"stopwatch"/"alarm"
-      // como tools separadas — ahora viven todas en "clocks". "random"/"system"
-      // pasan tal cual; cualquier otra cosa cae a "clocks".
-      activeTool:
-        prefs.activeTool === "random" || prefs.activeTool === "system"
-          ? prefs.activeTool
-          : "clocks",
+      // como tools separadas (y existía "system") — todo lo que no sea "random"
+      // cae a "clocks".
+      activeTool: prefs.activeTool === "random" ? "random" : "clocks",
       alarms: prefs.alarms.items,
       alarmNext: recomputeAlarmNext(prefs.alarms.items, now),
       randomMin: prefs.random.min,
@@ -435,17 +432,20 @@ export class UtilsStore {
   }
 
   // ── Random / coin ──
+  /**
+   * Guarda min/max tal cual se tipearon (sin reordenar): si normalizáramos acá,
+   * los inputs se pisarían mientras el usuario escribe. `generateRandom` es
+   * quien ordena el rango al usarlo.
+   */
   setRandomRange(min: number, max: number): void {
-    const lo = Math.min(min, max);
-    const hi = Math.max(min, max);
-    this.set({ randomMin: lo, randomMax: hi });
+    this.set({ randomMin: min, randomMax: max });
     this.schedulePrefsSave();
   }
 
   generateRandom(): void {
     const { randomMin, randomMax } = this.state;
-    const lo = Math.ceil(randomMin);
-    const hi = Math.floor(randomMax);
+    const lo = Math.ceil(Math.min(randomMin, randomMax));
+    const hi = Math.floor(Math.max(randomMin, randomMax));
     const n = lo + Math.floor(Math.random() * (hi - lo + 1));
     this.set({
       random: {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import { QuarkToolbar, IconButton, TextInput, Icon, isAndroid } from "@quarks/core";
 import type { MusicStore } from "../store";
 import { useMusicState } from "../hooks/useMusicStore";
@@ -11,16 +11,30 @@ export interface MusicToolbarProps {
 type Editing = { kind: "new" } | { kind: "rename"; id: string } | null;
 
 /**
- * Toolbar del music quark. La izquierda es el strip de chips de las playlists del
- * space activo; las vistas "Todas" / "Sin asignar" ya no son chips fijos sino
- * opciones del menú de settings (derecha), y al elegirlas aparecen como un chip
- * momentáneo en el strip. Cada chip lleva un ícono de randomizar (acceso rápido
- * al modo aleatorio) detrás del nombre.
+ * Toolbar del music quark. La izquierda es un dropdown con la playlist activa
+ * (incluye las vistas "Todas" / "Sin asignar" y la acción "Nueva playlist") más
+ * el acceso rápido a randomizar la vista actual. La derecha es el menú de
+ * settings (manejar playlists, carpeta, descarga). Borrar playlists ya no vive
+ * acá: solo desde "Manejar playlists".
  */
 export function MusicToolbar({ store }: MusicToolbarProps) {
-  const { playlists, view, searchOpen } = useMusicState(store);
+  const { playlists, view, spaceId } = useMusicState(store);
   const [editing, setEditing] = useState<Editing>(null);
   const [draft, setDraft] = useState("");
+
+  // Ctrl/Cmd+F togglea el buscador (abre y cierra). La toolbar solo está montada
+  // cuando este quark es el tab activo (el Shell renderiza únicamente la toolbar
+  // activa), así que el listener global no necesita gate de visibilidad.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        store.toggleSearch();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [store]);
 
   const startNew = () => {
     setEditing({ kind: "new" });
@@ -39,8 +53,8 @@ export function MusicToolbar({ store }: MusicToolbarProps) {
     const name = draft.trim();
     if (editing.kind === "new") {
       if (name) void store.createPlaylist(name);
-    } else if (name) {
-      void store.renamePlaylist(editing.id, name);
+    } else if (name && spaceId) {
+      void store.renamePlaylist(spaceId, editing.id, name);
     }
     cancel();
   };
@@ -60,8 +74,7 @@ export function MusicToolbar({ store }: MusicToolbarProps) {
     />
   );
 
-  // Chip momentáneo de la vista "Todas" / "Sin asignar" (solo mientras está activa).
-  const pseudoView = view === "all" || view === "unassigned" ? view : null;
+  const activePlaylist = playlists.find((p) => p.id === view) ?? null;
 
   return (
     <QuarkToolbar
@@ -72,43 +85,29 @@ export function MusicToolbar({ store }: MusicToolbarProps) {
             display: "flex",
             alignItems: "center",
             gap: 2,
-            overflowX: "auto",
             minWidth: 0,
             height: "100%",
           }}
         >
-          {pseudoView && (
-            <PseudoChip
-              name={pseudoView === "all" ? "Todas" : "Sin asignar"}
-              onShuffle={() => void store.startShuffle(pseudoView)}
-            />
-          )}
-          {pseudoView && playlists.length > 0 && <Divider />}
-          {playlists.map((p) =>
-            editing?.kind === "rename" && editing.id === p.id ? (
-              <span key={p.id}>{editor}</span>
-            ) : (
-              <PlaylistChip
-                key={p.id}
-                playlist={p}
-                selected={view === p.id}
-                onClick={() => store.selectView(p.id)}
-                onShuffle={() => void store.startShuffle(p.id)}
-                onRename={() => startRename(p)}
-                onDelete={() => void store.deletePlaylist(p.id)}
+          {editing ? (
+            <span>{editor}</span>
+          ) : (
+            <>
+              <PlaylistDropdown
+                view={view}
+                playlists={playlists}
+                onSelect={(v) => store.selectView(v)}
+                onNew={startNew}
+                onRenameActive={activePlaylist ? () => startRename(activePlaylist) : undefined}
               />
-            ),
+              <ShuffleAffordance visible onClick={() => void store.startShuffle(view)} />
+            </>
           )}
-          {editing?.kind === "new" && <span>{editor}</span>}
         </div>
       }
       right={
         <SettingsMenu
-          view={view}
-          searchOpen={searchOpen}
-          onToggleSearch={() => store.toggleSearch()}
-          onSelectView={(v) => store.selectView(v)}
-          onNewPlaylist={startNew}
+          onManage={() => store.openManage()}
           onOpenFolder={() => void store.openFolder()}
           onDownload={() => void store.openDownload()}
         />
@@ -117,21 +116,7 @@ export function MusicToolbar({ store }: MusicToolbarProps) {
   );
 }
 
-function Divider() {
-  return (
-    <div
-      style={{
-        flex: "0 0 auto",
-        width: 1,
-        height: 16,
-        background: "var(--q-border)",
-        margin: "0 5px",
-      }}
-    />
-  );
-}
-
-/** Ícono de randomizar que va detrás del nombre de un chip. */
+/** Ícono de randomizar (acceso rápido al modo aleatorio de la vista activa). */
 function ShuffleAffordance({ visible, onClick }: { visible: boolean; onClick: () => void }) {
   const [hover, setHover] = useState(false);
   return (
@@ -162,95 +147,140 @@ function ShuffleAffordance({ visible, onClick }: { visible: boolean; onClick: ()
   );
 }
 
-/** Chip momentáneo de "Todas" / "Sin asignar": siempre activo, con randomizar. */
-function PseudoChip({ name, onShuffle }: { name: string; onShuffle: () => void }) {
-  return (
-    <div style={{ ...chipStyle(true, false), gap: 2 }}>
-      {name}
-      <ShuffleAffordance visible onClick={onShuffle} />
-    </div>
-  );
+// ── Dropdown de playlists (izquierda) ────────────────────────────────────────
+
+/** Nombre visible de la vista activa. */
+function viewLabel(view: PlaylistView, playlists: Playlist[]): string {
+  if (view === "all") return "Todas";
+  if (view === "unassigned") return "Sin asignar";
+  return playlists.find((p) => p.id === view)?.name ?? "Todas";
 }
 
-function PlaylistChip({
-  playlist,
-  selected,
-  onClick,
-  onShuffle,
-  onRename,
-  onDelete,
+function PlaylistDropdown({
+  view,
+  playlists,
+  onSelect,
+  onNew,
+  onRenameActive,
 }: {
-  playlist: Playlist;
-  selected: boolean;
-  onClick: () => void;
-  onShuffle: () => void;
-  onRename: () => void;
-  onDelete: () => void;
+  view: PlaylistView;
+  playlists: Playlist[];
+  onSelect: (v: PlaylistView) => void;
+  onNew: () => void;
+  onRenameActive?: () => void;
 }) {
+  const [open, setOpen] = useState(false);
   const [hover, setHover] = useState(false);
-  return (
-    <div
-      onClick={onClick}
-      onDoubleClick={onRename}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      title="Doble click para renombrar"
-      style={{ ...chipStyle(selected, hover), gap: 2 }}
-    >
-      {playlist.name}
-      <ShuffleAffordance visible={selected || hover} onClick={onShuffle} />
-      {selected && (
-        <span
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete();
-          }}
-          title="Eliminar playlist"
-          style={{ display: "inline-flex", marginLeft: 1, marginRight: -4, padding: 1 }}
-        >
-          <Icon name="close" size={12} color="var(--q-text-secondary)" />
-        </span>
-      )}
-    </div>
-  );
-}
+  const ref = useRef<HTMLSpanElement>(null);
 
-function chipStyle(selected: boolean, hover: boolean): CSSProperties {
-  return {
-    position: "relative",
-    flex: "0 0 auto",
-    display: "flex",
-    alignItems: "center",
-    padding: "0 10px",
-    height: 26,
-    margin: "0 1px",
-    fontSize: 12,
-    fontWeight: selected ? 600 : 500,
-    color: selected || hover ? "var(--q-text-primary)" : "var(--q-text-secondary)",
-    background: selected ? "var(--q-surface-alt)" : hover ? "var(--q-card-hover)" : "transparent",
-    borderRadius: 6,
-    cursor: "default",
-    whiteSpace: "nowrap",
-    transition: "background var(--q-dur-fast) var(--q-ease), color var(--q-dur-fast) var(--q-ease)",
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const run = (fn: () => void) => () => {
+    fn();
+    setOpen(false);
   };
+
+  return (
+    <span ref={ref} style={{ position: "relative", display: "inline-flex", minWidth: 0 }}>
+      <div
+        onClick={() => setOpen((o) => !o)}
+        onDoubleClick={onRenameActive}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        title={onRenameActive ? "Doble click para renombrar" : undefined}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          padding: "0 6px 0 10px",
+          height: 26,
+          fontSize: 12,
+          fontWeight: 600,
+          color: "var(--q-text-primary)",
+          background: open || hover ? "var(--q-surface-alt)" : "transparent",
+          borderRadius: 6,
+          cursor: "default",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          transition:
+            "background var(--q-dur-fast) var(--q-ease), color var(--q-dur-fast) var(--q-ease)",
+        }}
+      >
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+          {viewLabel(view, playlists)}
+        </span>
+        <Icon name="arrow_drop_down" size={18} color="var(--q-text-secondary)" />
+      </div>
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 6px)",
+            left: 0,
+            zIndex: 1000,
+            minWidth: 200,
+            maxHeight: 320,
+            overflowY: "auto",
+            padding: 4,
+            background: "var(--q-surface)",
+            border: "1px solid var(--q-border-light)",
+            borderRadius: 8,
+            boxShadow: "0 10px 28px rgba(0,0,0,.4)",
+          }}
+        >
+          <MenuItem
+            icon="library_music"
+            label="Todas"
+            checked={view === "all"}
+            onClick={run(() => onSelect("all"))}
+          />
+          <MenuItem
+            icon="label_off"
+            label="Sin asignar"
+            checked={view === "unassigned"}
+            onClick={run(() => onSelect("unassigned"))}
+          />
+          {playlists.length > 0 && <MenuDivider />}
+          {playlists.map((p) => (
+            <MenuItem
+              key={p.id}
+              icon="queue_music"
+              label={p.name}
+              checked={view === p.id}
+              onClick={run(() => onSelect(p.id))}
+            />
+          ))}
+          <MenuDivider />
+          <MenuItem icon="playlist_add" label="Nueva playlist" onClick={run(onNew)} />
+        </div>
+      )}
+    </span>
+  );
 }
 
 // ── Menú de settings (derecha) ──────────────────────────────────────────────
 
 function SettingsMenu({
-  view,
-  searchOpen,
-  onToggleSearch,
-  onSelectView,
-  onNewPlaylist,
+  onManage,
   onOpenFolder,
   onDownload,
 }: {
-  view: PlaylistView;
-  searchOpen: boolean;
-  onToggleSearch: () => void;
-  onSelectView: (v: PlaylistView) => void;
-  onNewPlaylist: () => void;
+  onManage: () => void;
   onOpenFolder: () => void;
   onDownload: () => void;
 }) {
@@ -301,25 +331,11 @@ function SettingsMenu({
             boxShadow: "0 10px 28px rgba(0,0,0,.4)",
           }}
         >
-          <MenuItem icon="search" label="Buscar" checked={searchOpen} onClick={run(onToggleSearch)} />
-          <MenuDivider />
-          <MenuItem
-            icon="library_music"
-            label="Todas las canciones"
-            checked={view === "all"}
-            onClick={run(() => onSelectView("all"))}
-          />
-          <MenuItem
-            icon="label_off"
-            label="Sin asignar"
-            checked={view === "unassigned"}
-            onClick={run(() => onSelectView("unassigned"))}
-          />
-          <MenuDivider />
-          <MenuItem icon="playlist_add" label="Nueva playlist" onClick={run(onNewPlaylist)} />
+          <MenuItem icon="checklist" label="Manejar playlists" onClick={run(onManage)} />
           {/* "Abrir carpeta" y "Descargar" son desktop-only (ver MusicPage). */}
           {!isAndroid && (
             <>
+              <MenuDivider />
               <MenuItem
                 icon="folder_open"
                 label="Abrir carpeta de música"
@@ -376,7 +392,7 @@ function MenuItem({
       }}
     >
       <Icon name={icon} size={17} />
-      <span style={{ flex: 1 }}>{label}</span>
+      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
       {checked && <Icon name="check" size={15} color="var(--q-primary-light)" />}
     </div>
   );

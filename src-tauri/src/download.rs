@@ -5,9 +5,12 @@
 //!  - **yt-dlp.exe**: descarga + extrae audio.
 //!  - **ffmpeg.exe** / **ffprobe.exe**: conversión a MP3 y normalización loudnorm.
 //!
-//! Diseño de comandos: bloqueantes (Tauri los corre en su pool sin congelar UI).
-//! El error vuelve por `Result<_, String>` (convención del repo). El progreso
-//! vuelve por `Channel` para que el frontend lo pinte en vivo.
+//! Diseño de comandos: bloqueantes, marcados `#[tauri::command(async)]` para
+//! que Tauri los corra vía `spawn_blocking` en su pool — un `#[tauri::command]`
+//! pelado corre en el MAIN thread y congela la ventana entera (incluidos los
+//! spinners del frontend) mientras yt-dlp/ffmpeg trabajan. El error vuelve por
+//! `Result<_, String>` (convención del repo). El progreso vuelve por `Channel`
+//! para que el frontend lo pinte en vivo.
 //!
 //! Detección de archivos creados: usamos `--print "after_move:filepath"` de
 //! yt-dlp, que dispara DESPUÉS del postprocesado y movimiento al destino final
@@ -16,11 +19,22 @@
 //! versiones.
 //!
 //! **Cross-platform (Windows / Linux / macOS).** Resolución de binarios
-//! híbrida: primero buscamos `yt-dlp`/`ffmpeg` en el `PATH` del sistema (lo
-//! normal en Linux/macOS, donde vienen del gestor de paquetes), y si no están
-//! caemos a `<AppData>/Quarks/bin/` donde el setup los auto-descarga. Así
-//! "abrir y usar" sigue funcionando sin instalar nada, pero respetamos los
-//! binarios del sistema cuando existen (más actualizados, menos disco).
+//! asimétrica a propósito:
+//!  - **ffmpeg/ffprobe**: primero el `PATH` del sistema (lo normal en
+//!    Linux/macOS, donde vienen del gestor de paquetes) y si no está, el bin
+//!    propio. Es una dependencia estable: la build del sistema sirve igual.
+//!  - **yt-dlp**: SIEMPRE el bin propio, ignorando el `PATH`. YouTube cambia la
+//!    extracción cada pocos meses y rompe las versiones viejas, pero las
+//!    distros lo empaquetan y lo dejan envejecer (Debian 13 shippea 2025.04.30,
+//!    que ya no puede bajar audio). Si tomáramos el del `PATH` no podríamos
+//!    actualizarlo — no es nuestro — y la app quedaría rota sin salida.
+//!
+//! Por eso yt-dlp además se mantiene al día por dos vías complementarias:
+//!  1. **Chequeo periódico** (`music_tools_check_update`): cada 7 días, un HEAD
+//!     de ~0 bytes contra GitHub compara versiones y solo descarga si cambió.
+//!  2. **Auto-reparación** (dentro de `music_download`): si la descarga falla
+//!     con una firma de "binario viejo", actualiza y reintenta una vez. Es la
+//!     red de seguridad para cuando YouTube rompe algo entre chequeos.
 
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -74,6 +88,17 @@ const FFMPEG_URL: &str = "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip";
 #[cfg(target_os = "macos")]
 const FFPROBE_URL: &str = "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip";
 
+/// Página de la última release (igual en las tres plataformas). GitHub redirige
+/// `/releases/latest` → `/releases/tag/<version>`, así que un HEAD sin seguir el
+/// redirect nos da la versión en el header `Location` sin bajar los 39 MB del
+/// binario. No usamos la API REST: esto no consume rate limit ni pide token.
+const YTDLP_LATEST_URL: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest";
+
+/// Cada cuánto chequeamos si hay yt-dlp nueva. 7 días es el equilibrio entre no
+/// pegarle a GitHub de gedes y no quedar viejo: yt-dlp saca release cada ~2
+/// semanas. De todas formas el auto-reintento cubre el hueco entre chequeos.
+const CHECK_INTERVAL_SECS: u64 = 7 * 24 * 60 * 60;
+
 // ── Helpers de rutas ──────────────────────────────────────────────────────────
 
 /// `<AppData>/Quarks/bin/`. Device-local (no sincroniza con Drive: el motor
@@ -88,8 +113,8 @@ fn bin_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-/// Mini-`which`: busca `name` en el `PATH` del sistema. Lo usamos para preferir
-/// los binarios del gestor de paquetes (Linux/macOS) antes que los descargados.
+/// Mini-`which`: busca `name` en el `PATH` del sistema. Solo lo usamos para
+/// ffmpeg (ver el porqué de la asimetría en el doc del módulo).
 fn which_in_path(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     for dir in std::env::split_paths(&path) {
@@ -107,12 +132,19 @@ fn resolve_tool(app: &AppHandle, bin_name: &str) -> Option<PathBuf> {
     if let Some(p) = which_in_path(bin_name) {
         return Some(p);
     }
+    resolve_own(app, bin_name)
+}
+
+/// Resuelve SOLO en el bin propio, sin mirar el `PATH`.
+fn resolve_own(app: &AppHandle, bin_name: &str) -> Option<PathBuf> {
     let local = bin_dir(app).ok()?.join(bin_name);
     local.exists().then_some(local)
 }
 
+/// yt-dlp sale siempre del bin propio: es el único binario que podemos (y
+/// necesitamos) mantener actualizado. Ver doc del módulo.
 fn resolve_ytdlp(app: &AppHandle) -> Option<PathBuf> {
-    resolve_tool(app, YTDLP_BIN)
+    resolve_own(app, YTDLP_BIN)
 }
 
 fn resolve_ffmpeg(app: &AppHandle) -> Option<PathBuf> {
@@ -236,6 +268,56 @@ fn set_executable(_: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// `/path/yt-dlp.exe` + `".new"` → `/path/yt-dlp.exe.new`.
+fn with_suffix(p: &Path, suffix: &str) -> PathBuf {
+    let mut s = p.as_os_str().to_os_string();
+    s.push(suffix);
+    PathBuf::from(s)
+}
+
+/// Instala un binario bajándolo a `<dest>.new` y recién ahí promoviéndolo con un
+/// rename. Dos motivos, uno por plataforma:
+///  - **Todas**: si la descarga se corta a mitad, escribir directo sobre `dest`
+///    dejaría un binario truncado. Como la única validación que hacemos es
+///    `.exists()`, lo daríamos por bueno para siempre.
+///  - **Windows**: no se puede sobrescribir un `.exe` en uso (os error 5), pero
+///    sí RENOMBRARLO. Por eso apartamos el viejo a `.old` antes de promover el
+///    nuevo, en vez de sobrescribirlo.
+///
+/// El paso `.old` es innecesario en Unix pero inofensivo, así que va un solo
+/// camino para las tres plataformas.
+fn install_binary(url: &str, dest: &Path, on_pct: impl FnMut(f64)) -> Result<(), String> {
+    let tmp = with_suffix(dest, ".new");
+    let old = with_suffix(dest, ".old");
+
+    // Barre un `.old` que haya quedado de un update anterior (en Windows el
+    // borrado falla si el exe seguía en uso; para la próxima ya se puede).
+    let _ = fs::remove_file(&old);
+    let _ = fs::remove_file(&tmp);
+
+    if let Err(e) = download_file(url, &tmp, on_pct) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
+    if let Err(e) = set_executable(&tmp) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
+
+    if dest.exists() {
+        fs::rename(dest, &old).map_err(|e| format!("no se pudo apartar el binario viejo: {e}"))?;
+    }
+    if let Err(e) = fs::rename(&tmp, dest) {
+        // Rollback: devolvemos el viejo a su lugar antes de reportar, así no
+        // quedamos sin ningún binario.
+        let _ = fs::rename(&old, dest);
+        let _ = fs::remove_file(&tmp);
+        return Err(format!("no se pudo instalar el binario nuevo: {e}"));
+    }
+    let _ = fs::remove_file(&old);
+    Ok(())
+}
+
 /// Extrae de un zip SOLO las entradas cuyo `file_name()` final coincide con
 /// alguno de `wanted`, aplanándolas a `dest_dir`. Los zips de BtbN/evermeet
 /// tienen una carpeta interna con versión variable, por eso filtramos por
@@ -331,7 +413,7 @@ pub enum SetupProgress {
 /// El error sale por `Result`; el progreso por `Channel`. Bloqueante: corre en
 /// el pool de Tauri. Cross-platform: cada plataforma resuelve su URL/formato en
 /// los helpers `download_ytdlp`/`download_ffmpeg`.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn music_tools_setup(app: AppHandle, on: Channel<SetupProgress>) -> Result<(), String> {
     let _ = on.send(SetupProgress::Started);
 
@@ -354,13 +436,173 @@ pub fn music_tools_setup(app: AppHandle, on: Channel<SetupProgress>) -> Result<(
 fn download_ytdlp(bin: &Path, on: &Channel<SetupProgress>) -> Result<(), String> {
     let dest = bin.join(YTDLP_BIN);
     let on_clone = on.clone();
-    download_file(YTDLP_URL, &dest, move |p| {
+    install_binary(YTDLP_URL, &dest, move |p| {
         let _ = on_clone.send(SetupProgress::Tool {
             name: "yt-dlp".into(),
             pct: p,
         });
     })?;
-    set_executable(&dest)?;
+    // Dejamos registrada la versión recién instalada para que el chequeo
+    // periódico pueda comparar sin tener que spawnear el binario.
+    let mut meta = read_meta(bin);
+    meta.ytdlp_version = local_ytdlp_version(&dest);
+    meta.last_check_secs = Some(now_secs());
+    write_meta(bin, &meta);
+    Ok(())
+}
+
+// ── Versión de yt-dlp y auto-update ───────────────────────────────────────────
+
+/// Estado persistido del updater, en `<AppData>/Quarks/bin/tools.json`.
+/// Device-local igual que los binarios: no sincroniza con Drive.
+#[derive(Default, Serialize, Deserialize)]
+struct ToolsMeta {
+    /// Versión de yt-dlp instalada (ej. `"2026.07.04"`), tal cual la reporta
+    /// `--version`. `None` si nunca pudimos leerla.
+    ytdlp_version: Option<String>,
+    /// Último chequeo contra GitHub, en segundos desde epoch.
+    last_check_secs: Option<u64>,
+}
+
+fn meta_path(bin: &Path) -> PathBuf {
+    bin.join("tools.json")
+}
+
+fn read_meta(bin: &Path) -> ToolsMeta {
+    fs::read(meta_path(bin))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+fn write_meta(bin: &Path, meta: &ToolsMeta) {
+    if let Ok(json) = serde_json::to_vec_pretty(meta) {
+        let _ = fs::write(meta_path(bin), json);
+    }
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Versión instalada, preguntándole al binario (`yt-dlp --version` → `2026.07.04`).
+fn local_ytdlp_version(yt: &Path) -> Option<String> {
+    let mut cmd = Command::new(yt);
+    cmd.arg("--version");
+    hide_console(&mut cmd);
+    clean_child_env(&mut cmd);
+    let out = cmd.output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!v.is_empty()).then_some(v)
+}
+
+/// Última versión publicada, SIN bajar el binario: pedimos un HEAD a
+/// `/releases/latest` con los redirects desactivados y leemos el tag del header
+/// `Location` (`.../releases/tag/2026.07.04`). ~0 bytes y ~300 ms.
+/// `None` = sin red, GitHub caído o formato inesperado; el llamador lo trata
+/// como "no sé", nunca como error de usuario.
+fn latest_ytdlp_version() -> Option<String> {
+    let agent = ureq::builder().redirects(0).build();
+    let resp = agent.head(YTDLP_LATEST_URL).call().ok()?;
+    let loc = resp.header("location")?;
+    let tag = loc.trim_end_matches('/').rsplit('/').next()?.trim();
+    (!tag.is_empty() && tag != "latest").then(|| tag.to_string())
+}
+
+/// Baja e instala la última yt-dlp sobre el bin propio y actualiza `tools.json`.
+/// Devuelve la versión instalada. Compartida por el chequeo periódico y el
+/// auto-reintento, por eso recibe el callback de progreso genérico.
+fn update_ytdlp(app: &AppHandle, on_pct: impl FnMut(f64)) -> Result<String, String> {
+    let bin = bin_dir(app)?;
+    let dest = bin.join(YTDLP_BIN);
+    install_binary(YTDLP_URL, &dest, on_pct)?;
+
+    let version = local_ytdlp_version(&dest);
+    let mut meta = read_meta(&bin);
+    meta.ytdlp_version = version.clone();
+    meta.last_check_secs = Some(now_secs());
+    write_meta(&bin, &meta);
+
+    Ok(version.unwrap_or_else(|| "desconocida".into()))
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase", tag = "phase")]
+pub enum UpdateProgress {
+    Checking,
+    Downloading { pct: f64 },
+    Updated { version: String },
+    UpToDate,
+}
+
+/// Chequeo periódico de versión de yt-dlp. Barato por diseño: si no pasaron
+/// `CHECK_INTERVAL_SECS` desde el último, no toca la red; si pasaron, compara
+/// con un HEAD de ~0 bytes y solo descarga cuando hay versión nueva.
+///
+/// Lo llama el frontend al ABRIR el diálogo de descarga, no al arrancar la app:
+/// así quien no usa el quark de música nunca paga el costo y el core bootea
+/// igual de rápido.
+///
+/// Nunca falla por red: sin conexión devuelve `UpToDate` sin guardar timestamp,
+/// para reintentar en la próxima apertura.
+#[tauri::command(async)]
+pub fn music_tools_check_update(
+    app: AppHandle,
+    force: bool,
+    on: Channel<UpdateProgress>,
+) -> Result<(), String> {
+    let bin = bin_dir(&app)?;
+    let yt = bin.join(YTDLP_BIN);
+    if !yt.exists() {
+        // Todavía no hay nada instalado: es trabajo del setup, no del updater.
+        let _ = on.send(UpdateProgress::UpToDate);
+        return Ok(());
+    }
+
+    let mut meta = read_meta(&bin);
+    let now = now_secs();
+    if !force {
+        if let Some(last) = meta.last_check_secs {
+            if now.saturating_sub(last) < CHECK_INTERVAL_SECS {
+                let _ = on.send(UpdateProgress::UpToDate);
+                return Ok(());
+            }
+        }
+    }
+
+    let _ = on.send(UpdateProgress::Checking);
+    let Some(latest) = latest_ytdlp_version() else {
+        let _ = on.send(UpdateProgress::UpToDate);
+        return Ok(());
+    };
+
+    let current = meta
+        .ytdlp_version
+        .clone()
+        .or_else(|| local_ytdlp_version(&yt));
+
+    // Guardamos el timestamp ANTES de descargar: si la bajada falla no queremos
+    // reintentar 39 MB en cada apertura del diálogo. El auto-reintento cubre.
+    meta.last_check_secs = Some(now);
+    meta.ytdlp_version = current.clone();
+    write_meta(&bin, &meta);
+
+    if current.as_deref() == Some(latest.as_str()) {
+        let _ = on.send(UpdateProgress::UpToDate);
+        return Ok(());
+    }
+
+    let on_clone = on.clone();
+    let version = update_ytdlp(&app, move |p| {
+        let _ = on_clone.send(UpdateProgress::Downloading { pct: p });
+    })?;
+    let _ = on.send(UpdateProgress::Updated { version });
     Ok(())
 }
 
@@ -425,7 +667,7 @@ pub struct ProbeResult {
     uploader: Option<String>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn music_probe_url(app: AppHandle, url: String) -> Result<ProbeResult, String> {
     let url = url.trim();
     if url.is_empty() {
@@ -555,9 +797,41 @@ pub enum DownloadProgress {
     Done {
         rel_paths: Vec<String>,
     },
+    /// La descarga falló por yt-dlp viejo y lo estamos actualizando para
+    /// reintentar. `pct` es el progreso de la bajada del binario, no del audio.
+    UpdatingTools {
+        pct: f64,
+    },
 }
 
-#[tauri::command]
+/// Resultado crudo de una corrida de yt-dlp, antes de decidir si reintentamos.
+struct RunOutcome {
+    rel_paths: Vec<String>,
+    success: bool,
+    stderr: String,
+}
+
+/// Firmas de "yt-dlp quedó viejo y YouTube cambió algo debajo": el binario ya no
+/// ve ningún formato descargable. Es exactamente el modo de fallo que arregla
+/// actualizar, y el que dispara el auto-reintento.
+///
+/// Deliberadamente NO matchea errores legítimos (video privado, borrado,
+/// bloqueado por región, URL inválida): actualizar no los arregla y bajar 39 MB
+/// al pedo por un link roto sería peor que el error.
+fn is_stale_binary_failure(stderr: &str) -> bool {
+    const SIGNS: &[&str] = &[
+        "requested format is not available",
+        "signature extraction failed",
+        "nsig extraction failed",
+        "only images are available",
+        "unable to extract",
+        "failed to extract any player response",
+    ];
+    let low = stderr.to_lowercase();
+    SIGNS.iter().any(|s| low.contains(s))
+}
+
+#[tauri::command(async)]
 pub fn music_download(
     app: AppHandle,
     opts: DownloadOpts,
@@ -593,7 +867,57 @@ pub fn music_download(
         format!("{}/%(title)s.%(ext)s", songs.to_string_lossy())
     };
 
-    let mut cmd = Command::new(&yt);
+    // Primer intento. Si falla por binario viejo, actualizamos y reintentamos
+    // una sola vez — ver `is_stale_binary_failure`.
+    let mut outcome = run_ytdlp_download(&yt, &ffmpeg_dir, &songs, &output_template, &opts, &on)?;
+
+    if !outcome.success && outcome.rel_paths.is_empty() && is_stale_binary_failure(&outcome.stderr) {
+        let on_clone = on.clone();
+        let _ = on.send(DownloadProgress::UpdatingTools { pct: 0.0 });
+        let updated = update_ytdlp(&app, move |p| {
+            let _ = on_clone.send(DownloadProgress::UpdatingTools { pct: p });
+        });
+        if updated.is_ok() {
+            // `update_ytdlp` reemplaza el binario en su lugar, así que la ruta
+            // sigue siendo válida. Si el reintento vuelve a fallar, cae al
+            // manejo de error de abajo con el stderr NUEVO (más informativo:
+            // ya no es "estás viejo").
+            outcome =
+                run_ytdlp_download(&yt, &ffmpeg_dir, &songs, &output_template, &opts, &on)?;
+        }
+        // Si no pudimos actualizar (sin red, disco lleno), seguimos con el
+        // `outcome` original y reportamos el error de descarga real.
+    }
+
+    if !outcome.success && outcome.rel_paths.is_empty() {
+        let msg = outcome
+            .stderr
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("yt-dlp falló")
+            .to_string();
+        return Err(msg);
+    }
+
+    let _ = on.send(DownloadProgress::Done {
+        rel_paths: outcome.rel_paths.clone(),
+    });
+    Ok(outcome.rel_paths)
+}
+
+/// Corre yt-dlp una vez y parsea su salida en vivo hacia el `Channel`. No
+/// interpreta el fallo: devuelve el crudo en `RunOutcome` para que el llamador
+/// decida si reintenta. `Err` acá es solo "no pudimos ni spawnear el proceso".
+fn run_ytdlp_download(
+    yt: &Path,
+    ffmpeg_dir: &Path,
+    songs: &Path,
+    output_template: &str,
+    opts: &DownloadOpts,
+    on: &Channel<DownloadProgress>,
+) -> Result<RunOutcome, String> {
+    let mut cmd = Command::new(yt);
     cmd.args([
         "-x",
         "--audio-format",
@@ -602,8 +926,8 @@ pub fn music_download(
         "0",
         "--ffmpeg-location",
     ])
-    .arg(&ffmpeg_dir)
-    .args(["-o", &output_template])
+    .arg(ffmpeg_dir)
+    .args(["-o", output_template])
     .args([
         "--newline",
         "--no-warnings",
@@ -612,6 +936,11 @@ pub fn music_download(
         "--no-abort-on-error",
     ])
     .args([
+        // `--progress` es OBLIGATORIO acá: yt-dlp suprime el progreso cuando
+        // stdout no es una TTY, y nosotros SIEMPRE lo pipeamos. Sin esto el
+        // `--progress-template` de abajo no emite una sola línea y la barra se
+        // queda clavada en 0 toda la descarga.
+        "--progress",
         "--progress-template",
         "download:DLPCT %(progress._percent_str)s SPEED %(progress._speed_str)s ETA %(progress._eta_str)s",
     ])
@@ -619,6 +948,15 @@ pub fn music_download(
         "--print",
         "before_dl:ITEM %(playlist_index|1)s/%(n_entries|1)s %(title)s",
     ])
+    // `post_process` dispara con el archivo YA bajado y ANTES de que ffmpeg lo
+    // convierta a MP3: es la señal de "empezó la conversión". Antes mirábamos
+    // las líneas `[ExtractAudio]` del output humano, pero usar `--print` pone a
+    // yt-dlp en modo quiet y esas líneas nunca llegaban.
+    //
+    // El `%(filepath)s` no lo usamos, pero tiene que ir: un template SIN ningún
+    // campo `%(…)` yt-dlp lo interpreta como el nombre de un campo, no encuentra
+    // ninguno que se llame así y termina imprimiendo `NA`.
+    .args(["--print", "post_process:PPROC %(filepath)s"])
     .args(["--print", "after_move:SAVED %(filepath)s"]);
 
     if opts.is_playlist {
@@ -719,10 +1057,7 @@ pub fn music_download(
             };
             rel_paths.push(rel.clone());
             let _ = on.send(DownloadProgress::Saved { rel_path: rel });
-        } else if line.starts_with("[ExtractAudio]")
-            || line.starts_with("[Metadata]")
-            || line.starts_with("[ffmpeg]")
-        {
+        } else if line.starts_with("PPROC") {
             let _ = on.send(DownloadProgress::Converting);
         }
     }
@@ -730,21 +1065,11 @@ pub fn music_download(
     let status = child.wait().map_err(|e| e.to_string())?;
     let _ = stderr_thread.join();
 
-    if !status.success() && rel_paths.is_empty() {
-        let err = stderr_buf.lock().map(|s| s.clone()).unwrap_or_default();
-        let msg = err
-            .lines()
-            .rev()
-            .find(|l| !l.trim().is_empty())
-            .unwrap_or("yt-dlp falló")
-            .to_string();
-        return Err(msg);
-    }
-
-    let _ = on.send(DownloadProgress::Done {
-        rel_paths: rel_paths.clone(),
-    });
-    Ok(rel_paths)
+    Ok(RunOutcome {
+        rel_paths,
+        success: status.success(),
+        stderr: stderr_buf.lock().map(|s| s.clone()).unwrap_or_default(),
+    })
 }
 
 /// Parsea `" 42.0% SPEED  1.20MiB/s ETA 00:30"` → (0.42, Some("1.20MiB/s"), Some("00:30")).
@@ -797,3 +1122,5 @@ fn parse_item(s: &str) -> Option<(u32, u32, String)> {
     let total: u32 = np.next()?.parse().ok()?;
     Some((index, total, title))
 }
+
+

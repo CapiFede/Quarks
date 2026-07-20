@@ -12,8 +12,6 @@ import { musicQuark } from "@quarks/quark-music";
 import { booksQuark } from "@quarks/quark-books";
 import { notesQuark } from "@quarks/quark-notes";
 import { utilsQuark } from "@quarks/quark-utils";
-import { consoleQuark } from "@quarks/quark-console";
-import { editorQuark } from "@quarks/quark-editor";
 
 export interface QuarkStub {
   id: string;
@@ -31,10 +29,7 @@ export const QUARK_STUBS: QuarkStub[] = [
   { id: "music", name: "Música", icon: "music_note", dirs: ["songs", "playlists"] },
   { id: "notes", name: "Notas", icon: "edit_note" },
   { id: "books", name: "Libros", icon: "menu_book" },
-  { id: "calendar", name: "Calendario", icon: "calendar_month" },
   { id: "utils", name: "Utilidades", icon: "widgets", dirs: ["system", "system/backups"] },
-  { id: "console", name: "Consola", icon: "terminal" },
-  { id: "editor", name: "Editor", icon: "content_cut", dirs: ["imports"] },
 ];
 
 /** Instancias reales, indexadas por id. El id debe coincidir con un stub. */
@@ -43,8 +38,6 @@ const INSTANCES: Record<string, Quark> = {
   [booksQuark.id]: booksQuark,
   [notesQuark.id]: notesQuark,
   [utilsQuark.id]: utilsQuark,
-  [consoleQuark.id]: consoleQuark,
-  [editorQuark.id]: editorQuark,
 };
 
 export function getQuark(id: string): QuarkStub | undefined {

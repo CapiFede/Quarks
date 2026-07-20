@@ -3,10 +3,7 @@
  * rango del random) son GLOBALES — no dependen del space. Ver `services/persistence.ts`.
  */
 
-export type Tool = "clocks" | "random" | "system";
-
-// El tab System tiene una sola acción (crear snapshot); su lógica vive en
-// `services/snapshot.ts` y no necesita tipos persistidos acá.
+export type Tool = "clocks" | "random";
 
 // ── Preferencias persistidas en disco ────────────────────────────────────────
 

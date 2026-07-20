@@ -21,6 +21,8 @@ import { report, withScope } from "../../services/log";
 import {
   getPendingQuark,
   clearPendingQuark,
+  getPendingSpace,
+  clearPendingSpace,
   subscribeNavigation,
 } from "../../services/navigation";
 import type { AppState } from "../../services/appState";
@@ -37,7 +39,7 @@ export interface ShellProps {
 export function Shell({ initialAppState, initialSettings, initialAccount }: ShellProps) {
   const shell = useShell(initialAppState);
   const settingsCtl = useSettings(initialSettings);
-  const { settings, update, reload } = settingsCtl;
+  const { settings, update } = settingsCtl;
   const spaces = useSpaces(settingsCtl, shell);
   const { account, status, error, connect, disconnect } = useAccount(initialAccount);
   const updater = useUpdater();
@@ -57,19 +59,28 @@ export function Shell({ initialAppState, initialSettings, initialAccount }: Shel
     }
   }, [account, settings.displayName, update]);
 
-  // Un quark puede pedir el foco de su tab (alarma sonando, fin de timer). El
+  // Un quark puede pedir el foco de su tab (alarma sonando, fin de timer) o la
+  // activación de un space (abrir una playlist de otro space desde Música). El
   // store vive en otro paquete y publica en el bus de navegación; acá lo
-  // consumimos abriendo/activando el tab para que su overlay sea visible.
+  // consumimos.
   useEffect(() => {
     const consume = () => {
       const id = getPendingQuark();
-      if (!id) return;
-      clearPendingQuark();
-      shell.openTab(id);
+      if (id) {
+        clearPendingQuark();
+        shell.openTab(id);
+      }
+      const spaceId = getPendingSpace();
+      if (spaceId) {
+        clearPendingSpace();
+        // Ignorar ids que no correspondan a un space definido (pedido viejo /
+        // space borrado entre que se publicó y se consumió).
+        if (spaces.spaces.some((s) => s.id === spaceId)) spaces.setActive(spaceId);
+      }
     };
     consume(); // por si quedó un pedido publicado antes de montar el Shell
     return subscribeNavigation(consume);
-  }, [shell.openTab]);
+  }, [shell.openTab, spaces.spaces, spaces.setActive]);
 
   /** Abre Settings, opcionalmente en una sección puntual. */
   const openSettings = (section?: SectionId) => {
@@ -156,7 +167,6 @@ export function Shell({ initialAppState, initialSettings, initialAccount }: Shel
           error={error}
           onConnect={connect}
           onDisconnect={disconnect}
-          onDataChanged={reload}
           updater={updater}
         />
 

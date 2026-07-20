@@ -12,7 +12,6 @@
  */
 import { isTauri } from "@tauri-apps/api/core";
 import { isAndroid } from "./platform";
-import { report } from "./log";
 
 export interface UpdateInfo {
   /** Versión que ofrece el endpoint (sin la `v` inicial). */
@@ -34,11 +33,18 @@ export interface DownloadProgress {
 
 /**
  * Consulta el endpoint y devuelve `null` si ya estamos al día (o si no aplica:
- * browser, Android, falta de pubkey, etc.). No lanza — los errores se reportan
- * con `report()` y se traducen a `null` para que el caller pueda asumir
- * "no hay update" sin try/catch.
+ * browser, Android, falta de pubkey, etc.).
+ *
+ * `silent` distingue los dos usos:
+ * - Auto-check de arranque (`silent: true`): mientras no exista un release el
+ *   endpoint da 404 y esto fallaría en *cada* boot. En ese modo tragamos el
+ *   error y devolvemos `null` sin reportar, para no ensuciar la consola.
+ * - Check manual desde Settings (`silent: false`, default): re-lanza el error
+ *   para que el caller lo muestre en la UI ("no se pudo chequear").
  */
-export async function checkForUpdate(): Promise<UpdateInfo | null> {
+export async function checkForUpdate(
+  opts?: { silent?: boolean },
+): Promise<UpdateInfo | null> {
   if (!isTauri() || isAndroid) return null;
   try {
     const { check } = await import("@tauri-apps/plugin-updater");
@@ -51,8 +57,8 @@ export async function checkForUpdate(): Promise<UpdateInfo | null> {
       date: update.date,
     };
   } catch (e) {
-    report("updater.check", e);
-    return null;
+    if (opts?.silent) return null;
+    throw e;
   }
 }
 

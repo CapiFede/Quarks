@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button, Icon, IconButton, TextInput, Toggle } from "@quarks/core";
+import { Button, IconButton, TextInput, Toggle } from "@quarks/core";
 import type { UtilsStore } from "../store";
 import type { Alarm, AlarmKind, UtilsState } from "../types";
 
@@ -200,14 +200,6 @@ export function AlarmView({ store, state }: AlarmViewProps) {
             </div>
           );
         })}
-      </div>
-
-      <div className="q-utils-hint">
-        <Icon name="info" size={14} color="var(--q-text-light)" />
-        <span>
-          Las alarmas solo disparan mientras la app está abierta. Al sonar, traen la
-          ventana al frente.
-        </span>
       </div>
     </div>
   );

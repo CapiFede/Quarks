@@ -6,7 +6,6 @@ import { TimerView } from "./TimerView";
 import { StopwatchView } from "./StopwatchView";
 import { AlarmView } from "./AlarmView";
 import { RandomView } from "./RandomView";
-import { SystemView } from "./SystemView";
 import "../styles/utils.css";
 
 export interface UtilsPageProps {
@@ -32,7 +31,6 @@ export function UtilsPage({ store }: UtilsPageProps) {
           </div>
         )}
         {state.activeTool === "random" && <RandomView store={store} state={state} />}
-        {state.activeTool === "system" && <SystemView />}
       </div>
       {state.firing && (
         <FiringOverlay

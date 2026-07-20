@@ -13,7 +13,9 @@ import { isAutostartEnabled, setAutostart } from "../../services/autostart";
 import { isAndroid } from "../../services/platform";
 import { hasGoogleCredentials } from "../../services/account/config";
 import { useSync, type SyncOp } from "../hooks/useSync";
+import { useBackup } from "../hooks/useBackup";
 import { isClean, type SyncDelta, type SyncProgress } from "../../services/account/sync";
+import { BACKUP_FOLDER, type BackupProgress } from "../../services/account/backup";
 import type { UpdaterController } from "../hooks/useUpdater";
 import type {
   AccountInfo,
@@ -50,8 +52,6 @@ export interface SettingsProps {
   error: string | null;
   onConnect: (providerId?: ProviderId) => void;
   onDisconnect: () => void;
-  /** Se invoca tras un pull para re-hidratar los stores que cambiaron en disco. */
-  onDataChanged: () => void;
   updater: UpdaterController;
 }
 
@@ -71,7 +71,6 @@ export function Settings({
   error,
   onConnect,
   onDisconnect,
-  onDataChanged,
   updater,
 }: SettingsProps) {
   const [section, setSection] = useState<SectionId>("general");
@@ -213,7 +212,6 @@ export function Settings({
                 error={error}
                 onConnect={onConnect}
                 onDisconnect={onDisconnect}
-                onDataChanged={onDataChanged}
               />
             )}
           </div>
@@ -375,14 +373,12 @@ function AccountSection({
   error,
   onConnect,
   onDisconnect,
-  onDataChanged,
 }: {
   account: AccountInfo | null;
   status: AccountStatus;
   error: string | null;
   onConnect: (providerId?: ProviderId) => void;
   onDisconnect: () => void;
-  onDataChanged: () => void;
 }) {
   const canConnect = hasGoogleCredentials();
   const connecting = status === "connecting";
@@ -444,13 +440,14 @@ function AccountSection({
         <div style={{ fontSize: 12, color: "var(--q-error)" }}>{error}</div>
       )}
 
-      {account && <SyncPanel onDataChanged={onDataChanged} />}
+      {account && <SyncPanel />}
+      {account && <BackupPanel />}
     </SectionBody>
   );
 }
 
-function SyncPanel({ onDataChanged }: { onDataChanged: () => void }) {
-  const { preview, status, error, progress, push, pull, cancel } = useSync(onDataChanged);
+function SyncPanel() {
+  const { preview, status, error, progress, push, pull, cancel } = useSync();
   const [confirm, setConfirm] = useState<"push" | "pull" | null>(null);
   const busy = status !== "idle" && status !== "error";
 
@@ -546,6 +543,180 @@ function SyncPanel({ onDataChanged }: { onDataChanged: () => void }) {
       )}
 
       {error && <div style={{ fontSize: 12, color: "var(--q-error)" }}>{error}</div>}
+    </div>
+  );
+}
+
+/**
+ * Backup manual a Drive: comprime una carpeta cualquiera del disco en un zip y
+ * lo sube a una carpeta aparte del Drive, reemplazando al backup anterior.
+ *
+ * Deliberadamente separado del sync: el sync espeja el árbol de la app de forma
+ * incremental y seguido; esto es un volcado completo y pesado, a mano, para
+ * migraciones o formateos. Ver `services/account/backup.ts`.
+ */
+function BackupPanel() {
+  const {
+    path,
+    setPath,
+    commitPath,
+    browse,
+    estimate,
+    status,
+    progress,
+    error,
+    notice,
+    lastName,
+    run,
+    cancel,
+  } = useBackup();
+
+  const running = status === "running";
+  // Sin estimado no hay carpeta legible: no tiene sentido habilitar el botón.
+  const canRun = !running && path.trim().length > 0 && !!estimate && estimate.files > 0;
+
+  return (
+    <div
+      style={{
+        borderTop: "1px solid var(--q-border)",
+        paddingTop: 16,
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+      }}
+    >
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--q-text-primary)" }}>
+          Backup
+        </div>
+        <div style={{ fontSize: 11, color: "var(--q-text-light)", marginTop: 2 }}>
+          Comprime una carpeta y la sube a <span className="q-mono">{BACKUP_FOLDER}</span> en
+          tu Drive. Reemplaza al backup anterior.
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <TextInput
+          value={path}
+          onChange={setPath}
+          onBlur={commitPath}
+          placeholder="/mnt/Other/Backup"
+          icon="folder"
+          style={{ flex: 1 }}
+        />
+        <IconButton
+          name="folder_open"
+          tooltip="Elegir carpeta…"
+          onClick={() => void browse()}
+        />
+      </div>
+
+      {!running && estimate && (
+        <div style={{ fontSize: 11, color: "var(--q-text-light)" }}>
+          {estimate.files.toLocaleString("es")}{" "}
+          {estimate.files === 1 ? "archivo" : "archivos"} · {formatBytes(estimate.bytes)} sin
+          comprimir
+        </div>
+      )}
+
+      {running && <BackupProgressBar progress={progress} />}
+
+      <div style={{ display: "flex", gap: 8 }}>
+        {running ? (
+          <Button variant="destructive" icon="close" onClick={cancel}>
+            Cancelar
+          </Button>
+        ) : (
+          <Button variant="outlined" icon="backup" disabled={!canRun} onClick={() => void run()}>
+            Hacer backup
+          </Button>
+        )}
+      </div>
+
+      {!running && status === "done" && lastName && (
+        <div style={{ fontSize: 11, color: "var(--q-text-light)" }}>
+          Subido como <span className="q-mono">{lastName}</span>.
+        </div>
+      )}
+      {!running && notice && (
+        <div style={{ fontSize: 11, color: "var(--q-text-light)" }}>{notice}</div>
+      )}
+      {error && <div style={{ fontSize: 12, color: "var(--q-error)" }}>{error}</div>}
+    </div>
+  );
+}
+
+/**
+ * Barra de progreso del backup. Las dos fases largas (comprimir y subir) tienen
+ * cada una su propio total, así que la barra se reinicia al pasar de una a otra
+ * en lugar de intentar un porcentaje global — el peso del zip no se conoce hasta
+ * que termina de comprimirse.
+ */
+function BackupProgressBar({ progress }: { progress: BackupProgress | null }) {
+  let label = "Preparando";
+  let detail = "";
+  let done = 0;
+  let total = 0;
+
+  if (progress?.phase === "scanning") {
+    label = "Revisando la carpeta";
+  } else if (progress?.phase === "zipping") {
+    label = "Comprimiendo";
+    detail = progress.file;
+    done = progress.done;
+    total = progress.total;
+  } else if (progress?.phase === "zipped") {
+    label = `Comprimido (${formatBytes(progress.bytes)}) — subiendo`;
+  } else if (progress?.phase === "uploading") {
+    label = "Subiendo a Drive";
+    detail = `${formatBytes(progress.sent)} / ${formatBytes(progress.total)}`;
+    done = progress.sent;
+    total = progress.total;
+  }
+
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  const indeterminate = total === 0;
+  const count = progress?.phase === "zipping" && total > 0 ? ` ${done} / ${total}` : "";
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 11 }}>
+        <span style={{ color: "var(--q-text-secondary)", fontWeight: 500, flex: "0 0 auto" }}>
+          {label}
+          {count}
+        </span>
+        {detail && (
+          <span
+            style={{
+              color: "var(--q-text-light)",
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {detail}
+          </span>
+        )}
+      </div>
+      <div
+        style={{
+          height: 6,
+          borderRadius: 9999,
+          background: "var(--q-surface-alt)",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            height: "100%",
+            width: indeterminate ? "100%" : `${pct}%`,
+            background: "var(--q-primary)",
+            opacity: indeterminate ? 0.4 : 1,
+            transition: "width var(--q-dur-fast) var(--q-ease)",
+          }}
+        />
+      </div>
     </div>
   );
 }
@@ -900,12 +1071,17 @@ function DownloadBar({
   );
 }
 
+/** Bytes → texto legible. Llega hasta TB: un backup puede pesar decenas de GB. */
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
-  const kb = n / 1024;
-  if (kb < 1024) return `${kb.toFixed(0)} KB`;
-  const mb = kb / 1024;
-  return `${mb.toFixed(1)} MB`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = n / 1024;
+  let i = 0;
+  while (value >= 1024 && i < units.length - 1) {
+    value /= 1024;
+    i++;
+  }
+  return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
 // ── Espacios ─────────────────────────────────────────────────────────────────

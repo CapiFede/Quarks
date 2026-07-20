@@ -20,7 +20,18 @@ export function createMusicQuark(): Quark {
     buildToolbar: () => <MusicToolbar store={store} />,
 
     onEscape: () => {
-      if (store.getSnapshot().searchOpen) {
+      const s = store.getSnapshot();
+      if (s.trim.open) {
+        // Durante el export no se cierra (closeTrim lo ignora), pero el Escape
+        // igual queda consumido: no debe caer al comportamiento del Shell.
+        store.closeTrim();
+        return true;
+      }
+      if (s.manageOpen) {
+        store.closeManage();
+        return true;
+      }
+      if (s.searchOpen) {
         store.toggleSearch();
         return true;
       }

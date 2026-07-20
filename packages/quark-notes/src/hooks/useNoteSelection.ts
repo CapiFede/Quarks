@@ -29,22 +29,30 @@ export function useNoteSelection(): NoteSelection | null {
   useEffect(() => {
     const handler = () => {
       const el = document.activeElement as HTMLElement | null;
-      if (!el || el.tagName !== "TEXTAREA") {
+      if (!el || !el.closest(".q-notes-editor")) {
         setSel(null);
         return;
       }
-      if (!el.closest(".q-notes-editor")) {
+      // Editor JSON: textarea clásico, selección por índices.
+      if (el.tagName === "TEXTAREA") {
+        const ta = el as HTMLTextAreaElement;
+        const start = ta.selectionStart ?? 0;
+        const end = ta.selectionEnd ?? 0;
+        if (start === end) {
+          setSel(null);
+          return;
+        }
+        const text = ta.value.slice(start, end);
+        setSel({ chars: text.length, words: countWords(text), text });
+        return;
+      }
+      // Editor rich-text (contenteditable de TipTap): selección del documento.
+      const s = window.getSelection();
+      const text = s && !s.isCollapsed ? s.toString() : "";
+      if (!text) {
         setSel(null);
         return;
       }
-      const ta = el as HTMLTextAreaElement;
-      const start = ta.selectionStart ?? 0;
-      const end = ta.selectionEnd ?? 0;
-      if (start === end) {
-        setSel(null);
-        return;
-      }
-      const text = ta.value.slice(start, end);
       setSel({ chars: text.length, words: countWords(text), text });
     };
     document.addEventListener("selectionchange", handler);

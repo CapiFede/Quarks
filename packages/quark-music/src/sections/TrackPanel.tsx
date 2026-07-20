@@ -1,25 +1,30 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Icon, Button } from "@quarks/core";
-import type { Track, Playlist } from "../types";
+import type { Track } from "../types";
+import type { SpacePlaylists } from "../store";
 import { fmtTime } from "../util";
 import * as library from "../services/library";
 
 export interface TrackPanelProps {
   track: Track | null;
-  playlists: Playlist[];
+  /** Playlists de todos los spaces, el activo primero. */
+  spaceGroups: SpacePlaylists[];
   onPlay: (path: string) => void;
-  onToggleInPlaylist: (playlistId: string, isIn: boolean) => void;
+  /** Abre el diálogo de recorte (trim) con esta canción. */
+  onEdit: (track: Track) => void;
+  onToggleInPlaylist: (spaceId: string, playlistId: string, isIn: boolean) => void;
   onRename: (path: string, newName: string) => Promise<void> | void;
   onDelete: (path: string) => Promise<void> | void;
 }
 
 /** Panel lateral derecho (260px): cover editable, título editable, metadata,
- * pertenencia a playlists y acciones (borrar). */
+ * pertenencia a playlists (todos los spaces, agrupado) y acciones (borrar). */
 export const TrackPanel = memo(function TrackPanel({
   track,
-  playlists,
+  spaceGroups,
   onPlay,
+  onEdit,
   onToggleInPlaylist,
   onRename,
   onDelete,
@@ -60,14 +65,17 @@ export const TrackPanel = memo(function TrackPanel({
             <span style={{ fontFamily: "var(--q-font-mono)" }}>{fmtTime(track.durationSec)}</span>
           </div>
 
-          <div style={{ marginTop: 14 }}>
+          <div style={{ marginTop: 14, display: "flex", gap: 8 }}>
             <Button
               variant="filled"
               icon="play_arrow"
-              style={{ width: "100%" }}
+              style={{ flex: 1 }}
               onClick={() => onPlay(track.path)}
             >
               Reproducir
+            </Button>
+            <Button variant="soft" icon="content_cut" onClick={() => onEdit(track)}>
+              Editar
             </Button>
           </div>
 
@@ -84,23 +92,53 @@ export const TrackPanel = memo(function TrackPanel({
             >
               Playlists
             </div>
-            {playlists.length === 0 ? (
+            {spaceGroups.every((g) => g.playlists.length === 0) ? (
               <div style={{ fontSize: 11, color: "var(--q-text-light)" }}>
-                No hay playlists en este espacio.
+                No hay playlists en ningún espacio.
               </div>
             ) : (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {playlists.map((p) => {
-                  const isIn = p.trackPaths.includes(track.path);
-                  return (
-                    <MembershipChip
-                      key={p.id}
-                      name={p.name}
-                      active={isIn}
-                      onClick={() => onToggleInPlaylist(p.id, isIn)}
-                    />
-                  );
-                })}
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {spaceGroups
+                  .filter((g) => g.playlists.length > 0)
+                  .map((g) => (
+                    <div key={g.spaceId}>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 5,
+                          fontSize: 10,
+                          fontWeight: 500,
+                          color: "var(--q-text-light)",
+                          marginBottom: 5,
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: "50%",
+                            background: g.color,
+                            flex: "0 0 auto",
+                          }}
+                        />
+                        {g.spaceName}
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {g.playlists.map((p) => {
+                          const isIn = p.trackPaths.includes(track.path);
+                          return (
+                            <MembershipChip
+                              key={p.id}
+                              name={p.name}
+                              active={isIn}
+                              onClick={() => onToggleInPlaylist(g.spaceId, p.id, isIn)}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
               </div>
             )}
           </div>

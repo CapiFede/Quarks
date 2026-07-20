@@ -1,11 +1,13 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { Button, Icon, IconButton, TextInput, Toggle } from "@quarks/core";
-import type { MusicStore } from "../store";
+import type { MusicStore, SpacePlaylists } from "../store";
 import { useMusicState } from "../hooks/useMusicStore";
 import { fmtTime } from "../util";
 
 export interface DownloadDialogProps {
   store: MusicStore;
+  /** Playlists de todos los spaces (el activo primero), para elegir destinos. */
+  spaceGroups: SpacePlaylists[];
 }
 
 /**
@@ -13,9 +15,15 @@ export interface DownloadDialogProps {
  * del quark (renderizado por `MusicPage`), no como overlay del Shell, porque el
  * contrato `Quark.buildOverlay` aún no lo monta el Shell. Posición fixed para
  * cubrir toda la ventana del quark.
+ *
+ * Es UN solo form: la URL siempre visible arriba; al probarla aparece el
+ * preview + opciones debajo, la descarga muestra su progreso ahí mismo y al
+ * terminar se limpian los campos con un banner de éxito (listo para otro link).
+ * Solo se cierra explícitamente (X, Cancelar o Escape) — el click en el fondo
+ * no cierra, para no perder una descarga configurada por un mis-click.
  */
-export function DownloadDialog({ store }: DownloadDialogProps) {
-  const { download: d, playlists } = useMusicState(store);
+export function DownloadDialog({ store, spaceGroups }: DownloadDialogProps) {
+  const { download: d } = useMusicState(store);
 
   useEffect(() => {
     if (!d.open) return;
@@ -30,7 +38,6 @@ export function DownloadDialog({ store }: DownloadDialogProps) {
 
   return (
     <div
-      onClick={() => store.closeDownload()}
       style={{
         position: "fixed",
         inset: 0,
@@ -41,11 +48,13 @@ export function DownloadDialog({ store }: DownloadDialogProps) {
         justifyContent: "center",
       }}
     >
+      <style>{"@keyframes qm-spin { to { transform: rotate(360deg); } }"}</style>
       <div
-        onClick={(e) => e.stopPropagation()}
         style={{
           width: 460,
           maxWidth: "calc(100vw - 40px)",
+          maxHeight: "calc(100vh - 60px)",
+          overflowY: "auto",
           background: "var(--q-surface)",
           border: "1px solid var(--q-border-light)",
           borderRadius: 12,
@@ -58,7 +67,7 @@ export function DownloadDialog({ store }: DownloadDialogProps) {
         }}
       >
         <Header onClose={() => store.closeDownload()} />
-        <Body store={store} state={d} playlists={playlists} />
+        <Body store={store} state={d} spaceGroups={spaceGroups} />
       </div>
     </div>
   );
@@ -74,22 +83,38 @@ function Header({ onClose }: { onClose: () => void }) {
   );
 }
 
+type DlState = ReturnType<typeof useMusicState>["download"];
+
 function Body({
   store,
   state,
-  playlists,
+  spaceGroups,
 }: {
   store: MusicStore;
-  state: ReturnType<typeof useMusicState>["download"];
-  playlists: ReturnType<typeof useMusicState>["playlists"];
+  state: DlState;
+  spaceGroups: SpacePlaylists[];
 }) {
   switch (state.step) {
-    case "needsSetup":
+    case "needsSetup": {
+      // Solo se descarga lo que falta: en Linux es común que ffmpeg ya venga
+      // del sistema y el único faltante sea yt-dlp.
+      const missing = state.toolsMissing;
+      const both = missing.ytDlp && missing.ffmpeg;
+      const what = both ? (
+        <>
+          <b>yt-dlp</b> y <b>ffmpeg</b>
+        </>
+      ) : missing.ffmpeg ? (
+        <b>ffmpeg</b>
+      ) : (
+        <b>yt-dlp</b>
+      );
+      const size = both ? "~80 MB" : missing.ffmpeg ? "~40 MB" : "~39 MB";
       return (
         <Section>
           <p style={pStyle}>
-            Para descargar música hace falta instalar <b>yt-dlp</b> y <b>ffmpeg</b>. Se bajan
-            una sola vez (~80 MB) y quedan en la carpeta de la app.
+            Para descargar música hace falta instalar {what}. Se baja una sola vez ({size}) y
+            queda en la carpeta de la app.
           </p>
           <Button variant="filled" icon="download" onClick={() => void store.runSetup()}>
             Instalar binarios
@@ -97,6 +122,7 @@ function Body({
           {state.error && <ErrorLine message={state.error} />}
         </Section>
       );
+    }
 
     case "settingUp": {
       const label =
@@ -115,187 +141,26 @@ function Body({
       );
     }
 
+    case "updatingTools":
+      return (
+        <Section>
+          <div style={{ fontSize: 12, color: "var(--q-text-secondary)" }}>
+            Actualizando yt-dlp…
+          </div>
+          <ProgressBar pct={state.setup?.pct ?? 0} />
+        </Section>
+      );
+
+    // Fases del form unificado: mismo componente en la misma posición del
+    // árbol para que React no remonte el input de URL entre pasos.
     case "input":
-      return (
-        <Section>
-          <TextInput
-            value={state.url}
-            onChange={(v) => store.setDownloadUrl(v)}
-            placeholder="https://www.youtube.com/watch?v=…"
-            icon="link"
-            autoFocus
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void store.probe();
-            }}
-          />
-          <div style={{ display: "flex", justifyContent: "flex-end" }}>
-            <Button
-              variant="filled"
-              icon="search"
-              disabled={!state.url.trim()}
-              onClick={() => void store.probe()}
-            >
-              Probar
-            </Button>
-          </div>
-        </Section>
-      );
-
     case "probing":
-      return (
-        <Section>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              padding: "12px 0",
-              color: "var(--q-text-secondary)",
-              fontSize: 13,
-            }}
-          >
-            <Icon name="sync" size={18} color="var(--q-text-light)" />
-            Analizando la URL…
-          </div>
-        </Section>
-      );
+    case "preview":
+    case "downloading":
+      return <Form store={store} state={state} spaceGroups={spaceGroups} />;
 
-    case "preview": {
-      const p = state.probe;
-      if (!p) return null;
-      return (
-        <Section>
-          <Preview probe={p} />
-          {!p.isPlaylist && (
-            <Field label="Nombre del archivo">
-              <TextInput
-                value={state.customName}
-                onChange={(v) => store.setDownloadCustomName(v)}
-                placeholder={p.title}
-              />
-            </Field>
-          )}
-          <Field label="Volumen">
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <Toggle
-                checked={state.normalize}
-                onChange={() => store.toggleDownloadNormalize()}
-              />
-              <span style={{ fontSize: 12, color: "var(--q-text-secondary)" }}>
-                Normalizar volumen (loudnorm)
-              </span>
-            </div>
-          </Field>
-          <Field label="Portada">
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <Toggle
-                checked={state.embedThumbnail}
-                onChange={() => store.toggleDownloadEmbedThumbnail()}
-              />
-              <span style={{ fontSize: 12, color: "var(--q-text-secondary)" }}>
-                Usar miniatura del video como portada
-              </span>
-            </div>
-          </Field>
-          <Field label="Agregar a playlists">
-            {playlists.length === 0 ? (
-              <span style={{ fontSize: 12, color: "var(--q-text-light)" }}>
-                No hay playlists en este espacio.
-              </span>
-            ) : (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {playlists.map((pl) => {
-                  const active = state.targetPlaylistIds.includes(pl.id);
-                  return (
-                    <TargetChip
-                      key={pl.id}
-                      name={pl.name}
-                      active={active}
-                      onClick={() => store.toggleDownloadTarget(pl.id)}
-                    />
-                  );
-                })}
-              </div>
-            )}
-          </Field>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <Button variant="text" onClick={() => store.closeDownload()}>
-              Cancelar
-            </Button>
-            <Button variant="filled" icon="download" onClick={() => void store.runDownload()}>
-              Descargar
-            </Button>
-          </div>
-        </Section>
-      );
-    }
-
-    case "downloading": {
-      const prog = state.progress;
-      const showMulti = (prog?.total ?? 1) > 1;
-      const title =
-        prog?.converting && prog.title
-          ? `Convirtiendo: ${prog.title}`
-          : prog?.title
-            ? `Descargando: ${prog.title}`
-            : prog?.converting
-              ? "Convirtiendo a MP3 / normalizando…"
-              : "Descargando…";
-      return (
-        <Section>
-          {showMulti && (
-            <div style={{ fontSize: 11, color: "var(--q-text-light)" }}>
-              Canción {prog?.index ?? 1} de {prog?.total ?? 1}
-            </div>
-          )}
-          <div
-            style={{
-              fontSize: 12,
-              color: "var(--q-text-secondary)",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-          >
-            {title}
-          </div>
-          <ProgressBar pct={prog?.pct ?? 0} indeterminate={!!prog?.converting} />
-        </Section>
-      );
-    }
-
-    case "done":
-      return (
-        <Section>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              fontSize: 13,
-              color: "var(--q-text-primary)",
-            }}
-          >
-            <Icon name="check_circle" size={20} color="var(--q-primary-light)" />
-            {state.resultPaths.length === 1
-              ? "Canción agregada a tu biblioteca."
-              : `${state.resultPaths.length} canciones agregadas a tu biblioteca.`}
-          </div>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <Button
-              variant="outlined"
-              icon="add"
-              onClick={() => void store.openDownload()}
-            >
-              Otra
-            </Button>
-            <Button variant="filled" onClick={() => store.closeDownload()}>
-              Listo
-            </Button>
-          </div>
-        </Section>
-      );
-
+    // Solo fallas de instalación/estado de herramientas; los errores de
+    // probe/descarga van inline dentro del form.
     case "error":
       return (
         <Section>
@@ -318,6 +183,325 @@ function Body({
     default:
       return null;
   }
+}
+
+/**
+ * Form unificado con layout ESTABLE: URL, preview, opciones y botones siempre
+ * visibles — solo cambia el contenido del área de preview (placeholder /
+ * analizando / canción) y aparece el progreso durante la descarga. Así el
+ * popup no "salta" entre pantallas distintas.
+ */
+function Form({
+  store,
+  state,
+  spaceGroups,
+}: {
+  store: MusicStore;
+  state: DlState;
+  spaceGroups: SpacePlaylists[];
+}) {
+  const probing = state.step === "probing";
+  const downloading = state.step === "downloading";
+  // Probe vigente: solo cuando la fase lo muestra (re-probar oculta el viejo).
+  const loaded = state.step === "preview" || downloading ? state.probe : null;
+
+  return (
+    <Section>
+      {state.completedCount != null && <SuccessLine count={state.completedCount} />}
+
+      <div style={{ display: "flex", gap: 8 }}>
+        <TextInput
+          value={state.url}
+          onChange={(v) => store.setDownloadUrl(v)}
+          placeholder="https://www.youtube.com/watch?v=…"
+          icon="link"
+          autoFocus
+          // Congelada mientras se analiza o descarga (la URL sigue visible).
+          disabled={probing || downloading}
+          style={{ flex: 1 }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void store.probe();
+          }}
+        />
+        <Button
+          variant="filled"
+          icon={probing ? undefined : "search"}
+          disabled={probing || downloading || !state.url.trim()}
+          onClick={() => void store.probe()}
+        >
+          {probing ? (
+            <>
+              <Spinner />
+              Analizando…
+            </>
+          ) : (
+            "Probar"
+          )}
+        </Button>
+      </div>
+
+      {state.error && <ErrorLine message={state.error} />}
+
+      {loaded ? <Preview probe={loaded} /> : <PreviewPlaceholder probing={probing} />}
+
+      {downloading && <Progress prog={state.progress} />}
+
+      {/* Opciones siempre visibles; congeladas mientras descarga. */}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+          ...(downloading ? { opacity: 0.55, pointerEvents: "none" as const } : null),
+        }}
+      >
+        <Field label="Nombre del archivo">
+          <TextInput
+            value={state.customName}
+            onChange={(v) => store.setDownloadCustomName(v)}
+            placeholder={
+              loaded
+                ? loaded.isPlaylist
+                  ? "Se usa el título de cada video"
+                  : loaded.title
+                : "Se completa al probar el link"
+            }
+            disabled={!loaded || loaded.isPlaylist || downloading}
+          />
+        </Field>
+        <Field label="Volumen">
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Toggle
+              checked={state.normalize}
+              onChange={() => store.toggleDownloadNormalize()}
+            />
+            <span style={{ fontSize: 12, color: "var(--q-text-secondary)" }}>
+              Normalizar volumen (loudnorm)
+            </span>
+          </div>
+        </Field>
+        <Field label="Portada">
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Toggle
+              checked={state.embedThumbnail}
+              onChange={() => store.toggleDownloadEmbedThumbnail()}
+            />
+            <span style={{ fontSize: 12, color: "var(--q-text-secondary)" }}>
+              Usar miniatura del video como portada
+            </span>
+          </div>
+        </Field>
+        <Field label="Agregar a playlists">
+          <PlaylistPicker
+            spaceGroups={spaceGroups}
+            targetIds={state.targetPlaylistIds}
+            onToggle={(id) => store.toggleDownloadTarget(id)}
+          />
+        </Field>
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <Button variant="text" onClick={() => store.closeDownload()}>
+          Cancelar
+        </Button>
+        <Button
+          variant="filled"
+          icon={downloading ? undefined : "download"}
+          disabled={!loaded || downloading}
+          onClick={() => void store.runDownload()}
+        >
+          {downloading ? (
+            <>
+              <Spinner />
+              Descargando…
+            </>
+          ) : (
+            "Descargar"
+          )}
+        </Button>
+      </div>
+    </Section>
+  );
+}
+
+/** Área de preview sin canción cargada: guía o spinner, mismas medidas que la card. */
+function PreviewPlaceholder({ probing }: { probing: boolean }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 12,
+        alignItems: "center",
+        padding: 10,
+        background: "var(--q-surface-alt)",
+        borderRadius: 8,
+      }}
+    >
+      <div
+        style={{
+          width: 72,
+          height: 72,
+          flex: "0 0 72px",
+          borderRadius: 6,
+          background: "var(--q-background)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {probing ? (
+          <Spinner size={24} color="var(--q-text-light)" />
+        ) : (
+          <Icon name="music_note" size={28} color="var(--q-text-light)" />
+        )}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--q-text-secondary)" }}>
+          {probing ? "Analizando la URL…" : "Ninguna canción cargada"}
+        </div>
+        <div style={{ marginTop: 4, fontSize: 11, color: "var(--q-text-light)" }}>
+          {probing
+            ? "Puede tardar unos segundos."
+            : "Pegá un link y dale a Probar para ver la vista previa."}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Chips de playlists destino, agrupadas por space (mismo layout que el trackpanel). */
+function PlaylistPicker({
+  spaceGroups,
+  targetIds,
+  onToggle,
+}: {
+  spaceGroups: SpacePlaylists[];
+  targetIds: string[];
+  onToggle: (id: string) => void;
+}) {
+  if (spaceGroups.every((g) => g.playlists.length === 0)) {
+    return (
+      <span style={{ fontSize: 12, color: "var(--q-text-light)" }}>
+        No hay playlists en ningún espacio.
+      </span>
+    );
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {spaceGroups
+        .filter((g) => g.playlists.length > 0)
+        .map((g) => (
+          <div key={g.spaceId}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                fontSize: 10,
+                fontWeight: 500,
+                color: "var(--q-text-light)",
+                marginBottom: 5,
+              }}
+            >
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  background: g.color,
+                  flex: "0 0 auto",
+                }}
+              />
+              {g.spaceName}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {g.playlists.map((pl) => (
+                <TargetChip
+                  key={pl.id}
+                  name={pl.name}
+                  active={targetIds.includes(pl.id)}
+                  onClick={() => onToggle(pl.id)}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+    </div>
+  );
+}
+
+/** Progreso de la descarga en curso (dentro del form, debajo del preview). */
+function Progress({ prog }: { prog: DlState["progress"] }) {
+  // La descarga falló por yt-dlp viejo: se está actualizando y va a
+  // reintentar sola. Explicamos la pausa en lugar del progreso del audio.
+  if (prog?.updatingTools) {
+    return (
+      <Section>
+        <div style={{ fontSize: 12, color: "var(--q-text-secondary)" }}>
+          Actualizando yt-dlp y reintentando…
+        </div>
+        <ProgressBar pct={prog.updatingTools.pct} />
+        <div style={{ fontSize: 11, color: "var(--q-text-light)" }}>
+          YouTube cambió algo y la versión instalada quedó vieja.
+        </div>
+      </Section>
+    );
+  }
+
+  const showMulti = (prog?.total ?? 1) > 1;
+  const title =
+    prog?.converting && prog.title
+      ? `Convirtiendo: ${prog.title}`
+      : prog?.title
+        ? `Descargando: ${prog.title}`
+        : prog?.converting
+          ? "Convirtiendo a MP3 / normalizando…"
+          : "Descargando…";
+  return (
+    <Section>
+      {showMulti && (
+        <div style={{ fontSize: 11, color: "var(--q-text-light)" }}>
+          Canción {prog?.index ?? 1} de {prog?.total ?? 1}
+        </div>
+      )}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          fontSize: 12,
+          color: "var(--q-text-secondary)",
+        }}
+      >
+        <Spinner size={14} color="var(--q-text-light)" />
+        <span
+          style={{
+            flex: 1,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {title}
+        </span>
+      </div>
+      <ProgressBar pct={prog?.pct ?? 0} indeterminate={!!prog?.converting} />
+      {!prog?.converting && (prog?.speed || prog?.eta) && (
+        <div
+          style={{
+            fontSize: 11,
+            color: "var(--q-text-light)",
+            display: "flex",
+            gap: 10,
+          }}
+        >
+          <span>{Math.round((prog?.pct ?? 0) * 100)}%</span>
+          {prog?.speed && <span>{prog.speed}</span>}
+          {prog?.eta && <span>faltan {prog.eta}</span>}
+        </div>
+      )}
+    </Section>
+  );
 }
 
 function Section({ children }: { children: React.ReactNode }) {
@@ -343,11 +527,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function Preview({
-  probe,
-}: {
-  probe: NonNullable<ReturnType<typeof useMusicState>["download"]["probe"]>;
-}) {
+function Preview({ probe }: { probe: NonNullable<DlState["probe"]> }) {
   return (
     <div
       style={{
@@ -403,6 +583,46 @@ function Preview({
           {probe.uploader ? ` · ${probe.uploader}` : ""}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Arco girando (la fuente es Material Symbols completa: la ligatura existe). */
+function Spinner({ size = 16, color }: { size?: number; color?: string }) {
+  return (
+    <Icon
+      name="progress_activity"
+      size={size}
+      color={color}
+      style={{ animation: "qm-spin .8s linear infinite" }}
+    />
+  );
+}
+
+function SuccessLine({ count }: { count: number }) {
+  // count 0 = yt-dlp salteó todo porque el/los archivos ya existían (no pisa
+  // archivos): no hay nada nuevo que anunciar, pero sí que explicar.
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "8px 10px",
+        background: "var(--q-primary-soft)",
+        borderRadius: 6,
+        fontSize: 12,
+        color: "var(--q-primary-light)",
+      }}
+    >
+      <Icon name={count === 0 ? "info" : "check_circle"} size={16} color="var(--q-primary-light)" />
+      <span style={{ flex: 1 }}>
+        {count === 0
+          ? "Ya estaba en tu biblioteca — no se descargó de nuevo."
+          : count === 1
+            ? "Canción agregada a tu biblioteca."
+            : `${count} canciones agregadas a tu biblioteca.`}
+      </span>
     </div>
   );
 }

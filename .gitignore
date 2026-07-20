@@ -37,5 +37,8 @@ pnpm-debug.log*
 .DS_Store
 Thumbs.db
 .idea/
-.vscode/
+# .vscode se trackea, pero solo la config compartida (settings.json).
+# El resto (archivos personales de VSCode) queda fuera del repo.
+.vscode/*
+!.vscode/settings.json
 *.swp

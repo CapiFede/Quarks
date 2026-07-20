@@ -33,10 +33,13 @@ const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
  * panel solo se monta cuando hay cuenta conectada). Un ref `busy` serializa las
  * operaciones; un `AbortController` permite cancelarlas.
  *
- * `onAfterPull` se invoca tras un pull exitoso para re-hidratar en caliente los
- * stores que el pull tocó en disco (p. ej. `settings.json`), sin reiniciar.
+ * Tras un pull exitoso recargamos el WebView entero (`window.location.reload`):
+ * el pull reescribe el árbol en disco por debajo de los stores ya montados
+ * (playlists, settings, notas…), que no releen solos. Remontar todo es la forma
+ * más simple y consistente de que cada quark tome su estado ya actualizado del
+ * disco; equivale a un F5.
  */
-export function useSync(onAfterPull?: () => void): SyncController {
+export function useSync(): SyncController {
   const [preview, setPreview] = useState<SyncPreview | null>(null);
   const [status, setStatus] = useState<SyncOp>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -98,9 +101,12 @@ export function useSync(onAfterPull?: () => void): SyncController {
     () =>
       run("pulling", async (signal, onProgress) => {
         await pullSync({ signal, onProgress });
-        onAfterPull?.();
+        // Solo llegamos acá si el pull terminó OK (cancelar o fallar lanzan antes):
+        // recargamos para que la UI refleje el árbol recién bajado a disco. El
+        // re-check posterior de `run` queda abortado por la navegación (inofensivo).
+        window.location.reload();
       }),
-    [run, onAfterPull],
+    [run],
   );
 
   const cancel = useCallback(() => controller.current?.abort(), []);

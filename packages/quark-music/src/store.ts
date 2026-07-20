@@ -12,29 +12,46 @@
  * (globales a todos los spaces). El escaneo y la reproducción son comandos Rust
  * (rodio); la posición se trackea acá con un timer.
  */
-import { readJson, writeJson, readSpaceSection, writeSpaceSection } from "@quarks/core";
+import {
+  readJson,
+  writeJson,
+  deleteJson,
+  readSpaceSection,
+  writeSpaceSection,
+  requestActivateSpace,
+  type Space,
+} from "@quarks/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import type { Track, Playlist, PlaylistView } from "./types";
 import * as library from "./services/library";
 import * as mediaSession from "./services/mediaSession";
 import * as downloader from "./services/download";
 import type { ProbeResult } from "./services/download";
+import * as trim from "./services/trim";
+import type { WavePeaks } from "./services/trim";
 
 export type MusicStatus = "idle" | "loading" | "scanning" | "ready" | "error";
 
 /**
  * Paso del diálogo de descarga. Aislado en `MusicState.download` para que los
  * cambios frecuentes (progreso) no requieran lecturas de otros campos.
+ *
+ * `input`/`probing`/`preview`/`downloading` son fases de UN MISMO form (el
+ * input de URL siempre visible): los errores de probe/descarga van inline en
+ * `error` sin cambiar de vista, y al terminar la descarga se vuelve a `input`
+ * con `completedCount` seteado. El paso `error` queda solo para fallas de
+ * instalación/estado de las herramientas.
  */
 export type DownloadStep =
   | "idle"
   | "needsSetup"
   | "settingUp"
+  /** Chequeo semanal encontró yt-dlp nueva y la está bajando. */
+  | "updatingTools"
   | "input"
   | "probing"
   | "preview"
   | "downloading"
-  | "done"
   | "error";
 
 export interface DownloadState {
@@ -42,11 +59,17 @@ export interface DownloadState {
   step: DownloadStep;
   url: string;
   toolsReady: boolean;
+  /**
+   * Qué falta instalar, para que el paso `needsSetup` diga la verdad. En Linux
+   * es normal tener ffmpeg del sistema y que solo falte yt-dlp.
+   */
+  toolsMissing: { ytDlp: boolean; ffmpeg: boolean };
   setup: { name: string; pct: number } | null;
   probe: ProbeResult | null;
   customName: string;
   normalize: boolean;
   embedThumbnail: boolean;
+  /** Playlists destino (de cualquier space; los ids son únicos globalmente). */
   targetPlaylistIds: string[];
   progress: {
     pct: number;
@@ -54,9 +77,70 @@ export interface DownloadState {
     total: number;
     title: string;
     converting: boolean;
+    /** Velocidad y ETA que reporta yt-dlp; `null` mientras aún no las sabe. */
+    speed: string | null;
+    eta: string | null;
+    /**
+     * No-null mientras se auto-actualiza yt-dlp tras un fallo por binario
+     * viejo. `pct` es el de la bajada del binario, no el del audio.
+     */
+    updatingTools: { pct: number } | null;
   } | null;
-  resultPaths: string[];
+  /**
+   * Canciones agregadas por la ÚLTIMA descarga completada: banner de éxito en
+   * el form (que ya volvió a `input` con los campos limpios). `null` = nada
+   * que anunciar; se limpia al arrancar el próximo probe.
+   */
+  completedCount: number | null;
   error: string | null;
+}
+
+/**
+ * Paso del diálogo de recorte (trim). `loading` cubre probe + leer el archivo +
+ * calcular el waveform (puede tardar unos segundos en un archivo largo).
+ */
+export type TrimStep = "idle" | "loading" | "ready" | "exporting" | "error";
+
+/**
+ * Estado del diálogo de recorte. Aislado en `MusicState.trim` (mismo molde que
+ * `download`): los cambios frecuentes (posición de la preview) no tocan el
+ * resto del estado.
+ */
+export interface TrimState {
+  open: boolean;
+  step: TrimStep;
+  /** Ruta absoluta del archivo (entrada de ffmpeg y de la preview). */
+  absPath: string | null;
+  /** Ruta relativa del track en la biblioteca (`Track.path`). */
+  trackPath: string | null;
+  /** Nombre visible. */
+  name: string;
+  /** Duración según ffprobe (la línea de tiempo sobre la que corta ffmpeg). */
+  durationSec: number;
+  /** Object URL para la preview (`<audio>`). */
+  mediaUrl: string | null;
+  /** Picos min/max multi-resolución del waveform, o null si no se pudo decodificar. */
+  peaks: WavePeaks | null;
+  /** Rango a CONSERVAR, en segundos del original. */
+  startSec: number;
+  endSec: number;
+
+  // ── Reproducción de la preview (confinada al rango) ──
+  playing: boolean;
+  positionSec: number;
+  /** Se incrementa para pedirle a la preview que salte a `positionSec`. */
+  seekNonce: number;
+
+  error: string | null;
+}
+
+/** Playlists de un space, con la metadata del space para agrupar en la UI. */
+export interface SpacePlaylists {
+  spaceId: string;
+  spaceName: string;
+  /** Color de acento del space (señal visual en headers de grupo). */
+  color: string;
+  playlists: Playlist[];
 }
 
 export interface MusicState {
@@ -69,11 +153,15 @@ export interface MusicState {
   spaceId: string | null;
   /** Playlists del space activo. */
   playlists: Playlist[];
+  /** Playlists de los DEMÁS spaces (trackpanel agrupado + Manejar playlists). */
+  otherSpaces: SpacePlaylists[];
   /** Vista seleccionada: "all" | "unassigned" | id de playlist. */
   view: PlaylistView;
 
   searchOpen: boolean;
   search: string;
+  /** Diálogo "Manejar playlists" abierto. */
+  manageOpen: boolean;
 
   // ── Player ──
   activePath: string | null;
@@ -86,13 +174,32 @@ export interface MusicState {
   loop: boolean;
 
   download: DownloadState;
+  trim: TrimState;
 }
+
+const INITIAL_TRIM: TrimState = {
+  open: false,
+  step: "idle",
+  absPath: null,
+  trackPath: null,
+  name: "",
+  durationSec: 0,
+  mediaUrl: null,
+  peaks: null,
+  startSec: 0,
+  endSec: 0,
+  playing: false,
+  positionSec: 0,
+  seekNonce: 0,
+  error: null,
+};
 
 const INITIAL_DOWNLOAD: DownloadState = {
   open: false,
   step: "idle",
   url: "",
   toolsReady: false,
+  toolsMissing: { ytDlp: false, ffmpeg: false },
   setup: null,
   probe: null,
   customName: "",
@@ -100,7 +207,7 @@ const INITIAL_DOWNLOAD: DownloadState = {
   embedThumbnail: true,
   targetPlaylistIds: [],
   progress: null,
-  resultPaths: [],
+  completedCount: null,
   error: null,
 };
 
@@ -110,9 +217,11 @@ const INITIAL: MusicState = {
   tracks: [],
   spaceId: null,
   playlists: [],
+  otherSpaces: [],
   view: "all",
   searchOpen: false,
   search: "",
+  manageOpen: false,
   activePath: null,
   playing: false,
   positionSec: 0,
@@ -121,11 +230,14 @@ const INITIAL: MusicState = {
   shuffle: false,
   loop: false,
   download: INITIAL_DOWNLOAD,
+  trim: INITIAL_TRIM,
 };
 
 const TICK_MS = 250;
 /** Si quedan más de estos segundos, "anterior" reinicia el track en vez de saltar. */
 const PREV_RESTART_SEC = 3;
+/** Largo mínimo del rango a conservar en el recorte (segundos). */
+const MIN_TRIM_LEN = 0.1;
 
 /** Id del quark: clave de su sección dentro del archivo del space. */
 const QUARK_ID = "music";
@@ -224,6 +336,11 @@ export class MusicStore {
   private playedBag = new Set<string>();
   private scanSeq = 0;
   private spaceSeq = 0;
+  /** Invalida cargas de recorte en curso (cerrar/abrir otro track en el medio). */
+  private trimSeq = 0;
+  /** Playlist a seleccionar cuando termine de cargar el space pedido (ver
+   *  `openPlaylist`: abrir una playlist de otro space desde "Manejar playlists"). */
+  private pendingOpen: { spaceId: string; view: string } | null = null;
   // Suscripción a las teclas/controles de media del SO (MPRIS, Linux-only).
   private mediaKeysUnlisten: UnlistenFn | null = null;
 
@@ -276,10 +393,24 @@ export class MusicStore {
     if (this.state.spaceId === spaceId) return;
     const seq = ++this.spaceSeq;
     this.set({ spaceId, playlists: [], view: "all" });
-    const section = await readSpaceSection<SpaceFile>(spaceId, QUARK_ID, { playlists: [] });
+    const playlists = await this.loadSpacePlaylists(spaceId);
     if (seq !== this.spaceSeq) return;
+    // Si el space ya tiene playlists, arrancamos en la primera (no en "Todas") —
+    // salvo que haya una apertura pendiente desde "Manejar playlists".
+    let view: PlaylistView = playlists.length > 0 ? playlists[0].id : "all";
+    if (this.pendingOpen?.spaceId === spaceId) {
+      if (playlists.some((p) => p.id === this.pendingOpen?.view)) view = this.pendingOpen.view;
+      this.pendingOpen = null;
+    }
+    this.set({ playlists, view });
+    void this.refreshOtherSpaces();
+  }
+
+  /** Lee el índice de playlists de un space + los trackPaths de cada una. */
+  private async loadSpacePlaylists(spaceId: string): Promise<Playlist[]> {
+    const section = await readSpaceSection<SpaceFile>(spaceId, QUARK_ID, { playlists: [] });
     const refs = section.playlists.filter(isValidRef);
-    const playlists = await Promise.all(
+    return Promise.all(
       refs.map(async (ref) => {
         const file = await readJson<PlaylistFile>(playlistKey(ref.id), { trackPaths: [] });
         const raw = Array.isArray(file.trackPaths)
@@ -294,9 +425,26 @@ export class MusicStore {
         return { id: ref.id, name: ref.name, trackPaths };
       }),
     );
-    if (seq !== this.spaceSeq) return;
-    // Si el space ya tiene playlists, arrancamos en la primera (no en "Todas").
-    this.set({ playlists, view: playlists.length > 0 ? playlists[0].id : "all" });
+  }
+
+  /**
+   * Recarga las playlists de los demás spaces (los que no son el activo). Las
+   * consumen el trackpanel (membresía agrupada por space) y "Manejar playlists".
+   */
+  async refreshOtherSpaces(): Promise<void> {
+    const activeId = this.state.spaceId;
+    const { spaces } = await readJson<{ spaces: Space[] }>("settings", { spaces: [] });
+    const others = (Array.isArray(spaces) ? spaces : []).filter((s) => s.id !== activeId);
+    const loaded = await Promise.all(
+      others.map(async (s) => ({
+        spaceId: s.id,
+        spaceName: s.name,
+        color: s.color,
+        playlists: await this.loadSpacePlaylists(s.id),
+      })),
+    );
+    if (this.state.spaceId !== activeId) return; // cambió el space mientras cargaba
+    this.set({ otherSpaces: loaded });
   }
 
   // ── Carpeta / escaneo ──
@@ -336,6 +484,16 @@ export class MusicStore {
     this.set({ search });
   }
 
+  // ── Manejar playlists (diálogo) ──
+  openManage(): void {
+    this.set({ manageOpen: true });
+    // Refrescar por si otro space cambió desde la última carga (sync, etc.).
+    void this.refreshOtherSpaces();
+  }
+  closeManage(): void {
+    this.set({ manageOpen: false });
+  }
+
   // ── Playlists (CRUD, persistido por space + archivo individual) ──
 
   /** Escribe el índice del space (sección `music`): solo id+nombre de cada playlist. */
@@ -363,22 +521,234 @@ export class MusicStore {
     await this.persistSpaceIndex();
   }
 
-  async renamePlaylist(id: string, name: string): Promise<void> {
-    this.set({
-      playlists: this.state.playlists.map((p) =>
-        p.id === id ? { ...p, name: name.trim() || p.name } : p,
-      ),
-    });
-    await this.persistSpaceIndex();
+  /** Renombra una playlist de CUALQUIER space (toolbar y "Manejar playlists"). */
+  async renamePlaylist(spaceId: string, id: string, name: string): Promise<void> {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (spaceId === this.state.spaceId) {
+      this.set({
+        playlists: this.state.playlists.map((p) => (p.id === id ? { ...p, name: trimmed } : p)),
+      });
+      await this.persistSpaceIndex();
+    } else {
+      const section = await readSpaceSection<SpaceFile>(spaceId, QUARK_ID, { playlists: [] });
+      await writeSpaceSection<SpaceFile>(spaceId, QUARK_ID, {
+        playlists: section.playlists.map((r) =>
+          isValidRef(r) && r.id === id ? { ...r, name: trimmed } : r,
+        ),
+      });
+      this.set({
+        otherSpaces: this.state.otherSpaces.map((g) =>
+          g.spaceId === spaceId
+            ? {
+                ...g,
+                playlists: g.playlists.map((p) => (p.id === id ? { ...p, name: trimmed } : p)),
+              }
+            : g,
+        ),
+      });
+    }
   }
 
-  async deletePlaylist(id: string): Promise<void> {
+  /**
+   * Crea una playlist en CUALQUIER space sin cambiar la vista actual (la usa
+   * "Manejar playlists"; el dropdown usa `createPlaylist`, que sí la abre).
+   */
+  async createPlaylistInSpace(spaceId: string, name: string): Promise<void> {
+    const pl: Playlist = {
+      id: crypto.randomUUID(),
+      name: name.trim() || "Nueva playlist",
+      trackPaths: [],
+    };
+    await this.persistPlaylist(pl);
+    if (spaceId === this.state.spaceId) {
+      this.set({ playlists: [...this.state.playlists, pl] });
+      await this.persistSpaceIndex();
+    } else {
+      const section = await readSpaceSection<SpaceFile>(spaceId, QUARK_ID, { playlists: [] });
+      await writeSpaceSection<SpaceFile>(spaceId, QUARK_ID, {
+        playlists: [...section.playlists, { id: pl.id, name: pl.name }],
+      });
+      this.set({
+        otherSpaces: this.state.otherSpaces.map((g) =>
+          g.spaceId === spaceId ? { ...g, playlists: [...g.playlists, pl] } : g,
+        ),
+      });
+    }
+  }
+
+  /**
+   * Abre una playlist desde "Manejar playlists", aunque sea de otro space: si es
+   * del activo la selecciona directo; si no, deja la selección pendiente (la
+   * aplica `setSpace` al terminar de cargar) y le pide al Shell activar el space.
+   */
+  openPlaylist(spaceId: string, playlistId: string): void {
+    this.set({ manageOpen: false });
+    if (spaceId === this.state.spaceId) {
+      this.selectView(playlistId);
+      return;
+    }
+    this.pendingOpen = { spaceId, view: playlistId };
+    requestActivateSpace(spaceId);
+  }
+
+  // ── Recorte (trim): diálogo del botón "Editar" del trackpanel ──
+
+  private setTrim(patch: Partial<TrimState>): void {
+    this.set({ trim: { ...this.state.trim, ...patch } });
+  }
+
+  /**
+   * Abre el diálogo de recorte con un track: pausa el player (la preview usa
+   * su propio `<audio>` y no queremos dos audios a la vez), resuelve el path
+   * absoluto, lee duración + bytes y calcula el waveform.
+   *
+   * OJO con el path: el de un `Track` es RELATIVO a la carpeta de canciones y
+   * con separadores `/` (ver `TrackDto` en music.rs) — ffmpeg y el plugin fs
+   * necesitan el absoluto, así que la conversión va acá.
+   */
+  async openTrim(track: Track): Promise<void> {
+    const seq = ++this.trimSeq;
+    if (this.state.playing) await this.togglePlay();
+
+    const file = track.path.split("/").pop() ?? track.path;
+    const dot = file.lastIndexOf(".");
+    const name = dot > 0 ? file.slice(0, dot) : file;
+    const ext = dot > 0 ? file.slice(dot + 1).toLowerCase() : "";
+
     this.set({
-      playlists: this.state.playlists.filter((p) => p.id !== id),
-      view: this.state.view === id ? "all" : this.state.view,
+      trim: { ...INITIAL_TRIM, open: true, step: "loading", trackPath: track.path, name },
     });
-    await this.persistSpaceIndex();
-    // El archivo de la playlist queda huérfano (sin referencias desde ningún space).
+    try {
+      const dir = (await library.songsDir()).replace(/[\\/]+$/, "");
+      const sep = dir.includes("\\") ? "\\" : "/";
+      const abs = dir + sep + track.path.split("/").join(sep);
+
+      // ffprobe es la línea de tiempo sobre la que corta ffmpeg; la duración
+      // de los tags del escaneo queda de fallback por si devuelve 0.
+      const probed = await trim.probe(abs);
+      const durationSec = probed > 0 ? probed : track.durationSec;
+      if (durationSec <= 0) throw new Error("No se pudo leer la duración del archivo.");
+
+      const bytes = await trim.readBytes(abs);
+      const url = trim.blobUrl(bytes, ext);
+      const peaks = await trim.computePeaks(bytes);
+      if (seq !== this.trimSeq) {
+        URL.revokeObjectURL(url);
+        return;
+      }
+      this.setTrim({
+        step: "ready",
+        absPath: abs,
+        durationSec,
+        mediaUrl: url,
+        peaks,
+        startSec: 0,
+        endSec: durationSec,
+      });
+    } catch (e) {
+      if (seq !== this.trimSeq) return;
+      this.setTrim({ step: "error", error: messageOf(e) });
+    }
+  }
+
+  closeTrim(): void {
+    if (this.state.trim.step === "exporting") return; // el export no se interrumpe
+    ++this.trimSeq;
+    if (this.state.trim.mediaUrl) URL.revokeObjectURL(this.state.trim.mediaUrl);
+    this.set({ trim: INITIAL_TRIM });
+  }
+
+  // Cada manija del recorte se clampea contra la otra: arrastrarla "de más"
+  // la frena en el largo mínimo, no empuja a la otra.
+
+  setTrimStart(sec: number): void {
+    const t = this.state.trim;
+    if (t.step !== "ready") return;
+    this.setTrim({ startSec: Math.max(0, Math.min(sec, t.endSec - MIN_TRIM_LEN)) });
+  }
+
+  setTrimEnd(sec: number): void {
+    const t = this.state.trim;
+    if (t.step !== "ready") return;
+    this.setTrim({ endSec: Math.min(t.durationSec, Math.max(sec, t.startSec + MIN_TRIM_LEN)) });
+  }
+
+  /** Lleva el playhead de la preview a `sec`, clampeado al rango a conservar
+   *  (la preview reproduce solo lo que va a quedar). */
+  trimSeek(sec: number): void {
+    const t = this.state.trim;
+    const clamped = Math.max(t.startSec, Math.min(t.endSec, sec));
+    this.setTrim({ positionSec: clamped, seekNonce: t.seekNonce + 1 });
+  }
+
+  setTrimPlaying(playing: boolean): void {
+    if (this.state.trim.playing !== playing) this.setTrim({ playing });
+  }
+
+  setTrimPosition(sec: number): void {
+    this.setTrim({ positionSec: sec });
+  }
+
+  trimTogglePlay(): void {
+    if (this.state.trim.step !== "ready") return;
+    this.setTrim({ playing: !this.state.trim.playing });
+  }
+
+  /**
+   * Exporta el recorte. `mode`:
+   *   - "copy": archivo nuevo "… (editado)" en la carpeta de canciones.
+   *   - "overwrite": reescribe la canción original.
+   * Al terminar cierra el diálogo y reescanea (refresca la duración o hace
+   * aparecer la copia). Si falla, vuelve a `ready` con el error visible: el
+   * rango elegido no se pierde.
+   */
+  async saveTrim(mode: "copy" | "overwrite"): Promise<void> {
+    const t = this.state.trim;
+    if (t.step !== "ready" || !t.absPath) return;
+    this.setTrim({ step: "exporting", playing: false, error: null });
+    try {
+      const destPath = mode === "overwrite" ? t.absPath : await trim.suggestDest(t.absPath);
+      // Sobrescribir el track que está sonando: soltarlo antes (rodio lo tiene
+      // abierto; en Windows el rename fallaría con el archivo en uso).
+      if (mode === "overwrite" && this.state.activePath === t.trackPath) {
+        await this.stopPlayback();
+      }
+      await trim.exportTrim({ srcPath: t.absPath, start: t.startSec, end: t.endSec, destPath });
+      ++this.trimSeq;
+      if (t.mediaUrl) URL.revokeObjectURL(t.mediaUrl);
+      this.set({ trim: INITIAL_TRIM });
+      await this.scan();
+    } catch (e) {
+      this.setTrim({ step: "ready", error: messageOf(e) });
+    }
+  }
+
+  /**
+   * Borra una playlist de CUALQUIER space: la saca del índice de su space y
+   * borra su archivo de contenido. Única vía de borrado ("Manejar playlists").
+   */
+  async deletePlaylist(spaceId: string, id: string): Promise<void> {
+    if (spaceId === this.state.spaceId) {
+      this.set({
+        playlists: this.state.playlists.filter((p) => p.id !== id),
+        view: this.state.view === id ? "all" : this.state.view,
+      });
+      await this.persistSpaceIndex();
+    } else {
+      const section = await readSpaceSection<SpaceFile>(spaceId, QUARK_ID, { playlists: [] });
+      await writeSpaceSection<SpaceFile>(spaceId, QUARK_ID, {
+        playlists: section.playlists.filter((r) => !isValidRef(r) || r.id !== id),
+      });
+      this.set({
+        otherSpaces: this.state.otherSpaces.map((g) =>
+          g.spaceId === spaceId
+            ? { ...g, playlists: g.playlists.filter((p) => p.id !== id) }
+            : g,
+        ),
+      });
+    }
+    await deleteJson(playlistKey(id));
   }
 
   async addToPlaylist(id: string, paths: string[]): Promise<void> {
@@ -401,6 +771,44 @@ export class MusicStore {
         if (p.id !== id) return p;
         updated = { ...p, trackPaths: p.trackPaths.filter((x) => !drop.has(x)) };
         return updated;
+      }),
+    });
+    if (updated) await this.persistPlaylist(updated);
+  }
+
+  /**
+   * Agrega/quita un track en una playlist de CUALQUIER space (trackpanel).
+   * Para el space activo delega en add/removeFromPlaylist; para otros escribe
+   * el archivo de la playlist (global, keyed por id) y refleja en `otherSpaces`.
+   */
+  async toggleInPlaylist(
+    spaceId: string,
+    playlistId: string,
+    path: string,
+    isIn: boolean,
+  ): Promise<void> {
+    if (spaceId === this.state.spaceId) {
+      if (isIn) await this.removeFromPlaylist(playlistId, [path]);
+      else await this.addToPlaylist(playlistId, [path]);
+      return;
+    }
+    let updated: Playlist | undefined;
+    this.set({
+      otherSpaces: this.state.otherSpaces.map((g) => {
+        if (g.spaceId !== spaceId) return g;
+        return {
+          ...g,
+          playlists: g.playlists.map((p) => {
+            if (p.id !== playlistId) return p;
+            updated = {
+              ...p,
+              trackPaths: isIn
+                ? p.trackPaths.filter((x) => x !== path)
+                : [...new Set([...p.trackPaths, path])],
+            };
+            return updated;
+          }),
+        };
       }),
     });
     if (updated) await this.persistPlaylist(updated);
@@ -639,18 +1047,46 @@ export class MusicStore {
       customName: "",
       targetPlaylistIds: [],
       progress: null,
-      resultPaths: [],
+      completedCount: null,
       error: null,
     });
+    // Refrescar las playlists de los demás spaces (selector de destinos).
+    void this.refreshOtherSpaces();
     try {
       const status = await downloader.toolsStatus();
       this.setDownload({
         toolsReady: status.ready,
+        toolsMissing: { ytDlp: !status.ytDlp, ffmpeg: !status.ffmpeg },
         step: status.ready ? "input" : "needsSetup",
       });
+      if (status.ready) await this.checkToolsUpdate();
     } catch (e) {
       this.setDownload({ step: "error", error: messageOf(e) });
     }
+  }
+
+  /**
+   * Chequeo semanal de yt-dlp al abrir el diálogo. Lo esperamos en vez de
+   * dispararlo en background para no cruzar el reemplazo del binario con una
+   * descarga que arranque justo en el medio. Sale gratis en el caso normal: el
+   * backend corta sin tocar la red si no pasaron 7 días, así que solo se ve UI
+   * cuando realmente hay una versión nueva que bajar.
+   *
+   * Nunca bloquea el flujo: si el chequeo falla, se sigue pudiendo descargar
+   * con el binario que ya está (y si resultara viejo, el auto-reintento de
+   * `runDownload` lo cubre).
+   */
+  private async checkToolsUpdate(): Promise<void> {
+    try {
+      await downloader.checkToolsUpdate((p) => {
+        if (p.phase === "downloading") {
+          this.setDownload({ step: "updatingTools", setup: { name: "yt-dlp", pct: p.pct } });
+        }
+      });
+    } catch {
+      // Silencioso a propósito: es mantenimiento, no una acción del usuario.
+    }
+    this.setDownload({ step: "input", setup: null });
   }
 
   closeDownload(): void {
@@ -665,13 +1101,14 @@ export class MusicStore {
       url: "",
       customName: "",
       targetPlaylistIds: [],
-      resultPaths: [],
+      completedCount: null,
       setup: null,
     });
   }
 
   setDownloadUrl(url: string): void {
-    this.setDownload({ url });
+    // Editar la URL descarta el error inline del intento anterior.
+    this.setDownload({ url, error: null });
   }
   setDownloadCustomName(name: string): void {
     this.setDownload({ customName: name });
@@ -711,9 +1148,12 @@ export class MusicStore {
   }
 
   async probe(): Promise<void> {
-    const url = this.state.download.url.trim();
+    const { url: rawUrl, step } = this.state.download;
+    const url = rawUrl.trim();
     if (!url) return;
-    this.setDownload({ step: "probing", error: null });
+    // Enter repetido mientras ya se analiza/descarga: ignorar.
+    if (step === "probing" || step === "downloading") return;
+    this.setDownload({ step: "probing", error: null, completedCount: null });
     try {
       const probe = await downloader.probeUrl(url);
       this.setDownload({
@@ -722,14 +1162,39 @@ export class MusicStore {
         customName: probe.isPlaylist ? "" : probe.title,
       });
     } catch (e) {
-      this.setDownload({ step: "error", error: messageOf(e) });
+      // Error inline: la URL queda a la vista para corregirla y reintentar.
+      this.setDownload({ step: "input", probe: null, error: messageOf(e) });
     }
   }
 
+  /**
+   * Agrega paths a una playlist de CUALQUIER space (destinos de la descarga).
+   * Para el space activo delega en `addToPlaylist`; para otros escribe el
+   * archivo de la playlist y refleja el cambio en `otherSpaces`.
+   */
+  private async addToPlaylistAnywhere(id: string, paths: string[]): Promise<void> {
+    if (this.state.playlists.some((p) => p.id === id)) {
+      await this.addToPlaylist(id, paths);
+      return;
+    }
+    let updated: Playlist | undefined;
+    this.set({
+      otherSpaces: this.state.otherSpaces.map((g) => ({
+        ...g,
+        playlists: g.playlists.map((p) => {
+          if (p.id !== id) return p;
+          updated = { ...p, trackPaths: [...new Set([...p.trackPaths, ...paths])] };
+          return updated;
+        }),
+      })),
+    });
+    if (updated) await this.persistPlaylist(updated);
+  }
+
   async runDownload(): Promise<void> {
-    const { url, customName, normalize, embedThumbnail, probe, targetPlaylistIds } =
+    const { url, customName, normalize, embedThumbnail, probe, targetPlaylistIds, step } =
       this.state.download;
-    if (!probe || !url.trim()) return;
+    if (!probe || !url.trim() || step !== "preview") return;
     this.setDownload({
       step: "downloading",
       progress: {
@@ -738,9 +1203,11 @@ export class MusicStore {
         total: probe.count || 1,
         title: probe.isPlaylist ? "" : probe.title,
         converting: false,
+        speed: null,
+        eta: null,
+        updatingTools: null,
       },
       error: null,
-      resultPaths: [],
     });
     try {
       const relPaths = await downloader.download(
@@ -763,28 +1230,57 @@ export class MusicStore {
                 title: p.title,
                 converting: false,
                 pct: 0,
+                speed: null,
+                eta: null,
+                updatingTools: null,
               },
             });
           } else if (p.phase === "progress") {
-            this.setDownload({ progress: { ...cur, pct: p.pct, converting: false } });
+            // yt-dlp manda "Unknown" en los primeros ticks (todavía no tiene
+            // muestras para estimar) y "NA" en el último (ya terminó). Ninguno
+            // de los dos es algo que quieras leer en pantalla.
+            const known = (v: string | null) =>
+              v && !v.includes("Unknown") && !/^N\/?A$/.test(v.trim()) ? v : null;
+            this.setDownload({
+              progress: {
+                ...cur,
+                pct: p.pct,
+                converting: false,
+                speed: known(p.speed),
+                eta: known(p.eta),
+                updatingTools: null,
+              },
+            });
           } else if (p.phase === "converting") {
             this.setDownload({ progress: { ...cur, converting: true } });
+          } else if (p.phase === "updatingTools") {
+            // Falló por yt-dlp viejo: el backend lo está actualizando y va a
+            // reintentar solo. Avisamos para que el usuario entienda la pausa.
+            this.setDownload({
+              progress: { ...cur, converting: false, updatingTools: { pct: p.pct } },
+            });
           }
         },
       );
       // Reescaneo para que los nuevos MP3 entren a `tracks` con metadata.
       await this.scan();
-      // Auto-agregar a las playlists elegidas (addToPlaylist deduplica).
+      // Auto-agregar a las playlists elegidas, del space que sean (deduplica).
       for (const id of targetPlaylistIds) {
-        await this.addToPlaylist(id, relPaths);
+        await this.addToPlaylistAnywhere(id, relPaths);
       }
+      // Volver al form limpio con el banner de éxito: listo para otro link.
       this.setDownload({
-        step: "done",
-        resultPaths: relPaths,
+        step: "input",
+        url: "",
+        probe: null,
+        customName: "",
+        targetPlaylistIds: [],
         progress: null,
+        completedCount: relPaths.length,
       });
     } catch (e) {
-      this.setDownload({ step: "error", error: messageOf(e), progress: null });
+      // El preview queda intacto para poder reintentar con "Descargar".
+      this.setDownload({ step: "preview", error: messageOf(e), progress: null });
     }
   }
 

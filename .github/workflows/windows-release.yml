@@ -1,0 +1,73 @@
+name: Windows release
+
+# Buildea, firma y publica el instalador de Windows en CI.
+#
+# Por qué CI y no `pnpm release` desde Linux: `tauri build` solo genera el bundle
+# del SO donde corre (ver scripts/release.mjs), así que el `.exe` no puede salir
+# desde tu máquina Linux. Este job corre en un runner Windows y sube el
+# `*-setup.exe` + su `.sig` al mismo GitHub Release que ya creó el release de Linux.
+#
+# Disparador: `release: published`. Ese evento solo se emite DESPUÉS de que
+# `gh release create` (dentro de pnpm release) publica el release, con el
+# `latest.json` que ya trae la entrada `linux-x86_64`. tauri-action detecta ese
+# `latest.json` existente y MERGEA `windows-x86_64` encima (no lo pisa), así el
+# updater ofrece updates a Linux y a Windows por igual.
+#
+# Requisitos (una sola vez): dos GitHub Secrets en Settings → Secrets and
+# variables → Actions:
+#   - TAURI_SIGNING_PRIVATE_KEY          → contenido de ~/.tauri/quarks.key
+#   - TAURI_SIGNING_PRIVATE_KEY_PASSWORD → el password de esa clave
+# Y que el workflow esté en `main` ANTES de cortar el release (los eventos
+# `release` usan la versión del workflow que vive en la branch default).
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write # tauri-action sube assets y actualiza latest.json vía GITHUB_TOKEN
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout en el tag del release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4 # lee la versión de `packageManager` en package.json
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup Rust (toolchain MSVC)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache de compilación de Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Instalar dependencias JS
+        run: pnpm install --frozen-lockfile
+
+      - name: Build + firma + subir al release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          # Sube al release que acaba de publicarse (el que disparó este workflow).
+          releaseId: ${{ github.event.release.id }}
+          # Solo NSIS: es el formato que el updater de Tauri usa en Windows.
+          # Evita construir también el MSI (más lento y acá no lo necesitamos).
+          args: --bundles nsis
+          # Mergea la entrada windows-x86_64 en el latest.json ya existente.
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true

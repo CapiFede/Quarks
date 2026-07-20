@@ -114,6 +114,18 @@ export async function moveJson(oldName: string, newName: string): Promise<void> 
   });
 }
 
+/** Borra el JSON `name` del store si existe (no falla si no estaba). */
+export async function deleteJson(name: string): Promise<void> {
+  if (!isTauri()) {
+    localStorage.removeItem(lsKey(name));
+    return;
+  }
+  const { BaseDirectory, exists, remove } = await import("@tauri-apps/plugin-fs");
+  if (await exists(relPath(name), { baseDir: BaseDirectory.AppData })) {
+    await remove(relPath(name), { baseDir: BaseDirectory.AppData });
+  }
+}
+
 /** ¿Existe el JSON `name` en el store? */
 export async function existsJson(name: string): Promise<boolean> {
   if (!isTauri()) return localStorage.getItem(lsKey(name)) !== null;

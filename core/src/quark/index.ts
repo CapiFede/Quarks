@@ -15,10 +15,11 @@ export type { Quark, AiContext, AiAttachment } from "./types";
 // Para que los quarks gateen UI/IO mobile-only vs desktop-only.
 export { isAndroid, isDesktop, isLinux } from "../services/platform";
 
-// ── Navegación: un quark pide al Shell enfocar su propio tab ───────────────────
-// Lo usa Utilidades para traer su pantalla al frente cuando suena una alarma o
-// termina un timer estando el usuario en otro quark. Ver `services/navigation.ts`.
-export { requestOpenQuark } from "../services/navigation";
+// ── Navegación: un quark pide al Shell enfocar su tab o activar un space ──────
+// `requestOpenQuark` lo usa Utilidades para traer su pantalla al frente cuando
+// suena una alarma. `requestActivateSpace` lo usa Música para abrir una playlist
+// de otro space desde "Manejar playlists". Ver `services/navigation.ts`.
+export { requestOpenQuark, requestActivateSpace } from "../services/navigation";
 
 // ── Spaces (§5): el quark usa `space.id` para particionar su data (§4) ─────────
 export type { Space } from "../services/spaces";
@@ -28,7 +29,7 @@ export { useActiveSpace } from "../frontend/hooks/useActiveSpace";
 // `readJson`/`writeJson`: archivos arbitrarios (p. ej. el contenido del quark en
 // `packages/<id>/…`). `readSpaceSection`/`writeSpaceSection`: la porción del quark
 // dentro del archivo del space (`spaces/<id>.json`). Ver StorageLayout.md.
-export { readJson, writeJson, existsJson } from "../services/store";
+export { readJson, writeJson, existsJson, deleteJson } from "../services/store";
 export { readSpaceSection, writeSpaceSection } from "../services/spaceData";
 
 // ── UI compartida: el quark la reusa, no la duplica (ver QuarkStructure.md) ────

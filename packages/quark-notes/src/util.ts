@@ -2,11 +2,39 @@
 
 import type { NoteIndex } from "./types";
 
+/**
+ * ¿El contenido es el HTML del editor rich-text? Las notas de texto se guardan
+ * como HTML desde que el editor es TipTap; las viejas siguen siendo texto plano
+ * hasta la primera edición. Heurística: arranca con un tag de bloque conocido.
+ */
+export function looksLikeHtml(content: string): boolean {
+  return /^\s*<(p|h[1-6]|ul|ol|li|table|blockquote|pre|hr|div)[\s>/]/i.test(content);
+}
+
+/**
+ * HTML del editor → texto plano (previews, título sugerido). Aproximado a
+ * propósito: cierra bloques con salto de línea, celdas con espacio, pela el
+ * resto de los tags y decodifica las entidades básicas.
+ */
+export function htmlToPlainText(html: string): string {
+  return html
+    .replace(/<\/(?:th|td)>/gi, " ")
+    .replace(/<(?:\/(?:p|h[1-6]|li|tr|div|blockquote|pre)|br\s*\/?)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
 /** Primer renglón no vacío del contenido, recortado para el preview. */
 const PREVIEW_MAX = 80;
 
 export function buildPreview(content: string): string {
-  const trimmed = content.trim();
+  const source = looksLikeHtml(content) ? htmlToPlainText(content) : content;
+  const trimmed = source.trim();
   if (!trimmed) return "";
   const firstLine = trimmed.split(/\r?\n/).find((l) => l.trim().length > 0) ?? "";
   const flat = firstLine.replace(/\s+/g, " ").trim();

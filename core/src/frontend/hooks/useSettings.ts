@@ -1,14 +1,12 @@
 import { useCallback, useState } from "react";
 import type { AppSettings } from "../../services/settings";
-import { loadSettings, saveSettings } from "../../services/settings";
+import { saveSettings } from "../../services/settings";
 import { report, withScope } from "../../services/log";
 
 export interface SettingsController {
   settings: AppSettings;
   /** Aplica un patch parcial y lo persiste de forma atómica. */
   update: (patch: Partial<AppSettings>) => void;
-  /** Re-lee el archivo de disco y reemplaza el estado (tras un pull de sync). */
-  reload: () => void;
 }
 
 /**
@@ -26,11 +24,5 @@ export function useSettings(initial: AppSettings): SettingsController {
     });
   }, []);
 
-  const reload = useCallback(() => {
-    void withScope("settings.reload", () => loadSettings())
-      .then(setSettings)
-      .catch(report);
-  }, []);
-
-  return { settings, update, reload };
+  return { settings, update };
 }

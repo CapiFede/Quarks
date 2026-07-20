@@ -30,7 +30,15 @@ export type DownloadProgress =
   | { phase: "progress"; pct: number; speed: string | null; eta: string | null }
   | { phase: "converting" }
   | { phase: "saved"; relPath: string }
-  | { phase: "done"; relPaths: string[] };
+  | { phase: "done"; relPaths: string[] }
+  /** La descarga falló por yt-dlp viejo; se está actualizando para reintentar. */
+  | { phase: "updatingTools"; pct: number };
+
+export type UpdateProgress =
+  | { phase: "checking" }
+  | { phase: "downloading"; pct: number }
+  | { phase: "updated"; version: string }
+  | { phase: "upToDate" };
 
 export interface DownloadOpts {
   url: string;
@@ -48,6 +56,20 @@ export async function setupTools(onProgress: (p: SetupProgress) => void): Promis
   const on = new Channel<SetupProgress>();
   on.onmessage = onProgress;
   await invoke("music_tools_setup", { on });
+}
+
+/**
+ * Chequeo periódico de versión de yt-dlp. Barato: el backend no toca la red si
+ * no pasaron 7 días desde el último chequeo, y aun pasando solo hace un HEAD de
+ * ~0 bytes. Nunca rechaza por falta de red. `force` saltea el intervalo.
+ */
+export async function checkToolsUpdate(
+  onProgress: (p: UpdateProgress) => void,
+  force = false,
+): Promise<void> {
+  const on = new Channel<UpdateProgress>();
+  on.onmessage = onProgress;
+  await invoke("music_tools_check_update", { force, on });
 }
 
 export function probeUrl(url: string): Promise<ProbeResult> {

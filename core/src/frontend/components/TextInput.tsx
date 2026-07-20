@@ -7,6 +7,7 @@ export interface TextInputProps {
   placeholder?: string;
   icon?: string;
   autoFocus?: boolean;
+  disabled?: boolean;
   onKeyDown?: (e: KeyboardEvent<HTMLInputElement>) => void;
   onBlur?: () => void;
   style?: CSSProperties;
@@ -19,12 +20,14 @@ export function TextInput({
   placeholder,
   icon,
   autoFocus,
+  disabled,
   onKeyDown,
   onBlur,
   style,
 }: TextInputProps) {
   const [focus, setFocus] = useState(false);
   const [hover, setHover] = useState(false);
+  const showHover = hover && !disabled;
 
   return (
     <div
@@ -35,8 +38,9 @@ export function TextInput({
         display: "flex",
         alignItems: "center",
         padding: "0 12px",
+        opacity: disabled ? 0.45 : 1,
         background:
-          focus || !hover ? "var(--q-surface)" : "var(--q-card-hover)",
+          focus || !showHover ? "var(--q-surface)" : "var(--q-card-hover)",
         border: focus
           ? "1px solid var(--q-primary-light)"
           : "1px solid transparent",
@@ -60,6 +64,7 @@ export function TextInput({
         onChange={(e) => onChange?.(e.target.value)}
         placeholder={placeholder}
         autoFocus={autoFocus}
+        disabled={disabled}
         onKeyDown={onKeyDown}
         onFocus={() => setFocus(true)}
         onBlur={() => {

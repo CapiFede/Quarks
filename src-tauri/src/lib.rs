@@ -9,26 +9,20 @@ mod secrets;
 
 // Módulos desktop-only:
 //   - download: yt-dlp + ffmpeg (binarios externos, no aplican en sandbox Android).
-//   - console:  PTY real con portable-pty + helper elevado por UAC (Windows).
 #[cfg(not(target_os = "android"))]
 mod download;
-// `pub` para que el binario `quark-pty-host` (mismo crate) pueda usar el
-// módulo `protocol` y compartir el framing del named pipe con la app.
+// Recorte de canciones del quark Música (trim con ffmpeg). Desktop-only:
+// depende de ffmpeg/ffprobe externos, igual que las descargas. Ver `trim.rs`.
 #[cfg(not(target_os = "android"))]
-pub mod console;
-// Tab System del quark Utils: corre scripts de shell (tweaks/instalación/backup)
-// con salida en vivo. Desktop-only (usa `bash`/`pkexec`). Ver `system.rs`.
-#[cfg(not(target_os = "android"))]
-mod system;
-// Editor de audio/video (recorte + reconcatenado con ffmpeg). Desktop-only:
-// depende de ffmpeg/ffprobe externos, igual que las descargas de Música. Ver
-// `editor.rs`.
-#[cfg(not(target_os = "android"))]
-mod editor;
+mod trim;
 // Controles de media del SO (MPRIS) para el quark Música. La integración real
 // es Linux-only; en Windows/macOS el módulo expone comandos no-op. Ver `mpris.rs`.
 #[cfg(not(target_os = "android"))]
 mod mpris;
+// Backup manual a Drive: zip por streaming de una carpeta cualquiera + resumable
+// upload. Desktop-only porque usa `zip` y `ureq`. Ver `backup.rs`.
+#[cfg(not(target_os = "android"))]
+mod backup;
 
 // `Manager::manage` (registro del estado MPRIS en setup) — solo se usa en Linux.
 #[cfg(target_os = "linux")]
@@ -68,9 +62,9 @@ pub fn run() {
   #[cfg(not(target_os = "android"))]
   let builder = builder.manage(music::AudioState::new());
 
-  // Estado del console quark — registry de sesiones PTY activas.
+  // Flag de cancelación del backup manual a Drive.
   #[cfg(not(target_os = "android"))]
-  let builder = builder.manage(console::ConsoleState::new());
+  let builder = builder.manage(backup::BackupState::new());
 
   // Solo se puede llamar a `invoke_handler` una vez por builder, así que
   // armamos dos sets distintos por plataforma:
@@ -112,20 +106,15 @@ pub fn run() {
     mpris::mpris_set_playback,
     download::music_tools_status,
     download::music_tools_setup,
+    download::music_tools_check_update,
     download::music_probe_url,
     download::music_download,
-    console::console_open,
-    console::console_write,
-    console::console_resize,
-    console::console_close,
-    console::console_default_shell,
-    console::console_list_shells,
-    system::system_run_script,
-    editor::editor_list_songs,
-    editor::editor_import,
-    editor::editor_probe,
-    editor::editor_suggest_song_dest,
-    editor::editor_export,
+    trim::music_trim_probe,
+    trim::music_trim_suggest_dest,
+    trim::music_trim_export,
+    backup::backup_estimate,
+    backup::backup_run,
+    backup::backup_cancel,
   ]);
 
   builder
