@@ -42,7 +42,9 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # pnpm 11.3.0 (packageManager en package.json) requiere Node ≥22.13:
+          # usa node:sqlite, que no existe en Node 20 y crashea el step.
+          node-version: 22
           cache: pnpm
 
       - name: Setup Rust (toolchain MSVC)
