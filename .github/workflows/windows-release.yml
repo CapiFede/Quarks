@@ -7,22 +7,34 @@ name: Windows release
 # desde tu máquina Linux. Este job corre en un runner Windows y sube el
 # `*-setup.exe` + su `.sig` al mismo GitHub Release que ya creó el release de Linux.
 #
-# Disparador: `release: published`. Ese evento solo se emite DESPUÉS de que
-# `gh release create` (dentro de pnpm release) publica el release, con el
-# `latest.json` que ya trae la entrada `linux-x86_64`. tauri-action detecta ese
-# `latest.json` existente y MERGEA `windows-x86_64` encima (no lo pisa), así el
-# updater ofrece updates a Linux y a Windows por igual.
+# Dos disparadores:
+#   1. `release: published` — automático. Se emite DESPUÉS de que `gh release
+#      create` (dentro de pnpm release) publica el release. OJO: el evento usa el
+#      workflow del COMMIT AL QUE APUNTA EL TAG, no el de main HEAD; por eso el
+#      arreglo de este archivo solo aplica a releases cuyo tag ya lo incluya.
+#   2. `workflow_dispatch` — manual. Re-buildea Windows para un release ya
+#      publicado (p. ej. si el job automático falló). Corrélo con `--ref main`
+#      para usar SIEMPRE la última versión de este workflow, sin importar a qué
+#      commit apunte el tag:
+#        gh workflow run windows-release.yml --ref main -f tag=v0.4.6
+#
+# tauri-action detecta el `latest.json` existente (con la entrada `linux-x86_64`)
+# y MERGEA `windows-x86_64` encima (no lo pisa), así el updater ofrece updates a
+# Linux y a Windows por igual.
 #
 # Requisitos (una sola vez): dos GitHub Secrets en Settings → Secrets and
 # variables → Actions:
 #   - TAURI_SIGNING_PRIVATE_KEY          → contenido de ~/.tauri/quarks.key
 #   - TAURI_SIGNING_PRIVATE_KEY_PASSWORD → el password de esa clave
-# Y que el workflow esté en `main` ANTES de cortar el release (los eventos
-# `release` usan la versión del workflow que vive en la branch default).
 
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag del release a buildear (ej. v0.4.6)"
+        required: true
 
 permissions:
   contents: write # tauri-action sube assets y actualiza latest.json vía GITHUB_TOKEN
@@ -31,10 +43,33 @@ jobs:
   build-windows:
     runs-on: windows-latest
     steps:
+      # Unifica los dos disparadores: del evento `release` sacamos tag + id
+      # directo; del dispatch manual resolvemos el id del release vía la API a
+      # partir del tag que se pasó como input.
+      - name: Resolver tag + release id
+        id: rel
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          REL_TAG: ${{ github.event.release.tag_name }}
+          REL_ID: ${{ github.event.release.id }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "$EVENT_NAME" = "release" ]; then
+            echo "tag=$REL_TAG" >> "$GITHUB_OUTPUT"
+            echo "id=$REL_ID" >> "$GITHUB_OUTPUT"
+          else
+            ID="$(gh api "repos/$REPO/releases/tags/$INPUT_TAG" --jq .id)"
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+            echo "id=$ID" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout en el tag del release
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ steps.rel.outputs.tag }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4 # lee la versión de `packageManager` en package.json
@@ -65,8 +100,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          # Sube al release que acaba de publicarse (el que disparó este workflow).
-          releaseId: ${{ github.event.release.id }}
+          # Sube al release resuelto arriba (evento o dispatch manual).
+          releaseId: ${{ steps.rel.outputs.id }}
           # Solo NSIS: es el formato que el updater de Tauri usa en Windows.
           # Evita construir también el MSI (más lento y acá no lo necesitamos).
           args: --bundles nsis
