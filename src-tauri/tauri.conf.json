@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Quarks",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "identifier": "com.quarks.app",
   "build": {
     "frontendDist": "../core/dist",
@@ -48,7 +48,9 @@
     "deep-link": {
       "mobile": [
         {
-          "scheme": ["com.googleusercontent.apps.292611669762-0u9470h2dg8i0f623iaui2ikug0r4bbp"]
+          "scheme": [
+            "com.googleusercontent.apps.292611669762-0u9470h2dg8i0f623iaui2ikug0r4bbp"
+          ]
         }
       ]
     },
