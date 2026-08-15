@@ -115,8 +115,8 @@ export function Settings({
           top: "50%",
           left: "50%",
           transform: "translate(-50%, -50%)",
-          width: "min(720px, 92vw)",
-          height: "min(560px, 84vh)",
+          width: isAndroid ? "96vw" : "min(720px, 92vw)",
+          height: isAndroid ? "88vh" : "min(560px, 84vh)",
           zIndex: 101,
           display: "flex",
           flexDirection: "column",
@@ -171,29 +171,65 @@ export function Settings({
           <IconButton name="close" tooltip="Cerrar" onClick={onClose} />
         </header>
 
-        <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
+        {/* En mobile la nav lateral de 180px se comía media pantalla: pasa a ser
+            una fila de tabs arriba y el contenido usa todo el ancho. */}
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            display: "flex",
+            flexDirection: isAndroid ? "column" : "row",
+          }}
+        >
           <nav
-            style={{
-              flex: "0 0 180px",
-              borderRight: "1px solid var(--q-border)",
-              padding: 8,
-              display: "flex",
-              flexDirection: "column",
-              gap: 2,
-            }}
+            style={
+              isAndroid
+                ? {
+                    flex: "0 0 auto",
+                    display: "flex",
+                    alignItems: "stretch",
+                    borderBottom: "1px solid var(--q-border)",
+                    overflowX: "auto",
+                  }
+                : {
+                    flex: "0 0 180px",
+                    borderRight: "1px solid var(--q-border)",
+                    padding: 8,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 2,
+                  }
+            }
           >
-            {NAV.map((item) => (
-              <NavItem
-                key={item.id}
-                icon={item.icon}
-                label={item.label}
-                active={section === item.id}
-                onClick={() => setSection(item.id)}
-              />
-            ))}
+            {NAV.map((item) =>
+              isAndroid ? (
+                <TabItem
+                  key={item.id}
+                  icon={item.icon}
+                  label={item.label}
+                  active={section === item.id}
+                  onClick={() => setSection(item.id)}
+                />
+              ) : (
+                <NavItem
+                  key={item.id}
+                  icon={item.icon}
+                  label={item.label}
+                  active={section === item.id}
+                  onClick={() => setSection(item.id)}
+                />
+              ),
+            )}
           </nav>
 
-          <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: 20 }}>
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              overflow: "auto",
+              padding: isAndroid ? "16px 14px" : 20,
+            }}
+          >
             {section === "general" && <GeneralSection updater={updater} />}
             {section === "spaces" && (
               <SpacesSection
@@ -252,6 +288,44 @@ function NavItem({
             : "transparent",
         color: active ? "var(--q-primary-light)" : "var(--q-text-primary)",
         transition: "background var(--q-dur-fast) var(--q-ease)",
+      }}
+    >
+      <Icon name={icon} size={16} />
+      <span style={{ fontSize: 12, fontWeight: active ? 600 : 500 }}>{label}</span>
+    </div>
+  );
+}
+
+/**
+ * Variante mobile del `NavItem`: tab horizontal con subrayado en el activo,
+ * al estilo de las tabs de una app nativa.
+ */
+function TabItem({
+  icon,
+  label,
+  active,
+  onClick,
+}: {
+  icon: string;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        flex: "1 0 auto",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        padding: "10px 12px",
+        cursor: "default",
+        whiteSpace: "nowrap",
+        borderBottom: `2px solid ${active ? "var(--q-primary-light)" : "transparent"}`,
+        color: active ? "var(--q-primary-light)" : "var(--q-text-secondary)",
+        transition: "color var(--q-dur-fast) var(--q-ease)",
       }}
     >
       <Icon name={icon} size={16} />

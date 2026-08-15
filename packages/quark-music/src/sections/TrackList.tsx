@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { Icon } from "@quarks/core";
+import { Icon, isAndroid } from "@quarks/core";
 import type { Track } from "../types";
 import { fmtTime } from "../util";
 
@@ -35,7 +35,9 @@ export const TrackList = memo(function TrackList({
         flex: 1,
         overflow: "auto",
         background: "var(--q-background)",
-        borderRight: "1px solid var(--q-border)",
+        // En mobile no hay panel a la derecha: el borde quedaría pegado al borde
+        // de la pantalla.
+        borderRight: isAndroid ? undefined : "1px solid var(--q-border)",
         minWidth: 0,
       }}
     >
@@ -124,12 +126,14 @@ function Row({ idx, track, active, playing, selected, onPlay, onSelect }: RowPro
       ref={rowRef}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      onClick={onSelect}
+      // Sin panel derecho en mobile, seleccionar no muestra nada: un toque
+      // reproduce directo (el doble tap no existe como gesto acá).
+      onClick={isAndroid ? onPlay : onSelect}
       onDoubleClick={onPlay}
       style={{
         display: "grid",
         gridTemplateColumns: GRID,
-        padding: "6px 14px",
+        padding: isAndroid ? "10px 14px" : "6px 14px",
         alignItems: "center",
         background: bg,
         fontSize: 12,

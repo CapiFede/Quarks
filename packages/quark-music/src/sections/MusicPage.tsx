@@ -134,27 +134,32 @@ export function MusicPage({ store }: MusicPageProps) {
           onSelect={setSelectedPath}
           empty={emptyMsg}
         />
-        <TrackPanel
-          track={selectedTrack}
-          spaceGroups={spaceGroups}
-          onPlay={(p) => void store.play(p)}
-          onEdit={(t) => void store.openTrim(t)}
-          onToggleInPlaylist={(spaceId, id, isIn) => {
-            if (!selectedTrack) return;
-            void store.toggleInPlaylist(spaceId, id, selectedTrack.path, isIn);
-          }}
-          onRename={async (path, name) => {
-            await store.renameTrack(path, name);
-            // El path puede haber cambiado: limpiar selección para que el panel
-            // muestre el track renombrado (lo encuentra por activePath o por
-            // la nueva selección del usuario).
-            setSelectedPath(null);
-          }}
-          onDelete={async (path) => {
-            await store.deleteTrack(path);
-            setSelectedPath(null);
-          }}
-        />
+        {/* El panel derecho es desktop-only: en el ancho de un celular se comía
+            media pantalla. En mobile la lista va a ancho completo y el player
+            inferior alcanza para controlar la reproducción. */}
+        {!isAndroid && (
+          <TrackPanel
+            track={selectedTrack}
+            spaceGroups={spaceGroups}
+            onPlay={(p) => void store.play(p)}
+            onEdit={(t) => void store.openTrim(t)}
+            onToggleInPlaylist={(spaceId, id, isIn) => {
+              if (!selectedTrack) return;
+              void store.toggleInPlaylist(spaceId, id, selectedTrack.path, isIn);
+            }}
+            onRename={async (path, name) => {
+              await store.renameTrack(path, name);
+              // El path puede haber cambiado: limpiar selección para que el panel
+              // muestre el track renombrado (lo encuentra por activePath o por
+              // la nueva selección del usuario).
+              setSelectedPath(null);
+            }}
+            onDelete={async (path) => {
+              await store.deleteTrack(path);
+              setSelectedPath(null);
+            }}
+          />
+        )}
       </div>
 
       <Player
