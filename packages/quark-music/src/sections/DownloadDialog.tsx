@@ -269,17 +269,6 @@ function Form({
             disabled={!loaded || loaded.isPlaylist || downloading}
           />
         </Field>
-        <Field label="Volumen">
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Toggle
-              checked={state.normalize}
-              onChange={() => store.toggleDownloadNormalize()}
-            />
-            <span style={{ fontSize: 12, color: "var(--q-text-secondary)" }}>
-              Normalizar volumen (loudnorm)
-            </span>
-          </div>
-        </Field>
         <Field label="Portada">
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <Toggle

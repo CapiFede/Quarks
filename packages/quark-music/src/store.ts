@@ -67,7 +67,6 @@ export interface DownloadState {
   setup: { name: string; pct: number } | null;
   probe: ProbeResult | null;
   customName: string;
-  normalize: boolean;
   embedThumbnail: boolean;
   /** Playlists destino (de cualquier space; los ids son únicos globalmente). */
   targetPlaylistIds: string[];
@@ -203,7 +202,6 @@ const INITIAL_DOWNLOAD: DownloadState = {
   setup: null,
   probe: null,
   customName: "",
-  normalize: true,
   embedThumbnail: true,
   targetPlaylistIds: [],
   progress: null,
@@ -1113,9 +1111,6 @@ export class MusicStore {
   setDownloadCustomName(name: string): void {
     this.setDownload({ customName: name });
   }
-  toggleDownloadNormalize(): void {
-    this.setDownload({ normalize: !this.state.download.normalize });
-  }
   toggleDownloadEmbedThumbnail(): void {
     this.setDownload({ embedThumbnail: !this.state.download.embedThumbnail });
   }
@@ -1192,7 +1187,7 @@ export class MusicStore {
   }
 
   async runDownload(): Promise<void> {
-    const { url, customName, normalize, embedThumbnail, probe, targetPlaylistIds, step } =
+    const { url, customName, embedThumbnail, probe, targetPlaylistIds, step } =
       this.state.download;
     if (!probe || !url.trim() || step !== "preview") return;
     this.setDownload({
@@ -1214,7 +1209,6 @@ export class MusicStore {
         {
           url,
           customName: customName.trim() ? customName.trim() : null,
-          normalize,
           isPlaylist: probe.isPlaylist,
           embedThumbnail,
         },

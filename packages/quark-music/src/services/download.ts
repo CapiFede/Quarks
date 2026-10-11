@@ -43,7 +43,6 @@ export type UpdateProgress =
 export interface DownloadOpts {
   url: string;
   customName: string | null;
-  normalize: boolean;
   isPlaylist: boolean;
   embedThumbnail: boolean;
 }

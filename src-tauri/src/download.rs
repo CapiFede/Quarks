@@ -770,7 +770,6 @@ fn pick_thumbnail(v: &serde_json::Value) -> Option<String> {
 pub struct DownloadOpts {
     url: String,
     custom_name: Option<String>,
-    normalize: bool,
     /// `true` si el probe detectó playlist (para elegir `--yes-playlist` vs `--no-playlist`).
     is_playlist: bool,
     /// Si `true`, embebe la miniatura del video como portada (ID3v2 APIC) del MP3.
@@ -965,16 +964,15 @@ fn run_ytdlp_download(
         cmd.arg("--no-playlist");
     }
 
-    if opts.normalize {
-        // Scopeado a `ExtractAudio`: si pasáramos `ffmpeg:…` (todos los PP),
-        // yt-dlp aplicaría `-af loudnorm` también al embedder de thumbnail
-        // (que procesa un JPG, no audio) → "Postprocessing: Error opening
-        // output files: Invalid argument".
-        cmd.args([
-            "--postprocessor-args",
-            "ExtractAudio:-af loudnorm=I=-16:TP=-1.5:LRA=11",
-        ]);
-    }
+    // Siempre normalizado (loudnorm), así todas las canciones suenan parejo.
+    // Scopeado a `ExtractAudio`: si pasáramos `ffmpeg:…` (todos los PP),
+    // yt-dlp aplicaría `-af loudnorm` también al embedder de thumbnail
+    // (que procesa un JPG, no audio) → "Postprocessing: Error opening
+    // output files: Invalid argument".
+    cmd.args([
+        "--postprocessor-args",
+        "ExtractAudio:-af loudnorm=I=-16:TP=-1.5:LRA=11",
+    ]);
 
     if opts.embed_thumbnail {
         // `--convert-thumbnails jpg` fuerza conversión (YT entrega webp por
