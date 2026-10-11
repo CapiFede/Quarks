@@ -89,6 +89,29 @@ const DEFAULT_ENV_FILE = resolve(getAppDataDir(IDENTIFIER), "quarks.env");
  */
 const NEEDS_SHELL_WIN = new Set(["pnpm", "gh", "npm", "npx"]);
 
+/**
+ * El AppImage lleva sus propios plugins de GStreamer (`bundleMediaFramework` en
+ * tauri.conf.json): sin ellos el WebView usa los del sistema, buscándolos en el
+ * path de la distro donde se armó, y en otra distro no encuentra ninguno — el
+ * editor de Música quedaba "cargando" para siempre (armado en Debian, corrido en
+ * Fedora). El plugin de linuxdeploy copia TODO lo que haya en la carpeta que le
+ * pasamos, y la del sistema arrastra Qt, ffmpeg y demás (+100 MB): le armamos
+ * una carpeta con symlinks solo a los plugins de audio que usa la app. Van acá
+ * arriba por el mismo TDZ que NEEDS_SHELL_WIN (los usa `prepareGstreamer`,
+ * llamado desde el cuerpo top-level).
+ */
+const GST_PLUGINS = [
+  // núcleo: decodebin/playbin, typefind, fuentes y sinks de la app/WebKit
+  "coreelements", "typefindfunctions", "playback", "app", "gio",
+  // conversión y salida de audio
+  "audioconvert", "audioresample", "volume", "interleave", "audiofx",
+  "autodetect", "pipewire", "pulseaudio", "alsa",
+  // formatos que escanea Música: mp3, wav, flac, ogg, m4a
+  "audioparsers", "id3demux", "mpg123", "wavparse", "flac", "ogg", "vorbis",
+  "opus", "isomp4", "fdkaac", "faad",
+];
+const GST_HELPERS = ["gst-plugin-scanner", "gst-ptp-helper"];
+
 // ── Args ─────────────────────────────────────────────────────────────────────
 
 const argv = process.argv.slice(2);
@@ -418,27 +441,6 @@ function loadEnvFile(path, required) {
     if (!(key in process.env)) process.env[key] = val;
   }
 }
-
-/**
- * El AppImage lleva sus propios plugins de GStreamer (`bundleMediaFramework` en
- * tauri.conf.json): sin ellos el WebView usa los del sistema, buscándolos en el
- * path de la distro donde se armó, y en otra distro no encuentra ninguno — el
- * editor de Música quedaba "cargando" para siempre (armado en Debian, corrido en
- * Fedora). El plugin de linuxdeploy copia TODO lo que haya en la carpeta que le
- * pasamos, y la del sistema arrastra Qt, ffmpeg y demás (+100 MB): le armamos
- * una carpeta con symlinks solo a los plugins de audio que usa la app.
- */
-const GST_PLUGINS = [
-  // núcleo: decodebin/playbin, typefind, fuentes y sinks de la app/WebKit
-  "coreelements", "typefindfunctions", "playback", "app", "gio",
-  // conversión y salida de audio
-  "audioconvert", "audioresample", "volume", "interleave", "audiofx",
-  "autodetect", "pipewire", "pulseaudio", "alsa",
-  // formatos que escanea Música: mp3, wav, flac, ogg, m4a
-  "audioparsers", "id3demux", "mpg123", "wavparse", "flac", "ogg", "vorbis",
-  "opus", "isomp4", "fdkaac", "faad",
-];
-const GST_HELPERS = ["gst-plugin-scanner", "gst-ptp-helper"];
 
 function prepareGstreamer() {
   const pluginsDir = [
