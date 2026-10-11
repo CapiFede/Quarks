@@ -117,8 +117,8 @@ export interface TrimState {
   name: string;
   /** Duración según ffprobe (la línea de tiempo sobre la que corta ffmpeg). */
   durationSec: number;
-  /** Object URL para la preview (`<audio>`). */
-  mediaUrl: string | null;
+  /** Audio decodificado: lo reproduce la preview (el mismo que dibuja la onda). */
+  audio: AudioBuffer | null;
   /** Picos min/max multi-resolución del waveform, o null si no se pudo decodificar. */
   peaks: WavePeaks | null;
   /** Rango a CONSERVAR, en segundos del original. */
@@ -184,7 +184,7 @@ const INITIAL_TRIM: TrimState = {
   trackPath: null,
   name: "",
   durationSec: 0,
-  mediaUrl: null,
+  audio: null,
   peaks: null,
   startSec: 0,
   endSec: 0,
@@ -613,7 +613,6 @@ export class MusicStore {
     const file = track.path.split("/").pop() ?? track.path;
     const dot = file.lastIndexOf(".");
     const name = dot > 0 ? file.slice(0, dot) : file;
-    const ext = dot > 0 ? file.slice(dot + 1).toLowerCase() : "";
 
     this.set({
       trim: { ...INITIAL_TRIM, open: true, step: "loading", trackPath: track.path, name },
@@ -629,19 +628,14 @@ export class MusicStore {
       const durationSec = probed > 0 ? probed : track.durationSec;
       if (durationSec <= 0) throw new Error("No se pudo leer la duración del archivo.");
 
-      const bytes = await trim.readBytes(abs);
-      const url = trim.blobUrl(bytes, ext);
-      const peaks = await trim.computePeaks(bytes);
-      if (seq !== this.trimSeq) {
-        URL.revokeObjectURL(url);
-        return;
-      }
+      const decoded = await trim.decode(await trim.readBytes(abs));
+      if (seq !== this.trimSeq) return;
       this.setTrim({
         step: "ready",
         absPath: abs,
         durationSec,
-        mediaUrl: url,
-        peaks,
+        audio: decoded?.audio ?? null,
+        peaks: decoded?.peaks ?? null,
         startSec: 0,
         endSec: durationSec,
       });
@@ -654,7 +648,6 @@ export class MusicStore {
   closeTrim(): void {
     if (this.state.trim.step === "exporting") return; // el export no se interrumpe
     ++this.trimSeq;
-    if (this.state.trim.mediaUrl) URL.revokeObjectURL(this.state.trim.mediaUrl);
     this.set({ trim: INITIAL_TRIM });
   }
 
@@ -690,7 +683,8 @@ export class MusicStore {
   }
 
   trimTogglePlay(): void {
-    if (this.state.trim.step !== "ready") return;
+    // Sin audio decodificado no hay preview (el diálogo muestra solo la línea de tiempo).
+    if (this.state.trim.step !== "ready" || !this.state.trim.audio) return;
     this.setTrim({ playing: !this.state.trim.playing });
   }
 
@@ -715,7 +709,6 @@ export class MusicStore {
       }
       await trim.exportTrim({ srcPath: t.absPath, start: t.startSec, end: t.endSec, destPath });
       ++this.trimSeq;
-      if (t.mediaUrl) URL.revokeObjectURL(t.mediaUrl);
       this.set({ trim: INITIAL_TRIM });
       await this.scan();
     } catch (e) {

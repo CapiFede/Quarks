@@ -3,6 +3,7 @@ import { Button, Icon, IconButton } from "@quarks/core";
 import type { MusicStore, TrimState } from "../store";
 import { useMusicState } from "../hooks/useMusicStore";
 import { TrimWave } from "./TrimWave";
+import { PreviewPlayer } from "../services/trim";
 import { fmtTime, fmtFine } from "../util";
 
 export interface TrimDialogProps {
@@ -226,68 +227,79 @@ function Editor({ store, t }: { store: MusicStore; t: TrimState }) {
 }
 
 /**
- * Dueño del `<audio>` de la preview, confinada al rango a conservar: al llegar
- * al fin del rango (o del archivo) pausa y rebobina al inicio del recorte; al
- * dar play desde afuera del rango, arranca en el inicio.
+ * Dueño de la preview, confinada al rango a conservar: al llegar al fin del
+ * rango pausa y rebobina al inicio del recorte; al dar play desde afuera del
+ * rango, arranca en el inicio. Suena con `PreviewPlayer` (Web Audio sobre el
+ * mismo buffer que dibuja la onda, ver trim.ts).
  */
 function Preview({ store, t }: { store: MusicStore; t: TrimState }) {
-  const elRef = useRef<HTMLAudioElement>(null);
-  // Snapshot vivo del rango para los handlers del elemento.
+  const playerRef = useRef<PreviewPlayer | null>(null);
+  // Snapshot vivo del rango y la posición para los handlers.
   const range = useRef({ start: t.startSec, end: t.endSec });
   range.current = { start: t.startSec, end: t.endSec };
-
-  // Play / pause dirigido por el store.
-  useEffect(() => {
-    const el = elRef.current;
-    if (!el) return;
-    if (t.playing) {
-      const { start, end } = range.current;
-      if (el.currentTime < start - EPS || el.currentTime >= end - EPS) {
-        el.currentTime = start;
-        store.setTrimPosition(start);
-      }
-      void el.play().catch(() => store.setTrimPlaying(false));
-    } else {
-      el.pause();
-    }
-  }, [t.playing, store]);
-
-  // Seek externo (waveform).
-  useEffect(() => {
-    const el = elRef.current;
-    if (!el || t.seekNonce === 0) return;
-    el.currentTime = t.positionSec;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t.seekNonce]);
+  const position = useRef(t.positionSec);
+  position.current = t.positionSec;
 
   const rewind = () => {
-    const el = elRef.current;
-    if (!el) return;
-    el.pause();
+    playerRef.current?.stop();
     store.setTrimPlaying(false);
-    el.currentTime = range.current.start;
     store.setTrimPosition(range.current.start);
   };
 
-  const onTimeUpdate = () => {
-    const el = elRef.current;
-    if (!el) return;
-    if (el.currentTime >= range.current.end - EPS) rewind();
-    else store.setTrimPosition(el.currentTime);
-  };
+  // Un reproductor por audio decodificado; se cierra con el diálogo.
+  useEffect(() => {
+    if (!t.audio) return;
+    const player = new PreviewPlayer(t.audio);
+    playerRef.current = player;
+    return () => {
+      player.close();
+      playerRef.current = null;
+    };
+  }, [t.audio]);
 
-  if (!t.mediaUrl) return null;
-  return (
-    <audio
-      ref={elRef}
-      src={t.mediaUrl}
-      onTimeUpdate={onTimeUpdate}
-      onEnded={rewind}
-      onPlay={() => store.setTrimPlaying(true)}
-      onPause={() => store.setTrimPlaying(false)}
-      style={{ display: "none" }}
-    />
-  );
+  // Play / pause dirigido por el store.
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player) return;
+    if (t.playing) {
+      const { start, end } = range.current;
+      let from = position.current;
+      if (from < start - EPS || from >= end - EPS) {
+        from = start;
+        store.setTrimPosition(start);
+      }
+      player.play(from, end, rewind);
+    } else if (player.playing) {
+      store.setTrimPosition(player.stop());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [t.playing, store]);
+
+  // Seek externo (waveform): si está sonando, sigue desde ahí; en pausa basta
+  // con la posición del store (el próximo play arranca de ahí).
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player?.playing || t.seekNonce === 0) return;
+    player.play(t.positionSec, range.current.end, rewind);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [t.seekNonce]);
+
+  // La manija del final se movió mientras suena: el corte la sigue.
+  useEffect(() => {
+    playerRef.current?.setUntil(t.endSec);
+  }, [t.endSec]);
+
+  // El playhead sigue a la reproducción.
+  useEffect(() => {
+    if (!t.playing) return;
+    const id = setInterval(() => {
+      const player = playerRef.current;
+      if (player?.playing) store.setTrimPosition(player.position());
+    }, 100);
+    return () => clearInterval(id);
+  }, [t.playing, store]);
+
+  return null;
 }
 
 function PlayButton({ playing, onClick }: { playing: boolean; onClick: () => void }) {
