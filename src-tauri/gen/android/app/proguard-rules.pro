@@ -19,3 +19,13 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Puente JS de las tareas en background (MainActivity → window.QuarksBackground).
+-keepclassmembers class com.quarks.app.BackgroundBridge {
+   @android.webkit.JavascriptInterface public <methods>;
+}
+
+# Puente JS de los botones de media (MainActivity → window.QuarksMedia).
+-keepclassmembers class com.quarks.app.MusicSessionBridge {
+   @android.webkit.JavascriptInterface public <methods>;
+}

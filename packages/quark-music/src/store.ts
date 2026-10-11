@@ -19,6 +19,7 @@ import {
   readSpaceSection,
   writeSpaceSection,
   requestActivateSpace,
+  isAndroid,
   type Space,
 } from "@quarks/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
@@ -848,10 +849,16 @@ export class MusicStore {
 
   private async playInternal(path: string, pushHistory: boolean): Promise<void> {
     const track = this.state.tracks.find((t) => t.path === path);
+    // Cargar el track puede tardar (en Android hay que leer el archivo entero
+    // antes de sonar). Con el timer corriendo, el tick seguiría viendo el fin
+    // del track anterior y dispararía un "siguiente" atrás de otro: dos cargas
+    // solapadas sobre el mismo elemento de audio. Lo reanuda el play exitoso.
+    this.stopTick();
     try {
       await library.play(path, this.state.volume);
     } catch (e) {
-      this.set({ status: "error", error: messageOf(e) });
+      this.set({ playing: false, status: "error", error: messageOf(e) });
+      void mediaSession.setPlayback("paused", this.state.positionSec);
       return;
     }
     if (pushHistory && this.state.activePath && this.state.activePath !== path) {
@@ -1292,17 +1299,73 @@ export class MusicStore {
     }
   }
   private onTick(): void {
+    if (isAndroid) {
+      this.onTickNative();
+      return;
+    }
     const elapsed = (performance.now() - this.tickBaseMs) / 1000;
     const pos = this.tickBasePos + elapsed;
     const dur = this.state.durationSec;
     if (dur > 0 && pos >= dur) {
+      // Cortar el timer antes de encadenar: `next()` es async y hasta que el
+      // track nuevo cargue la posición sigue pasada de largo, así que el
+      // próximo tick volvería a entrar acá. Lo reanuda `playInternal`.
+      this.stopTick();
       if (this.state.loop) {
-        void this.seek(0);
+        void this.seekAndResume(0);
         return;
       }
       void this.next();
       return;
     }
     this.set({ positionSec: pos });
+  }
+
+  /**
+   * Tick cuando reproduce el WebView (Android): la posición y el fin de track
+   * salen del `<audio>` mismo, no de un reloj de pared contra la duración de
+   * los tags. Los tags mienten seguido (VBR, archivos recortados) y estimar el
+   * final de menos dispara el "siguiente" con el track anterior todavía
+   * cargando.
+   */
+  private onTickNative(): void {
+    const st = library.nativeStatus();
+    if (!st || st.loading) return;
+    if (st.failed) {
+      // El elemento no pudo cargar/decodificar: no va a sonar nunca. Mejor
+      // decirlo que dejar la barra avanzando sobre un silencio.
+      this.stopTick();
+      this.set({ playing: false, status: "error", error: "No se pudo reproducir el archivo." });
+      this.pushMprisPlayback();
+      return;
+    }
+    if (st.ended) {
+      this.stopTick();
+      if (this.state.loop) {
+        void this.seekAndResume(0);
+        return;
+      }
+      void this.next();
+      return;
+    }
+    const patch: Partial<MusicState> = { positionSec: st.positionSec };
+    // La duración decodificada le gana a la de los tags para la barra de seek.
+    if (st.durationSec > 0 && Math.abs(st.durationSec - this.state.durationSec) > 1) {
+      patch.durationSec = st.durationSec;
+    }
+    this.set(patch);
+  }
+
+  /**
+   * Salta a `sec` y vuelve a arrancar. Es lo que necesita el repeat: al llegar
+   * al final el reproductor quedó pausado (y con el timer cortado), así que un
+   * `seek` solo dejaría el track quieto en el segundo 0.
+   */
+  private async seekAndResume(sec: number): Promise<void> {
+    await this.seek(sec);
+    if (!this.state.playing) return;
+    await library.resume().catch(() => {});
+    this.startTick();
+    this.pushMprisPlayback();
   }
 }

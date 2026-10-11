@@ -19,7 +19,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { isAndroid } from "@quarks/core";
 import * as android from "./androidPlayer";
+import type { NativeStatus } from "./androidPlayer";
 import type { Track } from "../types";
+
+export type { NativeStatus } from "./androidPlayer";
 
 /** Escaneo recursivo de la carpeta de canciones; tracks con ruta relativa. */
 export function scan(): Promise<Track[]> {
@@ -56,6 +59,15 @@ export async function seek(secs: number): Promise<void> {
 export async function setVolume(v: number): Promise<void> {
   if (isAndroid) return android.setVolume(v);
   await invoke("music_set_volume", { v });
+}
+
+/**
+ * Estado real del reproductor cuando lo maneja el WebView (Android): posición,
+ * duración decodificada y fin de track. En desktop devuelve `null` — rodio no
+ * lo expone y el store estima la posición con su propio timer.
+ */
+export function nativeStatus(): NativeStatus | null {
+  return isAndroid ? android.status() : null;
 }
 
 /** Ruta absoluta de la carpeta de canciones (la crea si no existe). */

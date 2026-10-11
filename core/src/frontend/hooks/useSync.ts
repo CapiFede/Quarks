@@ -6,6 +6,7 @@ import {
   type SyncPreview,
   type SyncProgress,
 } from "../../services/account/sync";
+import { endBackgroundTask, startBackgroundTask } from "../../services/background";
 import { report } from "../../services/log";
 
 export type SyncOp = "idle" | "checking" | "pushing" | "pulling" | "error";
@@ -31,7 +32,8 @@ const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 /**
  * Estado del motor de sync para la UI. Hace un `check` automático al montar (el
  * panel solo se monta cuando hay cuenta conectada). Un ref `busy` serializa las
- * operaciones; un `AbortController` permite cancelarlas.
+ * operaciones; un `AbortController` permite cancelarlas. Mientras corre una, es
+ * tarea en background: en Android sigue aunque se apague la pantalla.
  *
  * Tras un pull exitoso recargamos el WebView entero (`window.location.reload`):
  * el pull reescribe el árbol en disco por debajo de los stores ya montados
@@ -54,6 +56,7 @@ export function useSync(): SyncController {
     ) => {
       if (busy.current) return;
       busy.current = true;
+      startBackgroundTask("sync", "Sincronizando con Google Drive");
       setError(null);
       setProgress(null);
       setStatus(op);
@@ -90,6 +93,7 @@ export function useSync(): SyncController {
         controller.current = null;
         setProgress(null);
         busy.current = false;
+        endBackgroundTask("sync");
       }
     },
     [],

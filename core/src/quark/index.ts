@@ -14,6 +14,8 @@ export type { Quark, AiContext, AiAttachment } from "./types";
 // ── Plataforma ────────────────────────────────────────────────────────────────
 // Para que los quarks gateen UI/IO mobile-only vs desktop-only.
 export { isAndroid, isDesktop, isLinux } from "../services/platform";
+// Tareas que tienen que seguir con la pantalla apagada (Android; no-op en desktop).
+export { startBackgroundTask, endBackgroundTask } from "../services/background";
 
 // ── Navegación: un quark pide al Shell enfocar su tab o activar un space ──────
 // `requestOpenQuark` lo usa Utilidades para traer su pantalla al frente cuando
