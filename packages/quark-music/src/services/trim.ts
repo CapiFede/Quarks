@@ -65,9 +65,16 @@ export interface WavePeaks {
 const BASE_RATE = 2000;
 
 /**
+ * Tope para decodificar. En WebKitGTK sin los plugins de GStreamer (pasaba con
+ * el AppImage armado en Debian corriendo en Fedora) `decodeAudioData` no falla:
+ * queda colgado para siempre, y con él el diálogo en "cargando".
+ */
+const DECODE_TIMEOUT_MS = 20_000;
+
+/**
  * Decodifica el audio y arma la pirámide de picos para dibujar la onda.
- * Devuelve `null` si el WebView no puede decodificar ese formato (el diálogo
- * cae a mostrar la línea de tiempo sin onda).
+ * Devuelve `null` si el WebView no puede decodificar ese formato o no responde
+ * (el diálogo cae a mostrar la línea de tiempo sin onda).
  */
 export async function computePeaks(bytes: Uint8Array): Promise<WavePeaks | null> {
   const AC: typeof AudioContext | undefined =
@@ -76,7 +83,11 @@ export async function computePeaks(bytes: Uint8Array): Promise<WavePeaks | null>
   const ctx = new AC();
   try {
     // `decodeAudioData` detacha el ArrayBuffer: le pasamos una copia propia.
-    const audio = await ctx.decodeAudioData(new Uint8Array(bytes).buffer);
+    const audio = await Promise.race([
+      ctx.decodeAudioData(new Uint8Array(bytes).buffer),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), DECODE_TIMEOUT_MS)),
+    ]);
+    if (!audio) return null;
     const ch = audio.getChannelData(0);
     const count = Math.max(1, Math.ceil(audio.duration * BASE_RATE));
     const perBucket = ch.length / count;

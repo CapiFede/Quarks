@@ -44,10 +44,10 @@
  *   - `sudo pacman -S github-cli && gh auth login` (Arch/CachyOS).
  */
 import { execSync, spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync, mkdtempSync, symlinkSync } from "node:fs";
 import { resolve, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 
 const ROOT = resolve(fileURLToPath(import.meta.url), "../..");
 const TAURI_CONF = resolve(ROOT, "src-tauri/tauri.conf.json");
@@ -204,7 +204,10 @@ log("pnpm tauri build (firmando)…");
 // Arch/CachyOS y aborta con "unknown type [0x13]". NO_STRIP salta el stripeo —
 // el AppImage queda un poco más grande pero el bundle no falla. Var de
 // linuxdeploy; en Windows/macOS se ignora.
-if (process.platform === "linux") process.env.NO_STRIP = "true";
+if (process.platform === "linux") {
+  process.env.NO_STRIP = "true";
+  prepareGstreamer();
+}
 if (!dryRun) {
   run("pnpm", ["tauri", "build"], { stdio: "inherit" });
 }
@@ -414,6 +417,53 @@ function loadEnvFile(path, required) {
     }
     if (!(key in process.env)) process.env[key] = val;
   }
+}
+
+/**
+ * El AppImage lleva sus propios plugins de GStreamer (`bundleMediaFramework` en
+ * tauri.conf.json): sin ellos el WebView usa los del sistema, buscándolos en el
+ * path de la distro donde se armó, y en otra distro no encuentra ninguno — el
+ * editor de Música quedaba "cargando" para siempre (armado en Debian, corrido en
+ * Fedora). El plugin de linuxdeploy copia TODO lo que haya en la carpeta que le
+ * pasamos, y la del sistema arrastra Qt, ffmpeg y demás (+100 MB): le armamos
+ * una carpeta con symlinks solo a los plugins de audio que usa la app.
+ */
+const GST_PLUGINS = [
+  // núcleo: decodebin/playbin, typefind, fuentes y sinks de la app/WebKit
+  "coreelements", "typefindfunctions", "playback", "app", "gio",
+  // conversión y salida de audio
+  "audioconvert", "audioresample", "volume", "interleave", "audiofx",
+  "autodetect", "pipewire", "pulseaudio", "alsa",
+  // formatos que escanea Música: mp3, wav, flac, ogg, m4a
+  "audioparsers", "id3demux", "mpg123", "wavparse", "flac", "ogg", "vorbis",
+  "opus", "isomp4", "fdkaac", "faad",
+];
+const GST_HELPERS = ["gst-plugin-scanner", "gst-ptp-helper"];
+
+function prepareGstreamer() {
+  const pluginsDir = [
+    "/usr/lib64/gstreamer-1.0", // Fedora
+    "/usr/lib/x86_64-linux-gnu/gstreamer-1.0", // Debian/Ubuntu
+    "/usr/lib/gstreamer-1.0", // Arch
+  ].find((d) => existsSync(resolve(d, "libgstcoreelements.so")));
+  if (!pluginsDir) die("No encontré los plugins de GStreamer del sistema (el AppImage los empaqueta).");
+  const helpersDir = [
+    "/usr/libexec/gstreamer-1.0",
+    "/usr/lib/x86_64-linux-gnu/gstreamer1.0/gstreamer-1.0",
+    pluginsDir,
+  ].find((d) => existsSync(resolve(d, "gst-plugin-scanner")));
+
+  const link = (names, from, prefix = "") => {
+    const dir = mkdtempSync(resolve(tmpdir(), "quarks-gst-"));
+    for (const name of names) {
+      const file = resolve(from, prefix + name);
+      if (existsSync(file)) symlinkSync(file, resolve(dir, basename(file)));
+      else warn(`GStreamer: falta ${file}; el AppImage sale sin él.`);
+    }
+    return dir;
+  };
+  process.env.GSTREAMER_PLUGINS_DIR = link(GST_PLUGINS.map((n) => `${n}.so`), pluginsDir, "libgst");
+  if (helpersDir) process.env.GSTREAMER_HELPERS_DIR = link(GST_HELPERS, helpersDir);
 }
 
 function log(msg) {

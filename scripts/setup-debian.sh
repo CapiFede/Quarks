@@ -46,6 +46,9 @@ APT_PKGS=(
   librsvg2-dev
   libasound2-dev               # ALSA — lo necesita rodio/cpal para compilar
   libglib2.0-dev
+  # Plugins de GStreamer que el AppImage empaqueta (bundleMediaFramework): sin
+  # ellos el WebView no decodifica audio (onda y preview del editor de Música).
+  gstreamer1.0-plugins-base gstreamer1.0-plugins-good
 )
 sudo apt-get update
 sudo apt-get install -y "${APT_PKGS[@]}"
