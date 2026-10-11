@@ -185,8 +185,14 @@ pub fn music_trim_export(
     cmd.arg("-y")
         .args(["-i", &src_path])
         .args(["-filter_complex", &filter])
-        .args(["-map", "[outa]"])
-        .arg(&tmp);
+        .args(["-map", "[outa]"]);
+    // La portada es un stream de video aparte (attached pic): mapeando solo el
+    // audio, el recorte salía sin ella. Se copia tal cual en los formatos que
+    // la guardan así; ogg/wav no admiten un stream de video y ffmpeg fallaría.
+    if matches!(ext.as_str(), "mp3" | "m4a" | "mp4" | "flac") {
+        cmd.args(["-map", "0:v?", "-c:v", "copy"]);
+    }
+    cmd.arg(&tmp);
     cmd.stdout(Stdio::null()).stderr(Stdio::piped());
     hide_console(&mut cmd);
 
