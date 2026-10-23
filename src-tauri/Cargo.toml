@@ -1,6 +1,6 @@
 [package]
 name = "quarks"
-version = "0.4.9"
+version = "0.4.10"
 description = "Suite de micro-apps minimalistas"
 authors = ["Federico"]
 edition = "2021"

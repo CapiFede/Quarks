@@ -1,6 +1,6 @@
 {
   "name": "quarks",
-  "version": "0.4.9",
+  "version": "0.4.10",
   "private": true,
   "description": "Suite de micro-apps minimalistas (quarks). Cada quark hace una sola cosa bien.",
   "scripts": {
