@@ -19,6 +19,11 @@ export interface Playlist {
   name: string;
   /** Categoría en la que vive, o `null` si está suelta. */
   categoryId: string | null;
+  /**
+   * Fila de la grilla de chips del trackpanel, dentro de su categoría. Ausente
+   * = al final (las nuevas y las recién cambiadas de categoría). Ver `playlistRows`.
+   */
+  row?: number;
   /** Rutas de tracks (referencias por `Track.path`), en orden. */
   trackPaths: string[];
 }

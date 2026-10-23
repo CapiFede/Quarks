@@ -1,8 +1,8 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, Button, TextInput } from "@quarks/core";
 import type { Track } from "../types";
-import type { PlaylistGroup } from "../store";
-import { fmtTime, RATING_MAX, ratingColor } from "../util";
+import { playlistRows, type PlaylistGroup } from "../store";
+import { CHIPS_PER_ROW, fmtTime, RATING_MAX, ratingColor } from "../util";
 import * as library from "../services/library";
 import { CoverCropDialog } from "./CoverCropDialog";
 import { Chip } from "./Chip";
@@ -21,12 +21,15 @@ export interface TrackPanelProps {
   /** Abre el diálogo de recorte (trim) con esta canción. */
   onEdit: (track: Track) => void;
   onToggleInPlaylist: (playlistId: string, isIn: boolean) => void;
+  /** Mueve una playlist en la grilla de chips (ver `MusicStore.movePlaylist`). */
+  onMovePlaylist: (playlistId: string, row: number, index: number | null) => void;
   onRename: (path: string, newName: string) => Promise<void> | void;
   onDelete: (path: string) => Promise<void> | void;
 }
 
 /** Panel lateral derecho (260px): cover editable, título editable, metadata
- * (con el puntaje editable), pertenencia a playlists (agrupada por categoría) y acciones (borrar). */
+ * (con el puntaje editable), pertenencia a playlists (grilla por categoría,
+ * acomodable arrastrando) y acciones (borrar). */
 export const TrackPanel = memo(function TrackPanel({
   track,
   plays,
@@ -36,6 +39,7 @@ export const TrackPanel = memo(function TrackPanel({
   onPlay,
   onEdit,
   onToggleInPlaylist,
+  onMovePlaylist,
   onRename,
   onDelete,
 }: TrackPanelProps) {
@@ -71,9 +75,11 @@ export const TrackPanel = memo(function TrackPanel({
           display: "flex",
           flexDirection: "column",
           // Hasta el borde del panel: la barra de scroll va pegada al borde,
-          // no flotando entre el contenido y el padding.
-          margin: "0 -18px 0 0",
-          padding: "0 18px 18px 0",
+          // no flotando entre el contenido y el padding. Los 4px de la
+          // izquierda son para que no se recorte la marca de destino al
+          // arrastrar el primer chip de una fila.
+          margin: "0 -18px 0 -4px",
+          padding: "0 18px 18px 4px",
         }}
       >
         {track ? (
@@ -127,41 +133,12 @@ export const TrackPanel = memo(function TrackPanel({
               {groups.length === 0 ? (
                 <div style={{ fontSize: 11, color: "var(--q-text-light)" }}>No hay playlists.</div>
               ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {groups.map((g) => (
-                    <div key={g.category?.id ?? "loose"}>
-                      {g.category && (
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 5,
-                            fontSize: 10,
-                            fontWeight: 500,
-                            color: "var(--q-text-light)",
-                            marginBottom: 5,
-                          }}
-                        >
-                          <Icon name="folder" size={12} />
-                          {g.category.name}
-                        </div>
-                      )}
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                        {g.playlists.map((p) => {
-                          const isIn = p.trackPaths.includes(track.path);
-                          return (
-                            <Chip
-                              key={p.id}
-                              label={p.name}
-                              active={isIn}
-                              onClick={() => onToggleInPlaylist(p.id, isIn)}
-                            />
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <PlaylistChips
+                  groups={groups}
+                  trackPath={track.path}
+                  onToggle={onToggleInPlaylist}
+                  onMove={onMovePlaylist}
+                />
               )}
             </div>
 
@@ -176,6 +153,295 @@ export const TrackPanel = memo(function TrackPanel({
     </div>
   );
 });
+
+// ── Grilla de chips de playlists ──────────────────────────────────────────────
+
+/** Chip que se está arrastrando y su grupo. */
+interface ChipDrag {
+  id: string;
+  group: string;
+}
+
+/**
+ * Dónde caería el chip arrastrado: en la fila `row` antes del chip `index` (el
+ * largo de la fila = al final) o, con `index` en `null`, en una fila nueva en
+ * la posición `row`. Mismos argumentos que `MusicStore.movePlaylist`.
+ */
+interface ChipTarget {
+  row: number;
+  index: number | null;
+}
+
+/** Franja (px) de arriba y de abajo de cada fila que apunta a una fila nueva. */
+const ROW_EDGE = 5;
+
+/**
+ * Chips de pertenencia en una grilla por categoría: filas de hasta
+ * `CHIPS_PER_ROW` chips que, si no entran, se achican. Click agrega/quita el
+ * track; arrastrar un chip lo mueve dentro de su grupo, a una fila con lugar o
+ * a una fila nueva (drag & drop nativo, como los capítulos de Libros).
+ */
+function PlaylistChips({
+  groups,
+  trackPath,
+  onToggle,
+  onMove,
+}: {
+  groups: PlaylistGroup[];
+  trackPath: string;
+  onToggle: (playlistId: string, isIn: boolean) => void;
+  onMove: (playlistId: string, row: number, index: number | null) => void;
+}) {
+  // Los handlers de drag corren antes de que React re-renderee: leen el ref;
+  // el state alimenta el visual (lugares libres y marca de destino).
+  const dragRef = useRef<ChipDrag | null>(null);
+  const [drag, setDrag] = useState<ChipDrag | null>(null);
+  const [mark, setMark] = useState<ChipTarget | null>(null);
+
+  const endDrag = () => {
+    dragRef.current = null;
+    setDrag(null);
+    setMark(null);
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {groups.map((g) => {
+        const group = g.category?.id ?? "loose";
+        const rows = playlistRows(g.playlists);
+        const dragging = drag?.group === group;
+        const newRowMark = dragging && mark?.index === null ? mark.row : null;
+
+        /** Destino bajo el cursor, o `null` si ahí no se puede soltar (otro grupo o fila llena). */
+        const targetAt = (el: HTMLElement, x: number, y: number): ChipTarget | null => {
+          const d = dragRef.current;
+          if (d?.group !== group) return null;
+          const rowEls = el.querySelectorAll<HTMLElement>("[data-chip-row]");
+          for (let r = 0; r < rows.length; r++) {
+            const rect = rowEls[r].getBoundingClientRect();
+            if (y < rect.top + ROW_EDGE) return { row: r, index: null };
+            if (y > rect.bottom - ROW_EDGE) continue;
+            if (rows[r].length >= CHIPS_PER_ROW && !rows[r].some((p) => p.id === d.id)) return null;
+            const index = [...rowEls[r].querySelectorAll<HTMLElement>("[data-chip]")].filter((c) => {
+              const b = c.getBoundingClientRect();
+              return b.left + b.width / 2 < x;
+            }).length;
+            return { row: r, index };
+          }
+          return { row: rows.length, index: null };
+        };
+
+        return (
+          <div key={group}>
+            {g.category && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  fontSize: 10,
+                  fontWeight: 500,
+                  color: "var(--q-text-light)",
+                  marginBottom: 5,
+                }}
+              >
+                <Icon name="folder" size={12} />
+                {g.category.name}
+              </div>
+            )}
+            <div
+              onDragOver={(e) => {
+                const t = targetAt(e.currentTarget, e.clientX, e.clientY);
+                if (!t) {
+                  setMark(null);
+                  return;
+                }
+                e.preventDefault();
+                setMark((m) => (m && m.row === t.row && m.index === t.index ? m : t));
+              }}
+              onDrop={(e) => {
+                const d = dragRef.current;
+                const t = targetAt(e.currentTarget, e.clientX, e.clientY);
+                if (d && t) {
+                  e.preventDefault();
+                  onMove(d.id, t.row, t.index);
+                }
+                endDrag();
+              }}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                // Se estira sobre los márgenes vecinos (sin mover nada) para que
+                // arriba de la primera fila y abajo de la última también se pueda
+                // soltar en una fila nueva.
+                padding: "5px 0",
+                margin: "-5px 0",
+              }}
+            >
+              {rows.map((row, r) => {
+                const free = CHIPS_PER_ROW - row.length;
+                const slot = dragging && mark?.row === r ? mark.index : null;
+                return (
+                  // La key cambia con lo que hay en la fila: así vuelve a medir
+                  // si entra a tamaño normal.
+                  <ChipRow
+                    key={row.map((p) => p.id + p.name).join("\n")}
+                    newRowMark={newRowMark === r}
+                  >
+                    {(compact) => (
+                      <>
+                        {row.map((p, i) => {
+                          const isIn = p.trackPaths.includes(trackPath);
+                          return (
+                            <span
+                              key={p.id}
+                              data-chip=""
+                              draggable
+                              title={p.name}
+                              onDragStart={(e) => {
+                                const d = { id: p.id, group };
+                                dragRef.current = d;
+                                e.dataTransfer.effectAllowed = "move";
+                                e.dataTransfer.setData("text/plain", p.id);
+                                // Los lugares libres cambian el layout: recién después
+                                // de arrancar el drag, para no cortarlo.
+                                setTimeout(() => {
+                                  if (dragRef.current === d) setDrag(d);
+                                });
+                              }}
+                              onDragEnd={endDrag}
+                              style={{
+                                position: "relative",
+                                display: "flex",
+                                // Si la fila no entra, se achica primero el chip más
+                                // largo: todos crecen parejo desde 0 hasta su ancho
+                                // natural, y los cortos quedan enteros.
+                                flex: "1 1 0",
+                                minWidth: 0,
+                                maxWidth: "max-content",
+                                opacity: drag?.id === p.id ? 0.4 : 1,
+                              }}
+                            >
+                              <Chip
+                                label={p.name}
+                                active={isIn}
+                                compact={compact}
+                                onClick={() => onToggle(p.id, isIn)}
+                              />
+                              {slot === i && <DropBar side="left" />}
+                              {slot === row.length && free === 0 && i === row.length - 1 && (
+                                <DropBar side="right" />
+                              )}
+                            </span>
+                          );
+                        })}
+                        {dragging &&
+                          Array.from({ length: free }, (_, i) => (
+                            <FreeSlot key={i} active={i === 0 && slot === row.length} />
+                          ))}
+                      </>
+                    )}
+                  </ChipRow>
+                );
+              })}
+              {dragging && <FreeSlot active={newRowMark === rows.length} label="Nueva fila" />}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Fila de la grilla. Si a tamaño normal algún nombre queda cortado, pasa sus
+ * chips a `compact` antes de pintar; si ni así entran, se cortan con "…".
+ * `newRowMark` dibuja la línea de "fila nueva acá" en el hueco de arriba.
+ */
+function ChipRow({
+  newRowMark,
+  children,
+}: {
+  newRowMark: boolean;
+  children: (compact: boolean) => ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [compact, setCompact] = useState(false);
+
+  useLayoutEffect(() => {
+    const labels = ref.current?.querySelectorAll<HTMLElement>("[data-chip-label]") ?? [];
+    if ([...labels].some((l) => l.scrollWidth > l.clientWidth)) setCompact(true);
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      data-chip-row=""
+      style={{ position: "relative", display: "flex", gap: 6, minWidth: 0 }}
+    >
+      {children(compact)}
+      {newRowMark && (
+        <span
+          style={{
+            position: "absolute",
+            top: -4,
+            left: 0,
+            right: 0,
+            height: 2,
+            borderRadius: 1,
+            background: "var(--q-primary-light)",
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Marca de destino entre chips: barrita centrada en el hueco de 6px. */
+function DropBar({ side }: { side: "left" | "right" }) {
+  return (
+    <span
+      style={{
+        position: "absolute",
+        top: 2,
+        bottom: 2,
+        [side]: -4,
+        width: 2,
+        borderRadius: 1,
+        background: "var(--q-primary-light)",
+      }}
+    />
+  );
+}
+
+/** Lugar libre de la grilla mientras se arrastra: uno por chip que falta en la fila, o la fila nueva del final. */
+function FreeSlot({ active, label }: { active: boolean; label?: string }) {
+  return (
+    <span
+      style={{
+        flex: label ? undefined : "0 0 24px",
+        height: 24,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 4,
+        border: `1px dashed ${active ? "var(--q-primary-light)" : "var(--q-border-light)"}`,
+        borderRadius: 6,
+        background: active ? "var(--q-primary-soft)" : "transparent",
+        color: active ? "var(--q-primary-light)" : "var(--q-text-light)",
+        fontSize: 10.5,
+      }}
+    >
+      {label && (
+        <>
+          <Icon name="add" size={13} />
+          {label}
+        </>
+      )}
+    </span>
+  );
+}
 
 // ── Cover ─────────────────────────────────────────────────────────────────────
 

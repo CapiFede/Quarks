@@ -5,7 +5,7 @@
  * instancia del quark y sobrevive a los cambios de tab; toolbar y página se
  * suscriben y quedan en sync sin un provider común.
  *
- * Persistencia: el ÍNDICE de playlists (id+nombre+categoría) y las categorías
+ * Persistencia: el ÍNDICE de playlists (id+nombre+categoría+fila) y las categorías
  * viven en `packages/music/index.json`; el CONTENIDO de cada playlist (sus
  * trackPaths) en `packages/music/playlists/<id>.json`; las reproducciones de
  * cada canción en `packages/music/plays.json`, su puntaje en
@@ -30,7 +30,7 @@ import * as downloader from "./services/download";
 import type { ProbeResult } from "./services/download";
 import * as trim from "./services/trim";
 import type { WavePeaks } from "./services/trim";
-import { RATING_MAX } from "./util";
+import { CHIPS_PER_ROW, RATING_MAX } from "./util";
 
 export type MusicStatus = "idle" | "loading" | "scanning" | "ready" | "error";
 
@@ -264,6 +264,8 @@ interface PlaylistRef {
   name: string;
   /** Ausente (o null) = playlist suelta. */
   categoryId?: string | null;
+  /** Fila en la grilla de chips (ver `Playlist.row`). */
+  row?: number;
 }
 
 interface IndexFile {
@@ -409,6 +411,7 @@ function parseIndex(raw: unknown): IndexFile {
       id: p.id,
       name: p.name,
       categoryId: typeof p.categoryId === "string" && catIds.has(p.categoryId) ? p.categoryId : null,
+      ...(Number.isInteger(p.row) ? { row: p.row } : {}),
     }));
   return { playlists, categories };
 }
@@ -500,27 +503,42 @@ export function groupPlaylists(playlists: Playlist[], categories: Category[]): P
   return groups.filter((g) => g.playlists.length > 0);
 }
 
-/** Entrada del índice para una playlist (sin `categoryId` si está suelta). */
-function toRef({ id, name, categoryId }: Playlist): PlaylistRef {
-  return categoryId ? { id, name, categoryId } : { id, name };
+/**
+ * Filas de la grilla de chips del trackpanel para las playlists de un grupo:
+ * por `row` y, dentro de cada fila, en el orden del índice. Las sin fila van al
+ * final; ninguna fila pasa de `CHIPS_PER_ROW` (lo que sobra sigue abajo).
+ */
+export function playlistRows(playlists: Playlist[]): Playlist[][] {
+  const byRow = new Map<number, Playlist[]>();
+  for (const p of playlists) {
+    const r = p.row ?? Infinity;
+    byRow.set(r, [...(byRow.get(r) ?? []), p]);
+  }
+  const rows: Playlist[][] = [];
+  for (const r of [...byRow.keys()].sort((a, b) => a - b)) {
+    const ps = byRow.get(r)!;
+    for (let i = 0; i < ps.length; i += CHIPS_PER_ROW) rows.push(ps.slice(i, i + CHIPS_PER_ROW));
+  }
+  return rows;
+}
+
+/** Entrada del índice para una playlist (sin `categoryId` si está suelta ni `row` si no tiene fila). */
+function toRef({ id, name, categoryId, row }: Playlist): PlaylistRef {
+  return { id, name, ...(categoryId ? { categoryId } : {}), ...(row !== undefined ? { row } : {}) };
 }
 
 function newCategory(name: string): Category {
   return { id: newId(), name: name.trim() || "Nueva categoría" };
 }
 
-/** Mueve la playlist `playlistId` a `categoryId` (sirve para refs y playlists). */
-function moveTo<T extends { id: string; categoryId?: string | null }>(
-  items: T[],
-  playlistId: string,
-  categoryId: string | null,
-): T[] {
-  return items.map((p) => (p.id === playlistId ? { ...p, categoryId } : p));
+/** Mueve la playlist `playlistId` a `categoryId`, al final de su grilla. */
+function moveTo(items: Playlist[], playlistId: string, categoryId: string | null): Playlist[] {
+  return items.map((p) => (p.id === playlistId ? { ...p, categoryId, row: undefined } : p));
 }
 
-/** Deja sueltas las playlists de la categoría `id` (al borrarla). */
-function release<T extends { categoryId?: string | null }>(items: T[], id: string): T[] {
-  return items.map((p) => (p.categoryId === id ? { ...p, categoryId: null } : p));
+/** Deja sueltas las playlists de la categoría `id` (al borrarla), al final de la grilla. */
+function release(items: Playlist[], id: string): Playlist[] {
+  return items.map((p) => (p.categoryId === id ? { ...p, categoryId: null, row: undefined } : p));
 }
 
 function renamed<T extends { id: string; name: string }>(items: T[], id: string, name: string): T[] {
@@ -610,7 +628,7 @@ export class MusicStore extends ExternalStore<MusicState> {
         if (trackPaths.length !== raw.length) {
           void writeJson<PlaylistFile>(playlistKey(ref.id), { trackPaths }).catch(() => {});
         }
-        return { id: ref.id, name: ref.name, categoryId: ref.categoryId ?? null, trackPaths };
+        return { id: ref.id, name: ref.name, categoryId: ref.categoryId ?? null, row: ref.row, trackPaths };
       }),
     );
     this.loaded = true;
@@ -792,6 +810,52 @@ export class MusicStore extends ExternalStore<MusicState> {
     this.set({ playlists: moveTo(this.state.playlists, playlistId, categoryId) });
     // Si es la playlist abierta, la toolbar la sigue a su nueva categoría.
     if (this.state.view === playlistId) this.show(categoryId, playlistId);
+    await this.persistIndex();
+  }
+
+  /**
+   * Mueve la playlist `playlistId` en la grilla de chips del trackpanel (las
+   * filas de `playlistRows` de su categoría): a la fila `row` antes del chip
+   * `index` (el largo de la fila = al final) o, con `index` en `null`, sola a
+   * una fila nueva que queda en la posición `row`. A una fila llena no entra.
+   * El índice queda en el orden de la grilla, que vale para toda la UI y para
+   * la cola de la categoría.
+   */
+  async movePlaylist(playlistId: string, row: number, index: number | null): Promise<void> {
+    const { playlists } = this.state;
+    const moved = playlists.find((p) => p.id === playlistId);
+    if (!moved) return;
+    const group = playlists.filter((p) => p.categoryId === moved.categoryId);
+    const rows = playlistRows(group).map((r) => r.map((p) => p.id));
+    let from = rows.findIndex((r) => r.includes(playlistId));
+    const pos = rows[from].indexOf(playlistId);
+    let at = index ?? 0;
+    if (index === null) {
+      rows.splice(row, 0, []);
+      if (from >= row) from++;
+    }
+    const target = rows[row];
+    if (!target) return;
+    if (row !== from && target.length >= CHIPS_PER_ROW) return;
+    if (row === from && pos < at) at--;
+    rows[from].splice(pos, 1);
+    target.splice(at, 0, playlistId);
+
+    // Las playlists del grupo vuelven a sus mismos lugares del índice, en el
+    // orden de la grilla y con su fila.
+    const layout = rows.filter((r) => r.length > 0);
+    const rowOf = new Map(layout.flatMap((r, k) => r.map((id) => [id, k] as const)));
+    const byId = new Map(group.map((p) => [p.id, p]));
+    const order = layout.flat();
+    let k = 0;
+    const next = playlists.map((p) => {
+      if (p.categoryId !== moved.categoryId) return p;
+      const q = byId.get(order[k++])!;
+      const r = rowOf.get(q.id)!;
+      return q.row === r ? q : { ...q, row: r };
+    });
+    if (next.every((p, i) => p === playlists[i])) return;
+    this.set({ playlists: next });
     await this.persistIndex();
   }
 

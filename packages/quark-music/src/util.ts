@@ -25,6 +25,9 @@ export function fmtScaled(sec: number, stepSec: number): string {
   return stepSec < 1 ? fmtFine(sec) : fmtTime(sec);
 }
 
+/** Chips por fila en la grilla de playlists del trackpanel. */
+export const CHIPS_PER_ROW = 3;
+
 /** Puntaje máximo de una canción (el mínimo es 1). */
 export const RATING_MAX = 10;
 

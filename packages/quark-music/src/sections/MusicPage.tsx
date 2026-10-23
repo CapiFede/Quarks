@@ -66,6 +66,10 @@ export function MusicPage({ store }: MusicPageProps) {
     },
     [store, selectedTrack],
   );
+  const onMovePlaylist = useCallback(
+    (id: string, row: number, index: number | null) => void store.movePlaylist(id, row, index),
+    [store],
+  );
   const onRename = useCallback(
     async (path: string, name: string) => {
       await store.renameTrack(path, name);
@@ -185,6 +189,7 @@ export function MusicPage({ store }: MusicPageProps) {
             onPlay={onPlay}
             onEdit={onEdit}
             onToggleInPlaylist={onToggleInPlaylist}
+            onMovePlaylist={onMovePlaylist}
             onRename={onRename}
             onDelete={onDelete}
           />
