@@ -375,10 +375,18 @@ function resolveArtifacts(platform) {
   die(`Plataforma no soportada para release: ${platform}`);
 }
 
-/** Primer archivo de `dir` cuyo nombre termina en `ext` (case-insensitive), o null. */
+/**
+ * Archivo de `dir` cuyo nombre termina en `ext` (case-insensitive), o null. Los
+ * bundles de versiones anteriores quedan en la misma carpeta (y `readdirSync`
+ * los lista primero por orden alfabético): solo vale el que lleva `_<version>_`
+ * en el nombre, nunca el de otra versión. Si los nombres no llevan versión (el
+ * `.app.tar.gz` de macOS), el primero que matchee.
+ */
 function findByExt(dir, ext) {
   if (!existsSync(dir)) return null;
-  const hit = readdirSync(dir).find((f) => f.toLowerCase().endsWith(ext.toLowerCase()));
+  const hits = readdirSync(dir).filter((f) => f.toLowerCase().endsWith(ext.toLowerCase()));
+  const versioned = hits.filter((f) => /_\d+\.\d+\.\d+/.test(f));
+  const hit = versioned.length > 0 ? versioned.find((f) => f.includes(`_${version}_`)) : hits[0];
   return hit ? resolve(dir, hit) : null;
 }
 
