@@ -25,9 +25,9 @@
   font-weight: var(--q-fw-semibold);
   line-height: var(--q-lh-snug);
 }
-.q-md h1 { font-size: var(--q-fs-16, 16px); }
+.q-md h1 { font-size: 16px; }
 .q-md h2 { font-size: var(--q-fs-15, 15px); }
-.q-md h3 { font-size: var(--q-fs-14, 14px); }
+.q-md h3 { font-size: 14px; }
 .q-md h4 { font-size: var(--q-fs-13); }
 
 .q-md ul,

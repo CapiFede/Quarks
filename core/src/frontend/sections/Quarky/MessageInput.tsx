@@ -66,7 +66,7 @@ async function readClipboardImageDataUrl(): Promise<string | null> {
 }
 
 export function MessageInput() {
-  const { sendMessage, status } = useQuarky();
+  const { sendMessage, stop, status } = useQuarky();
   const [value, setValue] = useState("");
   const [images, setImages] = useState<string[]>([]);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
@@ -222,7 +222,11 @@ export function MessageInput() {
             display: "block",
           }}
         />
-        <SendButton onClick={submit} disabled={!canSend} />
+        {sending ? (
+          <StopButton onClick={stop} />
+        ) : (
+          <SendButton onClick={submit} disabled={!canSend} />
+        )}
       </div>
     </div>
   );
@@ -293,27 +297,44 @@ function AttachButton({ onClick, disabled }: { onClick: () => void; disabled: bo
   );
 }
 
+const actionButtonStyle = {
+  width: 32,
+  height: 32,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: 8,
+  cursor: "default",
+  flex: "0 0 auto",
+  transition: "background var(--q-dur-fast) var(--q-ease)",
+} as const;
+
 function SendButton({ onClick, disabled }: { onClick: () => void; disabled: boolean }) {
   return (
     <span
       onClick={disabled ? undefined : onClick}
       title="Enviar (Enter)"
       style={{
-        width: 32,
-        height: 32,
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        borderRadius: 8,
+        ...actionButtonStyle,
         background: disabled ? "var(--q-card-hover)" : "var(--q-primary)",
         color: disabled ? "var(--q-text-light)" : "#fff",
-        cursor: disabled ? "default" : "default",
         opacity: disabled ? 0.6 : 1,
-        flex: "0 0 auto",
-        transition: "background var(--q-dur-fast) var(--q-ease)",
       }}
     >
       <Icon name="arrow_upward" size={18} />
+    </span>
+  );
+}
+
+/** Reemplaza al botón de enviar mientras el modelo responde. */
+function StopButton({ onClick }: { onClick: () => void }) {
+  return (
+    <span
+      onClick={onClick}
+      title="Frenar la respuesta"
+      style={{ ...actionButtonStyle, background: "var(--q-surface-alt)", color: "var(--q-text-primary)" }}
+    >
+      <Icon name="stop" size={18} fill={1} />
     </span>
   );
 }

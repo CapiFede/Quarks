@@ -6,11 +6,10 @@ import {
   type DragEvent,
   type MouseEvent,
 } from "react";
-import { Icon, TextInput } from "@quarks/core";
+import { Icon, TextInput, ConfirmDialog } from "@quarks/core";
 import type { BooksStore } from "../store";
 import { chaptersInGroup } from "../store";
 import type { Book, Chapter } from "../types";
-import { ConfirmDialog } from "./ConfirmDialog";
 
 export interface BookSidebarProps {
   store: BooksStore;

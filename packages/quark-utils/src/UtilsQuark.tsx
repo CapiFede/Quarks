@@ -1,4 +1,4 @@
-import { Icon, type AiContext, type Quark } from "@quarks/core";
+import type { AiContext, Quark } from "@quarks/core";
 import { UtilsStore } from "./store";
 import { UtilsPage } from "./sections/UtilsPage";
 
@@ -12,8 +12,6 @@ export function createUtilsQuark(): Quark {
 
   return {
     id: "utils",
-    name: "Utilidades",
-    icon: <Icon name="widgets" size={16} />,
 
     buildPage: () => <UtilsPage store={store} />,
 

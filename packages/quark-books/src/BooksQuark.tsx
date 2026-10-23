@@ -1,5 +1,5 @@
-import { Icon, type AiContext, type Quark } from "@quarks/core";
-import { BooksStore } from "./store";
+import type { AiContext, Quark } from "@quarks/core";
+import { BooksStore, migrateBooksFromSpaces } from "./store";
 import { BooksPage } from "./sections/BooksPage";
 import { BooksToolbar } from "./sections/BooksToolbar";
 import "./styles/books.css";
@@ -15,8 +15,6 @@ export function createBooksQuark(): Quark {
 
   return {
     id: "books",
-    name: "Libros",
-    icon: <Icon name="menu_book" size={16} />,
 
     buildPage: () => <BooksPage store={store} />,
     buildToolbar: () => <BooksToolbar store={store} />,
@@ -33,6 +31,7 @@ export function createBooksQuark(): Quark {
 
     initialize: () => store.init(),
     dispose: () => store.dispose(),
+    migrateSpaces: migrateBooksFromSpaces,
   };
 }
 
@@ -52,7 +51,7 @@ function buildBooksAiContext(store: BooksStore): AiContext | null {
     return {
       instructions:
         "Estás en el quark Libros. El usuario todavía no abrió ningún libro. " +
-        `Libros disponibles en este space: ${s.books
+        `Libros disponibles: ${s.books
           .map((b) => `"${b.title}"`)
           .join(", ")}.`,
     };

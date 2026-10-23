@@ -1,35 +1,40 @@
-import { useEffect, useState } from "react";
-import { Icon, IconButton, TextInput, useActiveSpace } from "@quarks/core";
-import type { MusicStore, SpacePlaylists } from "../store";
-import { useMusicState } from "../hooks/useMusicStore";
+import { Fragment, useEffect, useState } from "react";
+import { Icon, IconButton, TextInput, useStoreState } from "@quarks/core";
+import type { MusicStore } from "../store";
+import type { Category, Playlist } from "../types";
+import { Chip } from "./Chip";
 
 export interface ManagePlaylistsProps {
   store: MusicStore;
 }
 
 type Editing =
-  | { kind: "rename"; spaceId: string; id: string }
-  | { kind: "new"; spaceId: string }
+  | { kind: "rename"; id: string }
+  | { kind: "new" }
+  | { kind: "renameCategory"; id: string }
+  | { kind: "newCategory" }
   | null;
 
 /**
- * Diálogo "Manejar playlists": lista las playlists de TODOS los spaces,
- * agrupadas por space. Desde acá se puede abrir una playlist (aunque sea de
- * otro space: el Shell salta de space), renombrarla, crear una nueva en
- * cualquier space, y borrar — la única vía de borrado (confirmación en dos
- * pasos por fila). Vive dentro del pane del quark (como DownloadDialog) porque
- * el Shell aún no monta `buildOverlay`.
+ * Diálogo "Manejar playlists": lista las playlists agrupadas por categoría
+ * (las sueltas primero). Desde acá se puede abrir una playlist o una
+ * categoría, renombrar, crear playlists y categorías, mover una playlist a
+ * otra categoría, y borrar — la única vía de borrado (confirmación en dos
+ * pasos por fila). Vive dentro del pane del quark (como DownloadDialog).
  */
 export function ManagePlaylists({ store }: ManagePlaylistsProps) {
-  const state = useMusicState(store);
-  const space = useActiveSpace();
+  const state = useStoreState(store);
+  /** Playlist o categoría con el "¿Borrar?" a la vista (los ids no se pisan). */
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  /** Playlist con el selector "Mover a" abierto. */
+  const [movingId, setMovingId] = useState<string | null>(null);
   const [editing, setEditing] = useState<Editing>(null);
   const [draft, setDraft] = useState("");
 
   useEffect(() => {
     if (!state.manageOpen) return;
     setConfirmId(null);
+    setMovingId(null);
     setEditing(null);
     setDraft("");
     const onKey = (e: KeyboardEvent) => {
@@ -41,6 +46,12 @@ export function ManagePlaylists({ store }: ManagePlaylistsProps) {
 
   if (!state.manageOpen) return null;
 
+  const startEdit = (next: Editing, name = "") => {
+    setEditing(next);
+    setDraft(name);
+    setConfirmId(null);
+    setMovingId(null);
+  };
   const cancelEdit = () => {
     setEditing(null);
     setDraft("");
@@ -49,25 +60,95 @@ export function ManagePlaylists({ store }: ManagePlaylistsProps) {
     if (!editing) return;
     const name = draft.trim();
     if (name) {
-      if (editing.kind === "rename") {
-        void store.renamePlaylist(editing.spaceId, editing.id, name);
-      } else {
-        void store.createPlaylistInSpace(editing.spaceId, name);
-      }
+      if (editing.kind === "rename") void store.renamePlaylist(editing.id, name);
+      else if (editing.kind === "new") void store.createPlaylist(name, null, false);
+      else if (editing.kind === "renameCategory") void store.renameCategory(editing.id, name);
+      else void store.createCategory(name, false);
     }
     cancelEdit();
   };
+  const askDelete = (id: string | null) => {
+    setConfirmId(id);
+    setMovingId(null);
+  };
+  const toggleMoving = (id: string) => {
+    setMovingId(movingId === id ? null : id);
+    setConfirmId(null);
+  };
+  const isEditing = (kind: NonNullable<Editing>["kind"], id?: string) =>
+    editing?.kind === kind && (id === undefined || ("id" in editing && editing.id === id));
 
-  // Space activo primero (desde el estado vivo del store), después el resto.
-  const groups: SpacePlaylists[] = [
-    {
-      spaceId: space.id,
-      spaceName: space.name,
-      color: space.color,
-      playlists: state.playlists,
-    },
-    ...state.otherSpaces,
-  ];
+  const { playlists, categories } = state;
+
+  const editorRow = (icon: string, indent = false) => (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        height: 32,
+        padding: indent ? "0 8px 0 26px" : "0 8px",
+        flex: 1,
+      }}
+    >
+      <Icon name={icon} size={16} color="var(--q-text-secondary)" />
+      <TextInput
+        value={draft}
+        onChange={setDraft}
+        autoFocus
+        placeholder="Nombre…"
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commitEdit();
+          else if (e.key === "Escape") {
+            // Que el Escape cancele la edición sin cerrar el modal.
+            e.stopPropagation();
+            cancelEdit();
+          }
+        }}
+        onBlur={commitEdit}
+        style={{ height: 24, flex: 1 }}
+      />
+    </div>
+  );
+
+  const playlistRow = (p: Playlist, indent: boolean) =>
+    isEditing("rename", p.id) ? (
+      <Fragment key={p.id}>{editorRow("queue_music", indent)}</Fragment>
+    ) : (
+      <Fragment key={p.id}>
+        <Row
+          icon="queue_music"
+          name={p.name}
+          detail={p.trackPaths.length === 1 ? "1 canción" : `${p.trackPaths.length} canciones`}
+          indent={indent}
+          openTitle="Abrir playlist"
+          deleteTooltip="Borrar playlist"
+          confirming={confirmId === p.id}
+          moving={movingId === p.id}
+          onOpen={() => store.openPlaylist(p.id)}
+          onStartRename={() => startEdit({ kind: "rename", id: p.id }, p.name)}
+          // Sin categorías no hay a dónde mover.
+          onMove={categories.length > 0 ? () => toggleMoving(p.id) : undefined}
+          onAskDelete={() => askDelete(p.id)}
+          onCancelDelete={() => askDelete(null)}
+          onDelete={() => {
+            askDelete(null);
+            void store.deletePlaylist(p.id);
+          }}
+        />
+        {movingId === p.id && (
+          <MovePicker
+            categories={categories}
+            current={p.categoryId}
+            indent={indent}
+            onPick={(categoryId) => {
+              setMovingId(null);
+              if (categoryId !== p.categoryId) void store.setPlaylistCategory(p.id, categoryId);
+            }}
+          />
+        )}
+      </Fragment>
+    );
 
   return (
     <div
@@ -105,187 +186,128 @@ export function ManagePlaylists({ store }: ManagePlaylistsProps) {
           <IconButton name="close" tooltip="Cerrar" onClick={() => store.closeManage()} />
         </div>
 
-        <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
-          {groups.map((g) => (
-            <SpaceGroup
-              key={g.spaceId}
-              group={g}
-              editing={editing}
-              draft={draft}
-              confirmId={confirmId}
-              onDraft={setDraft}
-              onCommitEdit={commitEdit}
-              onCancelEdit={cancelEdit}
-              onStartRename={(id, name) => {
-                setEditing({ kind: "rename", spaceId: g.spaceId, id });
-                setDraft(name);
-                setConfirmId(null);
-              }}
-              onStartNew={() => {
-                setEditing({ kind: "new", spaceId: g.spaceId });
-                setDraft("");
-                setConfirmId(null);
-              }}
-              onOpen={(id) => store.openPlaylist(g.spaceId, id)}
-              onAskDelete={setConfirmId}
-              onCancelDelete={() => setConfirmId(null)}
-              onDelete={(id) => {
-                setConfirmId(null);
-                void store.deletePlaylist(g.spaceId, id);
-              }}
-            />
-          ))}
+        <div style={{ overflowY: "auto" }}>
+          {playlists.filter((p) => p.categoryId === null).map((p) => playlistRow(p, false))}
+
+          {categories.map((c: Category) => {
+            const inside = playlists.filter((p) => p.categoryId === c.id);
+            return (
+              <Fragment key={c.id}>
+                {isEditing("renameCategory", c.id) ? (
+                  editorRow("folder")
+                ) : (
+                  <Row
+                    icon="folder"
+                    name={c.name}
+                    strong
+                    detail={inside.length === 1 ? "1 playlist" : `${inside.length} playlists`}
+                    openTitle="Abrir categoría"
+                    deleteTooltip="Borrar categoría (sus playlists quedan sueltas)"
+                    reserveMove
+                    confirming={confirmId === c.id}
+                    onOpen={() => store.openCategory(c.id)}
+                    onStartRename={() => startEdit({ kind: "renameCategory", id: c.id }, c.name)}
+                    onAskDelete={() => askDelete(c.id)}
+                    onCancelDelete={() => askDelete(null)}
+                    onDelete={() => {
+                      askDelete(null);
+                      void store.deleteCategory(c.id);
+                    }}
+                  />
+                )}
+                {inside.map((p) => playlistRow(p, true))}
+              </Fragment>
+            );
+          })}
+
+          <div style={{ display: "flex", gap: 4 }}>
+            {isEditing("new") ? (
+              editorRow("queue_music")
+            ) : isEditing("newCategory") ? (
+              editorRow("folder")
+            ) : (
+              <>
+                <GhostRow icon="add" label="Nueva playlist" onClick={() => startEdit({ kind: "new" })} />
+                <GhostRow
+                  icon="create_new_folder"
+                  label="Nueva categoría"
+                  onClick={() => startEdit({ kind: "newCategory" })}
+                />
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function SpaceGroup({
-  group,
-  editing,
-  draft,
-  confirmId,
-  onDraft,
-  onCommitEdit,
-  onCancelEdit,
-  onStartRename,
-  onStartNew,
-  onOpen,
-  onAskDelete,
-  onCancelDelete,
-  onDelete,
-}: {
-  group: SpacePlaylists;
-  editing: Editing;
-  draft: string;
-  confirmId: string | null;
-  onDraft: (v: string) => void;
-  onCommitEdit: () => void;
-  onCancelEdit: () => void;
-  onStartRename: (id: string, name: string) => void;
-  onStartNew: () => void;
-  onOpen: (id: string) => void;
-  onAskDelete: (id: string) => void;
-  onCancelDelete: () => void;
-  onDelete: (id: string) => void;
-}) {
-  const editorRow = (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, height: 32, padding: "0 8px" }}>
-      <Icon name="queue_music" size={16} color="var(--q-text-secondary)" />
-      <TextInput
-        value={draft}
-        onChange={onDraft}
-        autoFocus
-        placeholder="Nombre…"
-        onKeyDown={(e) => {
-          if (e.key === "Enter") onCommitEdit();
-          else if (e.key === "Escape") {
-            // Que el Escape cancele la edición sin cerrar el modal.
-            e.stopPropagation();
-            onCancelEdit();
-          }
-        }}
-        onBlur={onCommitEdit}
-        style={{ height: 24, flex: 1 }}
-      />
-    </div>
-  );
-
-  return (
-    <div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          fontSize: 10,
-          fontWeight: 600,
-          letterSpacing: ".4px",
-          textTransform: "uppercase",
-          color: "var(--q-text-secondary)",
-          marginBottom: 6,
-        }}
-      >
-        <span
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: "50%",
-            background: group.color,
-            flex: "0 0 auto",
-          }}
-        />
-        {group.spaceName}
-      </div>
-      {group.playlists.map((p) =>
-        editing?.kind === "rename" && editing.spaceId === group.spaceId && editing.id === p.id ? (
-          <span key={p.id}>{editorRow}</span>
-        ) : (
-          <PlaylistRow
-            key={p.id}
-            name={p.name}
-            count={p.trackPaths.length}
-            confirming={confirmId === p.id}
-            onOpen={() => onOpen(p.id)}
-            onStartRename={() => onStartRename(p.id, p.name)}
-            onAskDelete={() => onAskDelete(p.id)}
-            onCancelDelete={onCancelDelete}
-            onDelete={() => onDelete(p.id)}
-          />
-        ),
-      )}
-      {editing?.kind === "new" && editing.spaceId === group.spaceId ? (
-        editorRow
-      ) : (
-        <NewPlaylistRow onClick={onStartNew} />
-      )}
-    </div>
-  );
-}
-
-function PlaylistRow({
+/** Fila de playlist o de categoría: abrir, renombrar, (mover) y borrar en dos pasos. */
+function Row({
+  icon,
   name,
-  count,
+  detail,
+  strong,
+  indent,
+  openTitle,
+  deleteTooltip,
   confirming,
+  moving,
+  reserveMove,
   onOpen,
   onStartRename,
+  onMove,
   onAskDelete,
   onCancelDelete,
   onDelete,
 }: {
+  icon: string;
   name: string;
-  count: number;
+  detail: string;
+  /** Nombre en negrita (cabecera de categoría). */
+  strong?: boolean;
+  /** Sangría de playlist dentro de una categoría. */
+  indent?: boolean;
+  openTitle: string;
+  deleteTooltip: string;
   confirming: boolean;
+  /** El selector "Mover a" de esta fila está abierto. */
+  moving?: boolean;
+  /** Sin `onMove`, deja igual el hueco de su botón: alinea el detalle con
+   *  las filas de playlist, que sí lo tienen. */
+  reserveMove?: boolean;
   onOpen: () => void;
   onStartRename: () => void;
+  onMove?: () => void;
   onAskDelete: () => void;
   onCancelDelete: () => void;
   onDelete: () => void;
 }) {
   const [hover, setHover] = useState(false);
+  const showActions = hover || !!moving;
   return (
     <div
       onClick={onOpen}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      title="Abrir playlist"
+      title={openTitle}
       style={{
         display: "flex",
         alignItems: "center",
         gap: 8,
         height: 32,
-        padding: "0 8px",
+        padding: indent ? "0 8px 0 26px" : "0 8px",
         borderRadius: 6,
         background: hover ? "var(--q-card-hover)" : "transparent",
         transition: "background var(--q-dur-fast) var(--q-ease)",
       }}
     >
-      <Icon name="queue_music" size={16} color="var(--q-text-secondary)" />
+      <Icon name={icon} size={16} color="var(--q-text-secondary)" />
       <span
         style={{
           flex: 1,
           fontSize: 12.5,
+          fontWeight: strong ? 600 : undefined,
           whiteSpace: "nowrap",
           overflow: "hidden",
           textOverflow: "ellipsis",
@@ -294,7 +316,7 @@ function PlaylistRow({
         {name}
       </span>
       <span style={{ fontSize: 11, color: "var(--q-text-light)", flex: "0 0 auto" }}>
-        {count === 1 ? "1 canción" : `${count} canciones`}
+        {detail}
       </span>
       {confirming ? (
         <span
@@ -317,21 +339,67 @@ function PlaylistRow({
             alignItems: "center",
             gap: 2,
             flex: "0 0 auto",
-            opacity: hover ? 1 : 0,
-            pointerEvents: hover ? "auto" : "none",
+            opacity: showActions ? 1 : 0,
+            pointerEvents: showActions ? "auto" : "none",
             transition: "opacity var(--q-dur-fast) var(--q-ease)",
           }}
         >
+          {onMove && (
+            <IconButton
+              name="drive_file_move"
+              tooltip="Mover a categoría"
+              selected={moving}
+              onClick={onMove}
+            />
+          )}
+          {!onMove && reserveMove && <span style={{ width: 28 }} />}
           <IconButton name="edit" tooltip="Renombrar" onClick={onStartRename} />
-          <IconButton name="delete" tooltip="Borrar playlist" onClick={onAskDelete} />
+          <IconButton name="delete" tooltip={deleteTooltip} onClick={onAskDelete} />
         </span>
       )}
     </div>
   );
 }
 
-/** Ítem fantasma al pie de cada space para crear una playlist ahí. */
-function NewPlaylistRow({ onClick }: { onClick: () => void }) {
+/** Chips "Mover a" debajo de una playlist: sus destinos posibles. */
+function MovePicker({
+  categories,
+  current,
+  indent,
+  onPick,
+}: {
+  categories: Category[];
+  current: string | null;
+  indent: boolean;
+  onPick: (categoryId: string | null) => void;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        alignItems: "center",
+        gap: 6,
+        padding: indent ? "2px 8px 8px 50px" : "2px 8px 8px 32px",
+      }}
+    >
+      <span style={{ fontSize: 11, color: "var(--q-text-light)" }}>Mover a</span>
+      <Chip label="Sin categoría" active={current === null} addIcon={false} onClick={() => onPick(null)} />
+      {categories.map((c) => (
+        <Chip
+          key={c.id}
+          addIcon={false}
+          label={c.name}
+          active={current === c.id}
+          onClick={() => onPick(c.id)}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Ítem fantasma al pie de la lista para crear una playlist o una categoría. */
+function GhostRow({ icon, label, onClick }: { icon: string; label: string; onClick: () => void }) {
   const [hover, setHover] = useState(false);
   return (
     <div
@@ -352,8 +420,8 @@ function NewPlaylistRow({ onClick }: { onClick: () => void }) {
         transition: "background var(--q-dur-fast) var(--q-ease), color var(--q-dur-fast) var(--q-ease)",
       }}
     >
-      <Icon name="add" size={15} />
-      Nueva playlist
+      <Icon name={icon} size={15} />
+      {label}
     </div>
   );
 }

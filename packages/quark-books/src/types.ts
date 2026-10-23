@@ -1,8 +1,7 @@
 /** Modelos de datos del books quark. */
 
 /**
- * Referencia liviana de un libro dentro del space.
- * Vive en `spaces/<spaceId>.json` bajo la clave `"books"`.
+ * Referencia liviana de un libro. Vive en `packages/books/index.json`.
  * El contenido completo (capítulos, carpetas, texto) vive aparte en
  * `packages/books/<id>/`.
  *
@@ -64,18 +63,27 @@ export type EditorStatus = "saved" | "dirty" | "saving";
 export type BookFontFamily = "serif" | "sans";
 
 /**
+ * Formato físico de la hoja (ancho × alto en pulgadas): los tres tamaños
+ * estándar de novela. Las medidas en px viven en `util/pageGeometry`.
+ */
+export type TrimSize = "5x8" | "5.5x8.5" | "6x9";
+
+/**
  * Ajustes tipográficos de la página del editor. Son una preferencia de lectura
  * GLOBAL (no por libro): se setea una vez y aplica a todos los libros. Se
  * persiste en `localStorage`, no en disco/Drive (es preferencia de dispositivo).
  *
- * Los defaults imitan una novela impresa: serif, ~11pt y interlineado ajustado.
+ * Los defaults imitan una novela impresa: serif, 12pt, interlineado ajustado y
+ * hoja de 6×9″.
  */
 export interface Typography {
   family: BookFontFamily;
-  /** Tamaño del cuerpo en px. */
+  /** Tamaño del cuerpo en px (16px = 12pt). */
   size: number;
   /** Interlineado (unitless). */
   lineHeight: number;
+  /** Formato de la hoja. Cambia el ancho de línea y las líneas por página. */
+  trim: TrimSize;
 }
 
 /** Estado del drawer de buscar/reemplazar (scoped al capítulo abierto). */
@@ -104,7 +112,7 @@ export type BooksStatus = "idle" | "loading" | "ready" | "error";
  *     `summary` es opcional, el modelo lo manda como nota corta de qué cambió.
  *
  * Solo puede haber UNA comparación activa por vez. Cerrar el split = `null`.
- * Cambiar de capítulo, de libro o de space cierra la comparación
+ * Cambiar de capítulo o de libro cierra la comparación
  * automáticamente.
  */
 export type CompareState =
@@ -116,9 +124,7 @@ export interface BooksState {
   status: BooksStatus;
   error: string | null;
 
-  /** Space activo (segmento de partición del índice). */
-  spaceId: string | null;
-  /** Libros del space activo (índice liviano). */
+  /** Libros (índice liviano). */
   books: BookIndex[];
 
   /** Libro activo: id + documento cargado. */

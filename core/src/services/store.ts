@@ -4,8 +4,8 @@
  * Cada archivo vive bajo `<AppData>/com.quarks.app/<name>.json` (resuelto por Tauri vía
  * `BaseDirectory.AppData`), directamente en la raíz de la app — sin el wrapper
  * `data/` que usaba antes. El `name` puede traer segmentos: globales en la raíz
- * (`settings`, `appState`, `account`), un archivo por space (`spaces/<id>`) y el
- * contenido de cada quark (`packages/<quark>/…`). Ver `.claude/knowledge/StorageLayout.md`.
+ * (`settings`, `appState`, `account`), Quarky (`quarky/…`) y el contenido de
+ * cada quark (`packages/<quark>/…`). Ver `.claude/knowledge/StorageLayout.md`.
  *
  * La escritura es **atómica**: se escribe a un `.tmp` y se renombra encima del
  * destino, así un corte a mitad de escritura nunca deja un JSON corrupto.
@@ -18,7 +18,6 @@ import { isTauri } from "@tauri-apps/api/core";
 import { report } from "./log";
 
 const relPath = (name: string) => `${name}.json`;
-const tmpPath = (name: string) => `${name}.json.tmp`;
 const lsKey = (name: string) => `quarks.data.${name}`;
 /** Carpeta padre de un `name` con segmentos, o "" si está en la raíz. */
 const parentOf = (name: string) => {
@@ -48,46 +47,87 @@ export async function readJson<T>(name: string, fallback: T): Promise<T> {
 }
 
 /**
- * Cola de escrituras en curso por archivo. Serializa las escrituras de un mismo
- * `name` para que dos no compartan el mismo `.tmp` y una pise el rename de la
+ * Cola de escrituras en curso por archivo. Serializa las escrituras de una misma
+ * ruta para que dos no compartan el mismo `.tmp` y una pise el rename de la
  * otra (race que StrictMode destapa al disparar el efecto de guardado dos veces).
  */
 const writeQueues = new Map<string, Promise<void>>();
 
-/** Escribe un JSON al store de forma atómica (tmp + rename), serializado por archivo. */
-export function writeJson<T>(name: string, data: T): Promise<void> {
-  const prev = writeQueues.get(name) ?? Promise.resolve();
+function enqueueWrite(key: string, write: () => Promise<void>): Promise<void> {
+  const prev = writeQueues.get(key) ?? Promise.resolve();
   // `.catch` para que un fallo previo no encadene rechazos en las siguientes.
-  const next = prev.catch(() => {}).then(() => writeJsonNow(name, data));
-  writeQueues.set(name, next);
-  void next.finally(() => {
-    if (writeQueues.get(name) === next) writeQueues.delete(name);
-  });
+  const next = prev.catch(() => {}).then(write);
+  writeQueues.set(key, next);
+  // `then(cleanup, cleanup)` y no `finally`: la promesa derivada de un `finally`
+  // hereda el rechazo y nadie la maneja → `unhandledrejection` aunque el caller
+  // sí capture el error de `next`.
+  const cleanup = () => {
+    if (writeQueues.get(key) === next) writeQueues.delete(key);
+  };
+  void next.then(cleanup, cleanup);
   return next;
 }
 
-async function writeJsonNow<T>(name: string, data: T): Promise<void> {
+/** Escribe un JSON al store de forma atómica (tmp + rename), serializado por archivo. */
+export function writeJson<T>(name: string, data: T): Promise<void> {
   if (!isTauri()) {
     writeLocal(name, data);
-    return;
+    return Promise.resolve();
   }
+  return enqueueWrite(relPath(name), () =>
+    writeAtomic(relPath(name), JSON.stringify(data, null, 2)),
+  );
+}
+
+/**
+ * Escritura atómica de texto en `<relPath>` (tmp + rename), creando la cadena
+ * de carpetas padre si falta. Tauri-only; es el único camino de escritura.
+ */
+async function writeAtomic(relPath: string, content: string): Promise<void> {
   const { BaseDirectory, exists, mkdir, writeTextFile, rename } = await import(
     "@tauri-apps/plugin-fs"
   );
-  // Carpeta padre del destino. `name` puede traer segmentos (p. ej.
-  // "packages/music/playlists/<id>"), así que aseguramos toda la cadena de
-  // carpetas. La raíz (parent === "") siempre existe: no hace falta crearla.
-  const parent = parentOf(name);
+  const parent = parentOf(relPath);
   if (parent && !(await exists(parent, { baseDir: BaseDirectory.AppData }))) {
     await mkdir(parent, { baseDir: BaseDirectory.AppData, recursive: true });
   }
-  await writeTextFile(tmpPath(name), JSON.stringify(data, null, 2), {
-    baseDir: BaseDirectory.AppData,
-  });
-  await rename(tmpPath(name), relPath(name), {
+  const tmp = `${relPath}.tmp`;
+  await writeTextFile(tmp, content, { baseDir: BaseDirectory.AppData });
+  await rename(tmp, relPath, {
     oldPathBaseDir: BaseDirectory.AppData,
     newPathBaseDir: BaseDirectory.AppData,
   });
+}
+
+// ── Texto plano (`.md` de notas, capítulos, prompts de Quarky) ───────────────
+//
+// Mismas garantías que el JSON (atómico + cola por archivo + fallback a
+// localStorage en browser), pero el `relPath` lleva la extensión completa.
+
+/** Lee el texto de `<relPath>`; `null` si no existe o falla la lectura. */
+export async function readText(relPath: string): Promise<string | null> {
+  if (!isTauri()) return localStorage.getItem(lsKey(relPath));
+  try {
+    const { BaseDirectory, exists, readTextFile } = await import("@tauri-apps/plugin-fs");
+    if (!(await exists(relPath, { baseDir: BaseDirectory.AppData }))) return null;
+    return await readTextFile(relPath, { baseDir: BaseDirectory.AppData });
+  } catch (e) {
+    report("store.readText:" + relPath, e);
+    return null;
+  }
+}
+
+/** Escribe texto en `<relPath>` de forma atómica, serializado por archivo. */
+export function writeText(relPath: string, content: string): Promise<void> {
+  if (!isTauri()) {
+    try {
+      localStorage.setItem(lsKey(relPath), content);
+    } catch (e) {
+      report("store.writeText:" + relPath, e);
+    }
+    return Promise.resolve();
+  }
+  return enqueueWrite(relPath, () => writeAtomic(relPath, content));
 }
 
 /** Renombra un JSON del store; si `oldName` no existe, no hace nada. */
@@ -133,6 +173,29 @@ export async function existsJson(name: string): Promise<boolean> {
   return exists(relPath(name), { baseDir: BaseDirectory.AppData });
 }
 
+/**
+ * Nombres (sin `.json`) de los JSON que están directamente en `relDir`, sin
+ * entrar a subcarpetas; `[]` si la carpeta no existe. Tauri-only.
+ */
+export async function listJson(relDir: string): Promise<string[]> {
+  if (!isTauri()) return [];
+  const { BaseDirectory, exists, readDir } = await import("@tauri-apps/plugin-fs");
+  if (!(await exists(relDir, { baseDir: BaseDirectory.AppData }))) return [];
+  const entries = await readDir(relDir, { baseDir: BaseDirectory.AppData });
+  return entries
+    .filter((e) => e.isFile && e.name.endsWith(".json"))
+    .map((e) => e.name.slice(0, -".json".length));
+}
+
+/** Borra la carpeta `relDir` solo si existe y quedó vacía. Tauri-only. */
+export async function removeDirIfEmpty(relDir: string): Promise<void> {
+  if (!isTauri()) return;
+  const { BaseDirectory, exists, readDir, remove } = await import("@tauri-apps/plugin-fs");
+  if (!(await exists(relDir, { baseDir: BaseDirectory.AppData }))) return;
+  if ((await readDir(relDir, { baseDir: BaseDirectory.AppData })).length > 0) return;
+  await remove(relDir, { baseDir: BaseDirectory.AppData });
+}
+
 /** Crea la carpeta `relDir` (recursiva) si falta. Tauri-only; no-op en browser. */
 export async function ensureDir(relDir: string): Promise<void> {
   if (!isTauri()) return;
@@ -149,35 +212,49 @@ export async function ensureDir(relDir: string): Promise<void> {
 // WebView (p. ej. `EBWebView` en Windows) y los globales device-local
 // (`appState`, `account`, `manifest`), que NO deben subir ni ser borrados por el
 // sync force/mirror. Por eso usamos un allowlist explícito: el archivo
-// `settings.json` + todo lo que cuelga de `spaces/` y `packages/`.
+// `settings.json` + todo lo que cuelga de `packages/` y `quarky/`.
 //
 // Estas funciones operan por ruta relativa POSIX desde la raíz de AppData (p. ej.
-// "settings.json", "spaces/personal.json" o "packages/music/songs/x.mp3"). Es
+// "settings.json", "quarky/tabs.json" o "packages/music/songs/x.mp3"). Es
 // Tauri-only; fuera de Tauri devuelve vacío / no-op, igual que `secrets.ts`.
 
 /** Archivos globales sueltos en la raíz que SÍ sincronizan. */
 const SYNC_FILES = ["settings.json"];
 /** Carpetas cuyo contenido completo sincroniza. */
-const SYNC_DIRS = ["spaces", "packages", "quarky"];
+const SYNC_DIRS = ["packages", "quarky"];
+
+/**
+ * Recorre `relDir` en profundidad y va entregando la ruta relativa (desde
+ * AppData) de cada archivo, salteando los `.tmp` de escrituras a medias. Si la
+ * carpeta no existe, no entrega nada. Tauri-only. Es un generator para que el
+ * consumidor pueda cortar temprano (p. ej. tope de resultados de `glob`).
+ */
+export async function* walkFiles(relDir: string): AsyncGenerator<string> {
+  if (!isTauri()) return;
+  const { BaseDirectory, exists, readDir } = await import("@tauri-apps/plugin-fs");
+  if (!(await exists(relDir, { baseDir: BaseDirectory.AppData }))) return;
+  const stack = [relDir];
+  while (stack.length > 0) {
+    const dir = stack.pop() as string;
+    for (const e of await readDir(dir, { baseDir: BaseDirectory.AppData })) {
+      const childRel = `${dir}/${e.name}`;
+      if (e.isDirectory) stack.push(childRel);
+      else if (e.isFile && !e.name.endsWith(".tmp")) yield childRel;
+    }
+  }
+}
 
 /** Rutas relativas de todos los archivos gestionados, recursivo (excluye `.tmp`). */
 export async function listDataTree(): Promise<string[]> {
   if (!isTauri()) return [];
   try {
-    const { BaseDirectory, exists, readDir } = await import("@tauri-apps/plugin-fs");
+    const { BaseDirectory, exists } = await import("@tauri-apps/plugin-fs");
     const out: string[] = [];
     for (const f of SYNC_FILES) {
       if (await exists(f, { baseDir: BaseDirectory.AppData })) out.push(f);
     }
-    const walk = async (rel: string): Promise<void> => {
-      for (const e of await readDir(rel, { baseDir: BaseDirectory.AppData })) {
-        const childRel = `${rel}/${e.name}`;
-        if (e.isDirectory) await walk(childRel);
-        else if (e.isFile && !e.name.endsWith(".tmp")) out.push(childRel);
-      }
-    };
     for (const d of SYNC_DIRS) {
-      if (await exists(d, { baseDir: BaseDirectory.AppData })) await walk(d);
+      for await (const rel of walkFiles(d)) out.push(rel);
     }
     return out;
   } catch (e) {
@@ -233,12 +310,31 @@ export async function writeDataFile(relPath: string, data: Uint8Array): Promise<
   });
 }
 
-/** Borra `<relPath>` si existe (no falla si no estaba). */
-export async function deleteDataFile(relPath: string): Promise<void> {
-  if (!isTauri()) return;
+/** Borra el archivo `<relPath>` si existe (no falla si no estaba). */
+export async function deleteFile(relPath: string): Promise<void> {
+  if (!isTauri()) {
+    localStorage.removeItem(lsKey(relPath));
+    return;
+  }
   const { BaseDirectory, exists, remove } = await import("@tauri-apps/plugin-fs");
   if (await exists(relPath, { baseDir: BaseDirectory.AppData })) {
     await remove(relPath, { baseDir: BaseDirectory.AppData });
+  }
+}
+
+/** Borra la carpeta `<relDir>` entera, con lo que tenga adentro. */
+export async function deleteDir(relDir: string): Promise<void> {
+  if (!isTauri()) {
+    const prefix = lsKey(`${relDir}/`);
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(prefix)) localStorage.removeItem(k);
+    }
+    return;
+  }
+  const { BaseDirectory, exists, remove } = await import("@tauri-apps/plugin-fs");
+  if (await exists(relDir, { baseDir: BaseDirectory.AppData })) {
+    await remove(relDir, { baseDir: BaseDirectory.AppData, recursive: true });
   }
 }
 

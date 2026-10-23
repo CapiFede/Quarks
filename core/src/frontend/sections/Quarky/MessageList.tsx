@@ -1,7 +1,6 @@
 /**
- * Lista de mensajes del chat. Render minimalista para M1: bloques user/assistant
- * con un caption de rol, contenido en texto plano. Markdown, tool_use blocks y
- * scroll-on-streaming llegan en M2/M3.
+ * Lista de mensajes del chat: bloques user/assistant con un caption de rol,
+ * Markdown en las respuestas y bloques colapsables para tool calls/results.
  *
  * Empty state: si no hay conversación activa, mostramos un hint para que el
  * usuario sepa qué hacer (mandar un mensaje crea automáticamente la conversación
@@ -51,7 +50,7 @@ export function MessageList() {
     return (
       <EmptyState
         icon="smart_toy"
-        body="Escribí abajo para empezar. Las conversaciones se guardan por espacio."
+        body="Escribí abajo para empezar."
       />
     );
   }
@@ -85,7 +84,13 @@ function MessageRow({ message }: { message: Message }) {
   // Tool result: mensaje del role:tool, lo renderizamos como bloque pequeño
   // colapsable adentro del flow del assistant.
   if (isTool) {
-    return <ToolResultBlock name={message.name ?? "tool"} content={message.content} />;
+    return (
+      <ToolResultBlock
+        name={message.name ?? "tool"}
+        content={message.content}
+        isError={message.isError === true}
+      />
+    );
   }
 
   // Si el assistant solo invocó tools sin texto, mostramos los chips de los
@@ -194,8 +199,15 @@ function ToolCallBlock({
   );
 }
 
-function ToolResultBlock({ name, content }: { name: string; content: string }) {
-  const isError = /^[a-zA-Z_]+\s*(:|falló)/.test(content) && /error|no existe|rechazó/i.test(content);
+function ToolResultBlock({
+  name,
+  content,
+  isError,
+}: {
+  name: string;
+  content: string;
+  isError: boolean;
+}) {
   return (
     <details
       style={{

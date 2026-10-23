@@ -1,8 +1,7 @@
-import { useEffect, useState, type CSSProperties } from "react";
-import { Icon, TextInput, useActiveSpace } from "@quarks/core";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { Icon, TextInput, useStoreState } from "@quarks/core";
 import type { BooksStore } from "../store";
 import type { Typography } from "../types";
-import { useBooksState } from "../hooks/useBooksStore";
 import { BookSidebar } from "./BookSidebar";
 import { BookEditor } from "./BookEditor";
 
@@ -23,23 +22,35 @@ export interface BooksPageProps {
   store: BooksStore;
 }
 
-/**
- * Pantalla única del books quark: sidebar 240px + editor flex 1.
- * El space activo se sincroniza con un efecto, mismo patrón que `MusicPage`.
- */
+/** Pantalla única del books quark: sidebar 240px + editor flex 1. */
 export function BooksPage({ store }: BooksPageProps) {
-  const state = useBooksState(store);
-  const space = useActiveSpace();
+  const state = useStoreState(store);
+  const rootRef = useRef<HTMLDivElement>(null);
 
+  // Ctrl/Cmd+F abre el buscador del capítulo. Mismo patrón que en notes: el
+  // Shell mantiene TODAS las panes montadas (las inactivas con `display:none`),
+  // así que registramos un listener global y gateamos por visibilidad
+  // (`offsetParent === null` ⇒ pane oculta, ignoramos). Solo con capítulo
+  // abierto: sin él `BookEditor` no renderiza la `SearchBar`.
   useEffect(() => {
-    void store.setSpace(space.id);
-  }, [store, space.id]);
+    const onKey = (e: KeyboardEvent) => {
+      const isFind = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f";
+      if (!isFind) return;
+      if (!rootRef.current?.offsetParent) return; // pane oculta = no nos toca
+      const s = store.getSnapshot();
+      if (!s.activeBook || !s.activeChapterId) return;
+      e.preventDefault();
+      store.toggleSearch();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [store]);
 
-  // Estado vacío: sin libros en el space activo. Se crea inline desde el sidebar
+  // Estado vacío: sin libros. Se crea inline desde el sidebar
   // (treeview), sin popups del sistema.
   if (state.books.length === 0 && state.status === "ready") {
     return (
-      <div className="q-books-page" style={typographyVars(state.typography)}>
+      <div ref={rootRef} className="q-books-page" style={typographyVars(state.typography)}>
         <EmptyBooksSidebar store={store} />
         <BookEditor store={store} />
       </div>
@@ -47,7 +58,7 @@ export function BooksPage({ store }: BooksPageProps) {
   }
 
   return (
-    <div className="q-books-page" style={typographyVars(state.typography)}>
+    <div ref={rootRef} className="q-books-page" style={typographyVars(state.typography)}>
       {state.activeBook ? (
         <BookSidebar
           store={store}

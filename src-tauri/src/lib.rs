@@ -3,6 +3,10 @@
 // cfg(not(android)): en Android se reproduce con HTMLAudioElement en el frontend.
 mod music;
 
+// Rutas bajo AppData que comparten los módulos de Música (songs/, playlists/,
+// bin/, tmp/) y el saneo de nombres de archivo. Compila en todas las plataformas.
+mod paths;
+
 // Secretos (API keys, tokens OAuth): keyring del SO en desktop, JSON en el
 // almacenamiento privado de la app en Android. Compila en todas las plataformas.
 mod secrets;
@@ -11,6 +15,10 @@ mod secrets;
 //   - download: yt-dlp + ffmpeg (binarios externos, no aplican en sandbox Android).
 #[cfg(not(target_os = "android"))]
 mod download;
+// Binarios externos de Música (yt-dlp/ffmpeg): dónde se buscan y cómo se
+// spawnean. Lo comparten download y trim.
+#[cfg(not(target_os = "android"))]
+mod tools;
 // Recorte de canciones del quark Música (trim con ffmpeg). Desktop-only:
 // depende de ffmpeg/ffprobe externos, igual que las descargas. Ver `trim.rs`.
 #[cfg(not(target_os = "android"))]
@@ -19,10 +27,6 @@ mod trim;
 // es Linux-only; en Windows/macOS el módulo expone comandos no-op. Ver `mpris.rs`.
 #[cfg(not(target_os = "android"))]
 mod mpris;
-// Backup manual a Drive: zip por streaming de una carpeta cualquiera + resumable
-// upload. Desktop-only porque usa `zip` y `ureq`. Ver `backup.rs`.
-#[cfg(not(target_os = "android"))]
-mod backup;
 
 // `Manager::manage` (registro del estado MPRIS en setup) — solo se usa en Linux.
 #[cfg(target_os = "linux")]
@@ -37,12 +41,13 @@ pub fn run() {
     .plugin(tauri_plugin_dialog::init())
     // Clipboard del SO: el frontend lo usa para leer imágenes pegadas cuando el
     // WebView no las expone (caso WebKitGTK en Linux).
-    .plugin(tauri_plugin_clipboard_manager::init())
-    // Deep link: en Android cierra el flujo OAuth (intent-filter en
-    // AndroidManifest captura `com.googleusercontent.apps.<ID>:/oauth2redirect`).
-    // En desktop también se usa para casos custom; el flujo de login desktop
-    // sigue por tauri-plugin-oauth (loopback HTTP) — son complementarios.
-    .plugin(tauri_plugin_deep_link::init());
+    .plugin(tauri_plugin_clipboard_manager::init());
+
+  // Deep link, solo Android: cierra el flujo OAuth (el intent-filter del
+  // AndroidManifest captura `com.googleusercontent.apps.<ID>:/oauth2redirect`).
+  // En desktop el login va por tauri-plugin-oauth (loopback HTTP).
+  #[cfg(target_os = "android")]
+  let builder = builder.plugin(tauri_plugin_deep_link::init());
 
   // Plugins desktop-only.
   // - autostart: no aplica en Android (no hay "abrir al iniciar" como en escritorio).
@@ -62,10 +67,6 @@ pub fn run() {
   #[cfg(not(target_os = "android"))]
   let builder = builder.manage(music::AudioState::new());
 
-  // Flag de cancelación del backup manual a Drive.
-  #[cfg(not(target_os = "android"))]
-  let builder = builder.manage(backup::BackupState::new());
-
   // Solo se puede llamar a `invoke_handler` una vez por builder, así que
   // armamos dos sets distintos por plataforma:
   //   - Android: solo las file ops del music quark (escaneo, tags, gestión).
@@ -82,7 +83,8 @@ pub fn run() {
     music::music_delete_track,
     music::music_rename_track,
     music::music_get_cover,
-    music::music_set_cover,
+    music::music_read_image,
+    music::music_set_cover_data,
   ]);
 
   #[cfg(not(target_os = "android"))]
@@ -101,7 +103,10 @@ pub fn run() {
     music::music_delete_track,
     music::music_rename_track,
     music::music_get_cover,
-    music::music_set_cover,
+    music::music_read_image,
+    music::music_pick_image,
+    music::music_set_cover_data,
+    music::music_youtube_thumb,
     mpris::mpris_set_metadata,
     mpris::mpris_set_playback,
     download::music_tools_status,
@@ -109,12 +114,10 @@ pub fn run() {
     download::music_tools_check_update,
     download::music_probe_url,
     download::music_download,
+    download::music_download_cancel,
     trim::music_trim_probe,
     trim::music_trim_suggest_dest,
     trim::music_trim_export,
-    backup::backup_estimate,
-    backup::backup_run,
-    backup::backup_cancel,
   ]);
 
   builder

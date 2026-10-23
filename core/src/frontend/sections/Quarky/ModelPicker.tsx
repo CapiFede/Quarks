@@ -13,6 +13,7 @@ import type { ModelInfo } from "../../../quarky/types";
 import { report } from "../../../services/log";
 import { Icon } from "../../components/Icon";
 import { TextInput } from "../../components/TextInput";
+import { messageOf } from "../../../services/util";
 
 export interface ModelPickerProps {
   value: string;
@@ -39,7 +40,7 @@ export function ModelPicker({ value, onChange, favorites, onToggleFavorite }: Mo
         if (!alive) return;
         // El endpoint /models de OpenRouter es público (no requiere API key),
         // así que un fallo acá es de red / scope / firewall, no falta-de-key.
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = messageOf(e);
         setError(`No se pudo cargar el catálogo: ${msg}`);
       });
     return () => {

@@ -15,13 +15,16 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 
 use base64::Engine;
 use lofty::config::WriteOptions;
 use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::prelude::*;
 use serde::Serialize;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
+
+use crate::paths::{playlists_dir, sanitize_filename, songs_dir};
 use walkdir::WalkDir;
 
 // Imports usados solo por la capa de reproducción (rodio + audio thread).
@@ -42,22 +45,6 @@ use tauri::State;
 
 const AUDIO_EXTS: &[&str] = &["mp3", "wav", "flac", "ogg", "m4a"];
 
-/// Carpeta fija de canciones: `<AppData>/Quarks/packages/music/songs`. Cuelga del
-/// árbol gestionado del core (carpeta `packages/`), así que sincroniza con Drive.
-/// Las playlists referencian tracks por ruta RELATIVA a esta carpeta (portables
-/// entre máquinas). Se crea si no existe.
-fn songs_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("packages")
-        .join("music")
-        .join("songs");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir)
-}
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrackDto {
@@ -65,6 +52,8 @@ pub struct TrackDto {
     title: String,
     artist: String,
     duration_sec: f64,
+    /// Creación del archivo, en ms desde epoch (ver `created_ms`).
+    created_ms: u64,
 }
 
 // ── Thread de audio (desktop-only: rodio no tiene backend Android viable) ─────
@@ -213,7 +202,20 @@ fn read_track(abs: &Path, rel: String) -> TrackDto {
         title: filename,
         artist: artist.unwrap_or_default(),
         duration_sec,
+        created_ms: created_ms(abs),
     }
+}
+
+/// Cuándo se creó el archivo, en ms desde epoch. Donde el SO no informa la
+/// creación (Android) cae a la última modificación; 0 si tampoco se puede leer.
+/// Renombrar o cambiarle la portada no la toca; recortar pisando el original
+/// sí (el recorte escribe un archivo nuevo).
+fn created_ms(abs: &Path) -> u64 {
+    fs::metadata(abs)
+        .and_then(|m| m.created().or_else(|_| m.modified()))
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_millis() as u64)
 }
 
 // ── Comandos Tauri ─────────────────────────────────────────────────────────────
@@ -227,7 +229,9 @@ pub fn music_songs_dir(app: AppHandle) -> Result<String, String> {
 
 /// Escaneo recursivo de la carpeta fija de canciones. Devuelve cada track con
 /// su ruta RELATIVA (normalizada con `/`).
-#[tauri::command]
+// `(async)`: lee los tags de cada archivo (IO bloqueante); corre en el pool de
+// Tauri para no congelar la ventana con una biblioteca grande.
+#[tauri::command(async)]
 pub fn music_scan(app: AppHandle) -> Result<Vec<TrackDto>, String> {
     let root = songs_dir(&app)?;
     let tracks = WalkDir::new(&root)
@@ -306,21 +310,6 @@ pub fn music_set_volume(state: State<AudioState>, v: f32) -> Result<(), String> 
 
 // ── Gestión de archivos: borrar, renombrar, portada ────────────────────────────
 
-/// Carpeta de playlists del quark música, hermana de `songs/`. Cuelga del
-/// árbol gestionado, así que sincroniza con Drive. Estructura del archivo:
-/// `{ "trackPaths": ["a.mp3", "b.mp3", ...] }`.
-fn playlists_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("packages")
-        .join("music")
-        .join("playlists");
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir)
-}
-
 /// Resuelve una ruta RELATIVA del track a su ruta ABSOLUTA, validando que cae
 /// dentro de `songs_dir` (evita path traversal: `../etc/passwd`).
 fn resolve_track(app: &AppHandle, rel: &str) -> Result<PathBuf, String> {
@@ -397,18 +386,6 @@ enum PlaylistAction {
     Keep,
     Replace(String),
     Remove,
-}
-
-/// Sanitiza un nombre de archivo (sin extensión). Igual criterio que en download.rs.
-fn sanitize_filename(name: &str) -> String {
-    let cleaned: String = name
-        .chars()
-        .map(|c| match c {
-            '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-            _ => c,
-        })
-        .collect();
-    cleaned.trim().trim_end_matches('.').to_string()
 }
 
 #[tauri::command]
@@ -501,19 +478,14 @@ pub fn music_get_cover(app: AppHandle, path: String) -> Result<Option<String>, S
         .mime_type()
         .map(|m| m.as_str().to_string())
         .unwrap_or_else(|| "image/jpeg".into());
-    let b64 = base64::engine::general_purpose::STANDARD.encode(pic.data());
-    Ok(Some(format!("data:{};base64,{}", mime, b64)))
+    Ok(Some(data_url(&mime, pic.data())))
 }
 
-/// Embebe la imagen en `image_path` como portada (CoverFront) del archivo de
-/// audio. Reemplaza cualquier portada anterior. Soporta JPG y PNG.
+/// Lee la imagen en `image_path` (elegida con el diálogo de archivos) y la
+/// devuelve como data URL, para que el editor de portada la recorte antes de
+/// embeberla. Soporta JPG, PNG y WebP.
 #[tauri::command]
-pub fn music_set_cover(
-    app: AppHandle,
-    path: String,
-    image_path: String,
-) -> Result<(), String> {
-    let abs = resolve_track(&app, &path)?;
+pub fn music_read_image(image_path: String) -> Result<String, String> {
     let img_path = Path::new(&image_path);
     if !img_path.exists() {
         return Err("La imagen seleccionada no existe.".into());
@@ -525,14 +497,164 @@ pub fn music_set_cover(
         .map(|s| s.to_ascii_lowercase())
         .as_deref()
     {
-        Some("png") => MimeType::Png,
-        Some("jpg") | Some("jpeg") => MimeType::Jpeg,
-        Some("webp") => MimeType::Unknown("image/webp".into()),
-        _ => MimeType::Jpeg,
+        Some("png") => "image/png",
+        Some("webp") => "image/webp",
+        _ => "image/jpeg",
     };
+    Ok(data_url(mime, &bytes))
+}
+
+/// Abre el selector de archivos para elegir la imagen de portada, como hijo de
+/// la ventana que lo pide. Devuelve la ruta elegida o `None` si se canceló.
+///
+/// En Linux armamos el diálogo GTK a mano: el del plugin (rfd) se abre sin
+/// ventana padre y nunca se libera. Sin padre, mutter puede negarle el foco
+/// (compara el timestamp que él le puso al click con el que le puso XWayland
+/// al mismo click; si el del diálogo queda más viejo, lo apila debajo de
+/// Quarks) y el diálogo queda visible pero sin responder. Transitorio y
+/// modal, mutter nunca lo pone debajo de Quarks y le pasa el foco.
+// `(async)`: espera al usuario; corre en el pool de Tauri, no en el main thread.
+#[cfg(target_os = "linux")]
+#[tauri::command(async)]
+pub fn music_pick_image(window: tauri::WebviewWindow) -> Result<Option<String>, String> {
+    use gtk::prelude::*;
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    let win = window.clone();
+    window
+        .run_on_main_thread(move || {
+            let parent = match win.gtk_window() {
+                Ok(p) => p,
+                Err(e) => {
+                    let _ = tx.send(Err(e.to_string()));
+                    return;
+                }
+            };
+            let dialog = gtk::FileChooserDialog::with_buttons(
+                Some("Elegir imagen"),
+                Some(&parent),
+                gtk::FileChooserAction::Open,
+                &[
+                    ("_Cancelar", gtk::ResponseType::Cancel),
+                    ("_Abrir", gtk::ResponseType::Accept),
+                ],
+            );
+            dialog.set_modal(true);
+            dialog.set_default_response(gtk::ResponseType::Accept);
+            let filter = gtk::FileFilter::new();
+            filter.set_name(Some("Imágenes"));
+            for mime in ["image/jpeg", "image/png", "image/webp"] {
+                filter.add_mime_type(mime);
+            }
+            dialog.add_filter(filter);
+            dialog.connect_response(move |d, resp| {
+                let picked = if resp == gtk::ResponseType::Accept {
+                    d.filename()
+                } else {
+                    None
+                };
+                // Destruirlo (no solo ocultarlo) para no acumular diálogos vivos.
+                unsafe { d.destroy() };
+                let _ = tx.send(Ok(picked.map(|p| p.to_string_lossy().into_owned())));
+            });
+            dialog.show();
+        })
+        .map_err(|e| e.to_string())?;
+    rx.recv().unwrap_or(Ok(None))
+}
+
+#[cfg(all(not(target_os = "linux"), not(target_os = "android")))]
+#[tauri::command(async)]
+pub fn music_pick_image(window: tauri::WebviewWindow) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let picked = window
+        .dialog()
+        .file()
+        .set_parent(&window)
+        .add_filter("Imágenes", &["jpg", "jpeg", "png", "webp"])
+        .blocking_pick_file();
+    Ok(picked.map(|p| p.to_string()))
+}
+
+/// Embebe la imagen `data_url` (`data:<mime>;base64,…`, la que arma el editor
+/// de portada) como portada (CoverFront) del archivo de audio. Reemplaza
+/// cualquier portada anterior.
+// `(async)`: reescribe el archivo de audio entero (IO bloqueante); corre en el
+// pool de Tauri y no en el main thread.
+#[tauri::command(async)]
+pub fn music_set_cover_data(app: AppHandle, path: String, data_url: String) -> Result<(), String> {
+    let abs = resolve_track(&app, &path)?;
+    let (mime, b64) = data_url
+        .strip_prefix("data:")
+        .and_then(|s| s.split_once(";base64,"))
+        .ok_or("Imagen inválida.")?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .map_err(|e| e.to_string())?;
+    embed_cover(&abs, bytes, MimeType::from_str(mime))
+}
+
+fn data_url(mime: &str, bytes: &[u8]) -> String {
+    let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+    format!("data:{};base64,{}", mime, b64)
+}
+
+/// Baja la miniatura de un video de YouTube (como data URL) para usarla de
+/// portada. No pasa por yt-dlp: YouTube sirve las miniaturas en URLs fijas por
+/// ID de video, así que alcanza con bajar el JPG. Prueba de mayor a menor
+/// resolución porque `maxresdefault` (1280×720) no existe en videos viejos o de
+/// baja calidad (da 404); `hqdefault` existe siempre. Desktop-only: ureq no
+/// está en Android, y el panel que lo usa tampoco.
+#[cfg(not(target_os = "android"))]
+#[tauri::command(async)]
+pub fn music_youtube_thumb(url: String) -> Result<String, String> {
+    use std::io::Read;
+
+    let id = youtube_video_id(&url).ok_or("No parece un link de YouTube.")?;
+    let mut last_err = String::new();
+    for name in ["maxresdefault", "sddefault", "hqdefault"] {
+        let thumb = format!("https://i.ytimg.com/vi/{}/{}.jpg", id, name);
+        match ureq::get(&thumb).call() {
+            Ok(resp) => {
+                let mut bytes = Vec::new();
+                resp.into_reader()
+                    .take(10 * 1024 * 1024)
+                    .read_to_end(&mut bytes)
+                    .map_err(|e| e.to_string())?;
+                return Ok(data_url("image/jpeg", &bytes));
+            }
+            Err(ureq::Error::Status(_, _)) => continue,
+            Err(e) => last_err = e.to_string(),
+        }
+    }
+    if last_err.is_empty() {
+        Err("No se encontró la miniatura del video.".into())
+    } else {
+        Err(last_err)
+    }
+}
+
+/// Extrae el ID (11 caracteres) de un link de YouTube: `watch?v=`, `youtu.be/`,
+/// `/shorts/`, `/embed/`, `/live/` (incluye music.youtube.com).
+#[cfg(not(target_os = "android"))]
+fn youtube_video_id(url: &str) -> Option<String> {
+    let url = url.trim();
+    let is_id = |s: &str| {
+        s.len() == 11 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    };
+    let after = ["?v=", "&v=", "youtu.be/", "/shorts/", "/embed/", "/live/"]
+        .iter()
+        .find_map(|m| url.find(m).map(|i| &url[i + m.len()..]))?;
+    let id = after.get(..11)?;
+    is_id(id).then(|| id.to_string())
+}
+
+/// Reemplaza la portada (CoverFront) del archivo de audio `abs` por `bytes`.
+fn embed_cover(abs: &Path, bytes: Vec<u8>, mime: MimeType) -> Result<(), String> {
     let picture = Picture::new_unchecked(PictureType::CoverFront, Some(mime), None, bytes);
 
-    let mut tagged = lofty::read_from_path(&abs).map_err(|e| e.to_string())?;
+    let mut tagged = lofty::read_from_path(abs).map_err(|e| e.to_string())?;
     // Si no hay tag primario, crear uno del tipo correcto para este archivo.
     if tagged.primary_tag_mut().is_none() {
         let tag_type = tagged.primary_tag_type();
@@ -544,8 +666,13 @@ pub fn music_set_cover(
     // Quitar portadas anteriores (todas las del tipo CoverFront) y agregar la nueva.
     tag.remove_picture_type(PictureType::CoverFront);
     tag.push_picture(picture);
+    // `save_to_path` reescribe TODOS los tags presentes, incluido ID3v1, y lofty
+    // 0.21 paniquea al truncar campos ID3v1 multibyte (ver `read_track`). Como
+    // el comando corre dentro del callback de WebKitGTK, ese pánico aborta la
+    // app entera. ID3v1 no aporta nada junto a ID3v2: lo sacamos antes de grabar.
+    tagged.remove(lofty::tag::TagType::Id3v1);
     tagged
-        .save_to_path(&abs, WriteOptions::default())
+        .save_to_path(abs, WriteOptions::default())
         .map_err(|e| e.to_string())?;
     Ok(())
 }

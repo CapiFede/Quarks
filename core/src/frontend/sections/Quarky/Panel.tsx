@@ -2,8 +2,8 @@
  * Panel global de Quarky: overlay derecho, full-height, abre/cierra con F4.
  *
  * Estructura: header (título + selector de conversación + acciones) → lista de
- * mensajes scrolleable → input. Diseño deliberadamente minimal para M1; el
- * sidebar de conversaciones y la aprobación de tools llegan en M3/M4.
+ * mensajes scrolleable → input. El sidebar de conversaciones y el diálogo de
+ * aprobación de tools se montan encima como overlays.
  *
  * Position fixed para evitar afectar el layout del Shell; el WindowFrame ya está
  * encima del titlebar nativo, así que la coordenada `top:0` se traduce a "abajo

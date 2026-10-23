@@ -1,6 +1,6 @@
 /**
  * Persistencia GLOBAL de las preferencias del quark Utils. Un único archivo
- * `packages/utils/preferences.json` (no particionado por space). Reusa
+ * `packages/utils/preferences.json`. Reusa
  * `readJson`/`writeJson` del core, que escribe atómico y crea las carpetas
  * padre on-demand. Ver `.claude/knowledge/StorageLayout.md`.
  */

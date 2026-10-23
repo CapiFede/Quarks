@@ -11,9 +11,6 @@
     "fs:allow-appdata-write-recursive",
     "fs:allow-appdata-meta-recursive",
 
-    "dialog:allow-open",
-    "dialog:allow-confirm",
-
     "deep-link:default",
 
     {
@@ -22,13 +19,7 @@
     },
     {
       "identifier": "http:default",
-      "allow": [
-        { "url": "https://oauth2.googleapis.com/*" },
-        { "url": "https://www.googleapis.com/*" },
-        { "url": "https://openidconnect.googleapis.com/*" },
-        { "url": "https://openrouter.ai/*" },
-        { "url": "https://**" }
-      ]
+      "allow": [{ "url": "https://**" }]
     }
   ]
 }

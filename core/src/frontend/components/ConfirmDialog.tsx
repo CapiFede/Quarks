@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { Button, Icon } from "@quarks/core";
+import { Button } from "./Button";
+import { Icon } from "./Icon";
 
 export interface ConfirmDialogProps {
   /** Título corto del diálogo. */
@@ -16,9 +17,9 @@ export interface ConfirmDialogProps {
 
 /**
  * Diálogo de confirmación in-app. Reemplaza al `window.confirm` nativo, que en
- * Tauri mapea al comando `dialog.confirm` (no habilitado en las capabilities y
- * por eso tiraba "dialog.confirm not allowed"). Overlay `fixed` que cubre la
- * ventana del quark, mismo molde visual que `DownloadDialog` del quark música.
+ * Tauri cae al plugin de diálogo (no habilitado) y además devuelve una Promise,
+ * así que `if (confirm(...))` siempre daba true. Overlay `fixed` que cubre la
+ * ventana; Esc cancela, Enter confirma, click en el fondo cancela.
  */
 export function ConfirmDialog({
   title,
@@ -28,7 +29,6 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
-  // Esc cancela, Enter confirma.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onCancel();

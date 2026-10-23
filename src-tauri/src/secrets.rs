@@ -23,14 +23,14 @@ fn entry(key: &str) -> Result<Entry, String> {
 
 /// Guarda (o reemplaza) el secreto identificado por `key`.
 #[cfg(not(target_os = "android"))]
-#[tauri::command]
+#[tauri::command(async)]
 pub fn secret_set(key: String, value: String) -> Result<(), String> {
     entry(&key)?.set_password(&value).map_err(|e| e.to_string())
 }
 
 /// Devuelve el secreto o `None` si no existe.
 #[cfg(not(target_os = "android"))]
-#[tauri::command]
+#[tauri::command(async)]
 pub fn secret_get(key: String) -> Result<Option<String>, String> {
     match entry(&key)?.get_password() {
         Ok(value) => Ok(Some(value)),
@@ -41,7 +41,7 @@ pub fn secret_get(key: String) -> Result<Option<String>, String> {
 
 /// Borra el secreto. No falla si no existía.
 #[cfg(not(target_os = "android"))]
-#[tauri::command]
+#[tauri::command(async)]
 pub fn secret_delete(key: String) -> Result<(), String> {
     match entry(&key)?.delete_credential() {
         Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
@@ -84,7 +84,7 @@ fn store(app: &AppHandle, map: &HashMap<String, String>) -> Result<(), String> {
 
 /// Guarda (o reemplaza) el secreto identificado por `key`.
 #[cfg(target_os = "android")]
-#[tauri::command]
+#[tauri::command(async)]
 pub fn secret_set(app: AppHandle, key: String, value: String) -> Result<(), String> {
     let mut map = load(&app)?;
     map.insert(key, value);
@@ -93,14 +93,14 @@ pub fn secret_set(app: AppHandle, key: String, value: String) -> Result<(), Stri
 
 /// Devuelve el secreto o `None` si no existe.
 #[cfg(target_os = "android")]
-#[tauri::command]
+#[tauri::command(async)]
 pub fn secret_get(app: AppHandle, key: String) -> Result<Option<String>, String> {
     Ok(load(&app)?.get(&key).cloned())
 }
 
 /// Borra el secreto. No falla si no existía.
 #[cfg(target_os = "android")]
-#[tauri::command]
+#[tauri::command(async)]
 pub fn secret_delete(app: AppHandle, key: String) -> Result<(), String> {
     let mut map = load(&app)?;
     map.remove(&key);

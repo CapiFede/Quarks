@@ -1,7 +1,8 @@
 import { memo, useRef, useState, type ReactNode } from "react";
-import { Icon, isAndroid } from "@quarks/core";
-import type { Track } from "../types";
-import { fmtTime } from "../util";
+import { Icon, isAndroid, MenuItem, MenuPanel, useMenu } from "@quarks/core";
+import type { PlayOrder, Track } from "../types";
+import { fmtTime, fractionAt, PLAY_ORDERS } from "../util";
+import { PlayButton } from "./PlayButton";
 
 export interface PlayerProps {
   track: Track | null;
@@ -9,13 +10,13 @@ export interface PlayerProps {
   positionSec: number;
   durationSec: number;
   volume: number;
-  shuffle: boolean;
+  order: PlayOrder;
   loop: boolean;
   onTogglePlay: () => void;
   onNext: () => void;
   onPrev: () => void;
   onSeek: (sec: number) => void;
-  onToggleShuffle: () => void;
+  onSetOrder: (order: PlayOrder) => void;
   onToggleLoop: () => void;
   onSetVolume: (v: number) => void;
 }
@@ -27,13 +28,13 @@ export const Player = memo(function Player({
   positionSec,
   durationSec,
   volume,
-  shuffle,
+  order,
   loop,
   onTogglePlay,
   onNext,
   onPrev,
   onSeek,
-  onToggleShuffle,
+  onSetOrder,
   onToggleLoop,
   onSetVolume,
 }: PlayerProps) {
@@ -93,7 +94,7 @@ export const Player = memo(function Player({
 
   const modes = (
     <>
-      <ToggleButton name="shuffle" tooltip="Aleatorio" selected={shuffle} onClick={onToggleShuffle} />
+      <OrderButton order={order} onSelect={onSetOrder} />
       <ToggleButton name="repeat_one" tooltip="Repetir" selected={loop} onClick={onToggleLoop} />
     </>
   );
@@ -177,16 +178,30 @@ function Bar({ children }: { children: ReactNode }) {
 
 function SeekBar({ pct, total, onSeek }: { pct: number; total: number; onSeek: (s: number) => void }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [hoverX, setHoverX] = useState<number | null>(null);
-  const w = ref.current?.offsetWidth ?? 1;
-  const tip = hoverX != null && total > 0 ? (hoverX / w) * total : null;
+  // Mouse relativo al borde izquierdo de la barra + ancho de la barra, medidos
+  // juntos sobre el mismo rect (`null` = sin hover).
+  const [hover, setHover] = useState<{ x: number; w: number } | null>(null);
+  // Posición en la barra bajo `clientX`, contra el rect de la barra (igual que
+  // VolumeBar). No `offsetX`: ese es relativo al target, y sobre el knob daba
+  // 0..10 px → seek a ~0 s.
+  const at = (clientX: number) => {
+    const el = ref.current;
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    return { x: clientX - rect.left, w: Math.max(1, rect.width) };
+  };
+  const tip = hover && total > 0 ? Math.max(0, Math.min(1, hover.x / hover.w)) * total : null;
 
   return (
     <div
       ref={ref}
-      onMouseMove={(e) => setHoverX(e.nativeEvent.offsetX)}
-      onMouseLeave={() => setHoverX(null)}
-      onClick={(e) => total > 0 && onSeek((e.nativeEvent.offsetX / w) * total)}
+      onMouseMove={(e) => setHover(at(e.clientX))}
+      onMouseLeave={() => setHover(null)}
+      onClick={(e) => {
+        if (total <= 0) return;
+        const h = at(e.clientX);
+        if (h) onSeek(Math.max(0, Math.min(1, h.x / h.w)) * total);
+      }}
       style={{
         height: isAndroid ? 20 : 14,
         position: "relative",
@@ -213,7 +228,7 @@ function SeekBar({ pct, total, onSeek }: { pct: number; total: number; onSeek: (
           }}
         />
       </div>
-      {hoverX != null && (
+      {hover && (
         <>
           <div
             style={{
@@ -223,6 +238,7 @@ function SeekBar({ pct, total, onSeek }: { pct: number; total: number; onSeek: (
               height: 10,
               borderRadius: "50%",
               background: "var(--q-primary-light)",
+              pointerEvents: "none",
             }}
           />
           {tip != null && (
@@ -230,7 +246,7 @@ function SeekBar({ pct, total, onSeek }: { pct: number; total: number; onSeek: (
               style={{
                 position: "absolute",
                 top: -16,
-                left: Math.max(0, Math.min(w - 40, hoverX - 20)),
+                left: Math.max(0, Math.min(hover.w - 40, hover.x - 20)),
                 background: "var(--q-surface-alt)",
                 border: "1px solid var(--q-border)",
                 borderRadius: 4,
@@ -246,36 +262,6 @@ function SeekBar({ pct, total, onSeek }: { pct: number; total: number; onSeek: (
           )}
         </>
       )}
-    </div>
-  );
-}
-
-function PlayButton({ playing, onClick }: { playing: boolean; onClick: () => void }) {
-  const [hover, setHover] = useState(false);
-  return (
-    <div
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      onClick={onClick}
-      style={{
-        width: isAndroid ? 44 : 32,
-        height: isAndroid ? 44 : 32,
-        borderRadius: "50%",
-        background: hover ? "var(--q-primary)" : "var(--q-primary-light)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        cursor: "default",
-        transition: "background var(--q-dur-fast) var(--q-ease)",
-      }}
-    >
-      <Icon
-        name={playing ? "pause" : "play_arrow"}
-        size={isAndroid ? 24 : 18}
-        fill={1}
-        weight={400}
-        color="#fff"
-      />
     </div>
   );
 }
@@ -299,6 +285,39 @@ function TransportButton({ name, onClick }: { name: string; onClick: () => void 
       }}
     >
       <Icon name={name} size={isAndroid ? 24 : 20} />
+    </div>
+  );
+}
+
+/**
+ * Orden de reproducción: el ícono muestra el elegido (resaltado si no es "En
+ * orden") y el click abre el menú hacia arriba. En mobile los modos van a la
+ * izquierda de la barra, en desktop a la derecha: el menú se pega a ese borde.
+ */
+function OrderButton({ order, onSelect }: { order: PlayOrder; onSelect: (o: PlayOrder) => void }) {
+  const menu = useMenu<HTMLDivElement>();
+  const current = PLAY_ORDERS.find((o) => o.id === order) ?? PLAY_ORDERS[0];
+  return (
+    <div ref={menu.ref} style={{ position: "relative", display: "inline-flex" }}>
+      <ToggleButton
+        name={current.icon}
+        tooltip={`Orden: ${current.label}`}
+        selected={order !== "normal" || menu.open}
+        onClick={() => menu.setOpen((o) => !o)}
+      />
+      {menu.open && (
+        <MenuPanel up align={isAndroid ? "left" : "right"} minWidth={230}>
+          {PLAY_ORDERS.map((o) => (
+            <MenuItem
+              key={o.id}
+              icon={o.icon}
+              label={o.label}
+              checked={o.id === order}
+              onClick={menu.run(() => onSelect(o.id))}
+            />
+          ))}
+        </MenuPanel>
+      )}
     </div>
   );
 }
@@ -351,10 +370,7 @@ function ToggleButton({
 function VolumeBar({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const seek = (clientX: number) => {
-    const el = ref.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    onChange(Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)));
+    if (ref.current) onChange(fractionAt(ref.current, clientX));
   };
   return (
     <div

@@ -100,7 +100,24 @@ export function getCover(path: string): Promise<string | null> {
   return invoke<string | null>("music_get_cover", { path });
 }
 
-/** Embebe la imagen del archivo absoluto `imagePath` como portada del track. */
-export async function setCover(path: string, imagePath: string): Promise<void> {
-  await invoke("music_set_cover", { path, imagePath });
+/** Embebe la imagen `dataUrl` (`data:<mime>;base64,…`) como portada del track. */
+export async function setCover(path: string, dataUrl: string): Promise<void> {
+  await invoke("music_set_cover_data", { path, dataUrl });
+}
+
+/** Abre el selector de archivos (JPG, PNG o WebP) para elegir la portada.
+ * Devuelve la ruta absoluta o `null` si se canceló. Desktop-only. */
+export function pickImage(): Promise<string | null> {
+  return invoke<string | null>("music_pick_image");
+}
+
+/** Lee la imagen del archivo absoluto `imagePath` como data URL. */
+export function readImage(imagePath: string): Promise<string> {
+  return invoke<string>("music_read_image", { imagePath });
+}
+
+/** Baja la miniatura del video de YouTube del link `url` como data URL. Solo
+ * la imagen, no el audio. Desktop-only. */
+export function youtubeThumb(url: string): Promise<string> {
+  return invoke<string>("music_youtube_thumb", { url });
 }

@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Editor } from "@tiptap/react";
-import { Icon, TextInput, publishSelection } from "@quarks/core";
+import { Icon, TextInput, publishSelection, useStoreState } from "@quarks/core";
 import type { BooksStore } from "../store";
-import { useBooksState } from "../hooks/useBooksStore";
 import { RichEditor } from "./RichEditor";
 import { MarkdownToolbar } from "./MarkdownToolbar";
 import { TypographyMenu } from "./TypographyMenu";
@@ -21,7 +20,7 @@ export interface BookEditorProps {
  * + footer (status, paginación, contador de palabras y caracteres).
  */
 export function BookEditor({ store }: BookEditorProps) {
-  const state = useBooksState(store);
+  const state = useStoreState(store);
   // Instancia de TipTap del capítulo abierto; la expone `RichEditor` al crearse.
   // La comparte la toolbar (formato) y el contador de selección.
   const [editor, setEditor] = useState<Editor | null>(null);
@@ -40,8 +39,10 @@ export function BookEditor({ store }: BookEditorProps) {
     : state.activeBook?.chapters.find((c) => c.id === state.activeChapterId) ?? null;
 
   // Espejo de la selección en el bus global (lo consume Quarky). Cuando la
-  // selección desaparece publicamos `null`. El cleanup limpia al desmontar
-  // (al cambiar de tab no queremos dejar un fantasma colgado en el badge).
+  // selección desaparece publicamos `null`. OJO: el Shell mantiene las panes
+  // montadas (`display:none`) al cambiar de tab, así que el cleanup al
+  // desmontar NO cubre ese caso: lo cubre `useEditorSelection`, que vacía la
+  // selección cuando el editor pierde el foco. El cleanup es para cerrar el tab.
   useEffect(() => {
     if (!selection || !state.activeBook) {
       publishSelection(null);
@@ -92,7 +93,8 @@ export function BookEditor({ store }: BookEditorProps) {
         content={state.activeContent}
         search={state.search}
         chapterScrollTop={chapter.scrollTop ?? 0}
-        typographyKey={`${state.typography.family}|${state.typography.size}|${state.typography.lineHeight}`}
+        trim={state.typography.trim}
+        typographyKey={`${state.typography.family}|${state.typography.size}|${state.typography.lineHeight}|${state.typography.trim}`}
         onEditorReady={setEditor}
       />
       <StatusFooter
@@ -101,6 +103,7 @@ export function BookEditor({ store }: BookEditorProps) {
         selection={selection}
         pagination={state.pagination}
         status={state.editorStatus}
+        error={state.error}
       />
     </div>
   );
@@ -194,9 +197,18 @@ interface StatusFooterProps {
   selection: SelectionStats | null;
   pagination: { current: number; total: number };
   status: "saved" | "dirty" | "saving";
+  /** Último error de guardado; el store lo limpia cuando un save sale bien. */
+  error: string | null;
 }
 
-function StatusFooter({ liveWords, liveChars, selection, pagination, status }: StatusFooterProps) {
+function StatusFooter({
+  liveWords,
+  liveChars,
+  selection,
+  pagination,
+  status,
+  error,
+}: StatusFooterProps) {
   const statusLabel =
     status === "saved" ? "guardado" : status === "saving" ? "guardando…" : "con cambios";
   const statusColor =
@@ -210,6 +222,11 @@ function StatusFooter({ liveWords, liveChars, selection, pagination, status }: S
     <div className="q-books-editor-footer">
       <span className="q-books-footer-slot q-books-footer-left" style={{ color: statusColor }}>
         {statusLabel}
+        {error && (
+          <span className="q-books-footer-error" title={error}>
+            {error}
+          </span>
+        )}
       </span>
       <span className="q-books-footer-slot q-books-footer-center">
         Pág {pagination.current} / {pagination.total}

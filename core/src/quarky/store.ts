@@ -3,16 +3,25 @@
  *
  *   quarky/
  *   ├── config.json
- *   ├── chats/<spaceId>/<conversationId>.json
- *   ├── memory/*.md          (M5)
- *   └── contexts/*.md        (M5: general.md + <quarkId>.md)
+ *   ├── tabs.json            (conversaciones abiertas como tab)
+ *   ├── chats/<conversationId>.json
+ *   ├── memory.json          (ver memory/store.ts)
+ *   └── contexts/*.md        (general.md + <quarkId>.md; ver contexts.ts)
  *
  * Ver `.claude/knowledge/StorageLayout.md`. Usa el store atómico del core
  * (`services/store.ts`), así que escritura tmp+rename y serialización por archivo
  * vienen incluidas. La API key vive en el keyring (`services/secrets.ts`), NO acá.
  */
 import { isTauri } from "@tauri-apps/api/core";
-import { existsJson, readJson, writeJson } from "../services/store";
+import {
+  deleteJson,
+  existsJson,
+  listJson,
+  moveJson,
+  readJson,
+  removeDirIfEmpty,
+  writeJson,
+} from "../services/store";
 import { report } from "../services/log";
 import {
   DEFAULT_CONFIG,
@@ -22,11 +31,12 @@ import {
 } from "./types";
 
 const CONFIG_KEY = "quarky/config";
-const chatKey = (spaceId: string, id: string) => `quarky/chats/${spaceId}/${id}`;
-const tabsKey = (spaceId: string) => `quarky/tabs/${spaceId}`;
+const CHATS_DIR = "quarky/chats";
+const TABS_KEY = "quarky/tabs";
+const chatKey = (id: string) => `${CHATS_DIR}/${id}`;
 
 /**
- * Estado de las tabs abiertas de un space: qué conversaciones están abiertas en
+ * Estado de las tabs abiertas: qué conversaciones están abiertas en
  * la barra y cuál es la activa. Persiste para que al reabrir la app el usuario
  * recupere sus tabs. Vive aparte de las conversaciones (que pueden existir sin
  * estar abiertas como tab, reabribles desde el historial).
@@ -55,37 +65,28 @@ export async function ensureConfigFile(): Promise<void> {
 
 // ── Conversaciones ───────────────────────────────────────────────────────────
 
-export async function readConversation(
-  spaceId: string,
-  id: string,
-): Promise<Conversation | null> {
+export async function readConversation(id: string): Promise<Conversation | null> {
   // El fallback de readJson es para "shape parcial"; acá queremos detectar ausencia.
-  if (!(await existsJson(chatKey(spaceId, id)))) return null;
-  return readJson<Conversation | null>(chatKey(spaceId, id), null);
+  if (!(await existsJson(chatKey(id)))) return null;
+  return readJson<Conversation | null>(chatKey(id), null);
 }
 
 export async function writeConversation(conv: Conversation): Promise<void> {
-  await writeJson(chatKey(conv.spaceId, conv.id), conv);
+  await writeJson(chatKey(conv.id), conv);
 }
 
 /**
- * Lista los resúmenes de las conversaciones del space, ordenadas por
- * `updatedAt` descendente. Carga la conversación completa para sacar el título y
- * la fecha (las conversaciones son chicas y son pocas; si más adelante crecen,
- * podemos sacar un índice).
+ * Lista los resúmenes de las conversaciones, ordenadas por `updatedAt`
+ * descendente. Carga la conversación completa para sacar el título y la fecha
+ * (las conversaciones son chicas y son pocas; si más adelante crecen, podemos
+ * sacar un índice).
  */
-export async function listConversations(spaceId: string): Promise<ConversationSummary[]> {
+export async function listConversations(): Promise<ConversationSummary[]> {
   if (!isTauri()) return [];
-  const dir = `quarky/chats/${spaceId}`;
   try {
-    const { BaseDirectory, exists, readDir } = await import("@tauri-apps/plugin-fs");
-    if (!(await exists(dir, { baseDir: BaseDirectory.AppData }))) return [];
-    const entries = await readDir(dir, { baseDir: BaseDirectory.AppData });
     const out: ConversationSummary[] = [];
-    for (const e of entries) {
-      if (!e.isFile || !e.name.endsWith(".json") || e.name.endsWith(".tmp")) continue;
-      const id = e.name.slice(0, -".json".length);
-      const conv = await readConversation(spaceId, id);
+    for (const id of await listJson(CHATS_DIR)) {
+      const conv = await readConversation(id);
       if (conv) out.push({ id: conv.id, title: conv.title, updatedAt: conv.updatedAt });
     }
     out.sort((a, b) => b.updatedAt - a.updatedAt);
@@ -96,25 +97,70 @@ export async function listConversations(spaceId: string): Promise<ConversationSu
   }
 }
 
-// ── Tabs abiertas (por space) ──────────────────────────────────────────────────
+// ── Tabs abiertas ──────────────────────────────────────────────────────────────
 
-export async function readTabs(spaceId: string): Promise<TabsState> {
-  return readJson<TabsState>(tabsKey(spaceId), EMPTY_TABS);
+export async function readTabs(): Promise<TabsState> {
+  return readJson<TabsState>(TABS_KEY, EMPTY_TABS);
 }
 
-export async function writeTabs(spaceId: string, tabs: TabsState): Promise<void> {
-  await writeJson(tabsKey(spaceId), tabs);
+export async function writeTabs(tabs: TabsState): Promise<void> {
+  await writeJson(TABS_KEY, tabs);
 }
 
-export async function deleteConversation(spaceId: string, id: string): Promise<void> {
-  if (!isTauri()) return;
+export async function deleteConversation(id: string): Promise<void> {
   try {
-    const { BaseDirectory, exists, remove } = await import("@tauri-apps/plugin-fs");
-    const path = `${chatKey(spaceId, id)}.json`;
-    if (await exists(path, { baseDir: BaseDirectory.AppData })) {
-      await remove(path, { baseDir: BaseDirectory.AppData });
-    }
+    await deleteJson(chatKey(id));
   } catch (e) {
     report("quarky.deleteConversation", e);
   }
+}
+
+// ── Migración desde los Spaces ─────────────────────────────────────────────────
+
+/**
+ * Parte de Quarky de la migración única desde los Spaces (ver
+ * `services/legacySpaces.ts`): cada conversación de `chats/<spaceId>/` sube a
+ * `chats/`, y las tabs de cada space (`tabs/<spaceId>.json`) se suman a
+ * `tabs.json`, detrás de las que ya hubiera y con las del primer space (el
+ * activo) adelante. Idempotente: lo ya movido no se vuelve a tocar.
+ */
+export async function migrateChatsFromSpaces(spaceIds: string[]): Promise<void> {
+  const tabs: TabsState[] = [];
+  for (const spaceId of spaceIds) {
+    const dir = `${CHATS_DIR}/${spaceId}`;
+    for (const id of await listJson(dir)) {
+      const src = `${dir}/${id}`;
+      const dst = chatKey(id);
+      if (await existsJson(dst)) {
+        // Ya migrado en una corrida anterior: lo existente gana.
+        await deleteJson(src);
+        continue;
+      }
+      const conv = await readJson<Record<string, unknown> | null>(src, null);
+      if (conv) {
+        const { spaceId: _space, ...rest } = conv;
+        await writeJson(dst, rest);
+        await deleteJson(src);
+      } else {
+        // Ilegible: lo apartamos en vez de borrarlo, como `legacySpaces` con `spaces/`.
+        await moveJson(src, `${CHATS_DIR}.legacy/${spaceId}/${id}`);
+      }
+    }
+    await removeDirIfEmpty(dir);
+
+    const key = `${TABS_KEY}/${spaceId}`;
+    if (await existsJson(key)) {
+      tabs.push(await readJson<TabsState>(key, EMPTY_TABS));
+      await deleteJson(key);
+    }
+  }
+  await removeDirIfEmpty(TABS_KEY);
+  if (tabs.length === 0) return;
+
+  if (await existsJson(TABS_KEY)) tabs.unshift(await readTabs());
+  const openIds = [
+    ...new Set(tabs.flatMap((t) => (Array.isArray(t.openIds) ? t.openIds : []))),
+  ];
+  const activeId = tabs.find((t) => t.activeId)?.activeId ?? openIds[0] ?? null;
+  await writeTabs({ openIds, activeId });
 }

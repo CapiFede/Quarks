@@ -46,6 +46,11 @@ export interface BuildSystemPromptArgs {
   userMessage: string;
   /** Si false, ignora retrieval y se inyectan todas las entradas (legacy). */
   ragEnabled: boolean;
+  /**
+   * Si true, las memorias inyectadas suman un uso. Solo el turno real lo pasa;
+   * la preview del inspector arma el mismo prompt sin efectos colaterales.
+   */
+  trackMemoryUses?: boolean;
 }
 
 /**
@@ -77,6 +82,7 @@ export async function buildSystemPrompt(args: BuildSystemPromptArgs): Promise<st
     await retrieveMemoriesForTurn({
       userMessage: args.userMessage,
       ragEnabled: args.ragEnabled,
+      trackUses: args.trackMemoryUses ?? false,
     })
   ).trim();
   if (memory) parts.push(untrustedContextMessage("MEMORIA", memory));

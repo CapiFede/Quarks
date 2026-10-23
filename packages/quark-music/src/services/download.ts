@@ -60,15 +60,12 @@ export async function setupTools(onProgress: (p: SetupProgress) => void): Promis
 /**
  * Chequeo periódico de versión de yt-dlp. Barato: el backend no toca la red si
  * no pasaron 7 días desde el último chequeo, y aun pasando solo hace un HEAD de
- * ~0 bytes. Nunca rechaza por falta de red. `force` saltea el intervalo.
+ * ~0 bytes. Nunca rechaza por falta de red.
  */
-export async function checkToolsUpdate(
-  onProgress: (p: UpdateProgress) => void,
-  force = false,
-): Promise<void> {
+export async function checkToolsUpdate(onProgress: (p: UpdateProgress) => void): Promise<void> {
   const on = new Channel<UpdateProgress>();
   on.onmessage = onProgress;
-  await invoke("music_tools_check_update", { force, on });
+  await invoke("music_tools_check_update", { on });
 }
 
 export function probeUrl(url: string): Promise<ProbeResult> {
@@ -82,4 +79,12 @@ export async function download(
   const on = new Channel<DownloadProgress>();
   on.onmessage = onProgress;
   return invoke<string[]>("music_download", { opts, on });
+}
+
+/**
+ * Mata el proceso yt-dlp de la descarga en curso; la promesa pendiente de
+ * `download()` rechaza entonces con un error. No-op si no hay descarga.
+ */
+export function cancelDownload(): Promise<void> {
+  return invoke("music_download_cancel");
 }

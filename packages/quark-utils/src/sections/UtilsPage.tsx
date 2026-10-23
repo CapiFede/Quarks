@@ -1,6 +1,5 @@
-import { Button, Icon } from "@quarks/core";
+import { Button, Icon, useStoreState } from "@quarks/core";
 import type { UtilsStore } from "../store";
-import { useUtilsState } from "../hooks/useUtilsStore";
 import { UtilsSidebar } from "./UtilsSidebar";
 import { TimerView } from "./TimerView";
 import { StopwatchView } from "./StopwatchView";
@@ -13,7 +12,7 @@ export interface UtilsPageProps {
 }
 
 export function UtilsPage({ store }: UtilsPageProps) {
-  const state = useUtilsState(store);
+  const state = useStoreState(store);
 
   return (
     <div className="q-utils-page">

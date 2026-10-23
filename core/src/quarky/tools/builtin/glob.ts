@@ -15,6 +15,7 @@
  */
 import { resolveInWorkspace, relToWorkspace } from "../pathSandbox";
 import type { ToolDef } from "../types";
+import { walkFiles } from "../../../services/store";
 
 const MAX_HITS = 200;
 
@@ -46,31 +47,19 @@ export const glob: ToolDef = {
     const { pattern, path = "" } = rawArgs as Args;
     const re = compileGlob(pattern);
     const root = resolveInWorkspace(ctx.workspaceRoot, path);
-    const { BaseDirectory, exists, readDir } = await import("@tauri-apps/plugin-fs");
+    const { BaseDirectory, exists } = await import("@tauri-apps/plugin-fs");
     if (!(await exists(root, { baseDir: BaseDirectory.AppData }))) {
       return { content: `glob: no existe \`${path || "."}\``, isError: true };
     }
 
+    // El pattern matchea contra la ruta relativa al workspace (p. ej.
+    // `music/**/*.mp3`), que es como la ve el modelo.
     const hits: string[] = [];
-    const walk = async (rel: string, displayPrefix: string): Promise<void> => {
-      if (hits.length >= MAX_HITS) return;
-      const entries = await readDir(rel, { baseDir: BaseDirectory.AppData });
-      for (const e of entries) {
-        if (hits.length >= MAX_HITS) return;
-        const childRel = `${rel}/${e.name}`;
-        const childDisplay = displayPrefix ? `${displayPrefix}/${e.name}` : e.name;
-        if (e.isDirectory) {
-          await walk(childRel, childDisplay);
-        } else if (e.isFile && !e.name.endsWith(".tmp")) {
-          if (re.test(childDisplay)) hits.push(childDisplay);
-        }
-      }
-    };
-
-    // El display prefix arranca con la sub-path relativa al workspace (para que
-    // el pattern matchee como el usuario espera, ej. `music/**/*.mp3`).
-    const startDisplay = relToWorkspace(ctx.workspaceRoot, root);
-    await walk(root, startDisplay);
+    for await (const rel of walkFiles(root)) {
+      const display = relToWorkspace(ctx.workspaceRoot, rel);
+      if (re.test(display)) hits.push(display);
+      if (hits.length >= MAX_HITS) break;
+    }
 
     if (hits.length === 0) return { content: `glob: sin matches para \`${pattern}\`` };
     hits.sort();

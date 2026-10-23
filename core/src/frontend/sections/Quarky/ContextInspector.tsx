@@ -6,13 +6,13 @@
  *   3. Prompt del quark activo (`contexts/<quarkId>.md`) — editable, solo si hay
  *      un quark abierto.
  *   4. Mensajes serializados al wire format (read-only).
- *   5. Tools — placeholder hasta M3.
+ *   5. Tools del modo activo (read-only).
  *   6. Memoria — CRUD sobre `quarky/memory.json` (categoría + pin toggle + filtros).
  *
  * El overlay reemplaza al `MessageList` cuando `inspectorOpen` es true. Las
  * secciones son colapsables; el open-state es interno (no persiste).
  */
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuarky } from "../../../quarky/hooks/useQuarky";
 import { toApiMessages } from "../../../quarky/provider";
 import { buildSystemPrompt } from "../../../quarky/systemPrompt";
@@ -55,6 +55,13 @@ import { report } from "../../../services/log";
 export function ContextInspector() {
   const { activeQuarkId } = useQuarky();
   const quarkMeta = activeQuarkId ? getQuark(activeQuarkId) : undefined;
+  // Identidad estable: `PromptSection` los tiene como deps de su efecto de
+  // carga; con arrows inline releía el `.md` del disco en cada render.
+  const loadQuarkPrompt = useCallback(() => readQuarkPrompt(activeQuarkId ?? ""), [activeQuarkId]);
+  const saveQuarkPrompt = useCallback(
+    (c: string) => writeQuarkPrompt(activeQuarkId ?? "", c),
+    [activeQuarkId],
+  );
 
   return (
     <div
@@ -84,8 +91,8 @@ export function ContextInspector() {
           key={activeQuarkId}
           title={`Prompt del quark · ${quarkMeta?.name ?? activeQuarkId}`}
           subtitle="Solo se inyecta cuando este quark está abierto."
-          load={() => readQuarkPrompt(activeQuarkId)}
-          save={(c) => writeQuarkPrompt(activeQuarkId, c)}
+          load={loadQuarkPrompt}
+          save={saveQuarkPrompt}
           defaultValue=""
           placeholder="Instrucciones específicas para cuando este quark está abierto…"
         />

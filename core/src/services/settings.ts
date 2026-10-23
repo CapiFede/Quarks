@@ -13,12 +13,8 @@
  *
  * Campos que se agregan en fases siguientes (reservados, no se modelan aún):
  *   - `drive`                   (Fase 0.6; los tokens van al keyring, no acá)
- *
- * El space activo NO vive acá: es estado de runtime (device-local) y va en
- * `appState.json`. Acá solo viven las definiciones de Spaces (que sí sincronizan).
  */
 import { existsJson, readJson, writeJson } from "./store";
-import { type Space, DEFAULT_SPACE, normalizeSpaces } from "./spaces";
 
 export interface AppSettings {
   /** Versión del esquema, para migraciones futuras. */
@@ -26,8 +22,6 @@ export interface AppSettings {
   /** Nombre que se muestra en el strip de usuario del Home. Se setea desde la
    *  cuenta logueada (ver Shell); vacío hasta que el usuario inicie sesión. */
   displayName: string;
-  /** Spaces definidos por el usuario (siempre ≥1; ver `spaces.ts`). */
-  spaces: Space[];
 }
 
 const FILE = "settings";
@@ -35,20 +29,23 @@ const FILE = "settings";
 export const DEFAULT_SETTINGS: AppSettings = {
   version: 1,
   displayName: "",
-  spaces: [DEFAULT_SPACE],
 };
 
 export async function loadSettings(): Promise<AppSettings> {
-  const raw = await readJson<AppSettings>(FILE, DEFAULT_SETTINGS);
-  const normalized = { ...raw, spaces: normalizeSpaces(raw.spaces) };
+  // `spaces` es de la versión con Spaces: lo consume (y lo saca) la migración
+  // del arranque. Si quedara en memoria, el próximo guardado lo volvería a
+  // escribir y la migración correría de nuevo sobre data ya migrada.
+  const { spaces: _legacy, ...settings } = await readJson<
+    AppSettings & { spaces?: unknown }
+  >(FILE, DEFAULT_SETTINGS);
   // Si el archivo no existía, readJson devuelve DEFAULT_SETTINGS sin escribir nada.
   // Lo escribimos acá para que exista desde el primer launch (sync, inspección, etc.).
   try {
-    if (!(await existsJson(FILE))) await saveSettings(normalized);
+    if (!(await existsJson(FILE))) await saveSettings(settings);
   } catch {
     // No crítico: si falla la escritura inicial el app sigue funcionando.
   }
-  return normalized;
+  return settings;
 }
 
 export async function saveSettings(settings: AppSettings): Promise<void> {

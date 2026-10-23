@@ -9,8 +9,8 @@
  * Por qué relativo a AppData en lugar de paths absolutos: simplifica el modelo
  * mental (no hay que pensar en `C:\` ni paths UNC), y la verificación es chica
  * — no permite `..` que salgan de la raíz, no permite drive letters, no permite
- * paths absolutos POSIX. Si en M6 sumamos workspace root configurable a una
- * carpeta arbitraria, este módulo es el único que cambia.
+ * paths absolutos POSIX. Si algún día el workspace root apunta a una carpeta
+ * arbitraria, este módulo es el único que cambia.
  */
 
 export class PathSandboxError extends Error {

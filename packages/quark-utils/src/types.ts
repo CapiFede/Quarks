@@ -1,6 +1,6 @@
 /**
  * Tipos del quark Utils. Las preferencias (presets de timer, alarmas, último
- * rango del random) son GLOBALES — no dependen del space. Ver `services/persistence.ts`.
+ * rango del random) son globales. Ver `services/persistence.ts`.
  */
 
 export type Tool = "clocks" | "random";

@@ -7,7 +7,7 @@
  * Claude Code: cero tolerancia a coincidencias ambiguas.
  *
  * Diff: incluímos el contexto antes/después en el contenido del result para que
- * la UI de aprobación pueda mostrarlo prolijo (M4 polish).
+ * la UI de aprobación pueda mostrarlo prolijo.
  */
 import { resolveInWorkspace } from "../pathSandbox";
 import type { ToolDef } from "../types";

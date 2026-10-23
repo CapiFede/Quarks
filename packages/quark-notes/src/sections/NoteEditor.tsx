@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Icon, publishSelection } from "@quarks/core";
+import { Icon, publishSelection, UNTITLED, useMenu } from "@quarks/core";
 import type { Editor } from "@tiptap/react";
 import type { NotesStore } from "../store";
 import type { EditorStatus, NoteIndex } from "../types";
@@ -21,6 +21,8 @@ export interface NoteEditorProps {
   note: NoteIndex;
   content: string;
   editorStatus: EditorStatus;
+  /** Último error de guardado; el store lo limpia cuando un save sale bien. */
+  error: string | null;
 }
 
 /**
@@ -28,7 +30,7 @@ export interface NoteEditorProps {
  * wrap) + barra de formato, y el cuerpo: editor rich-text (TipTap, HTML como
  * fuente de verdad) en modo texto, o el editor JSON con highlight en modo json.
  */
-export function NoteEditor({ store, note, content, editorStatus }: NoteEditorProps) {
+export function NoteEditor({ store, note, content, editorStatus, error }: NoteEditorProps) {
   const [titleDraft, setTitleDraft] = useState(note.title);
   /** Instancia de TipTap de la nota abierta (la consume la barra de formato). */
   const [editor, setEditor] = useState<Editor | null>(null);
@@ -76,7 +78,7 @@ export function NoteEditor({ store, note, content, editorStatus }: NoteEditorPro
         <input
           className="q-notes-title-input"
           value={titleDraft}
-          placeholder="Sin título"
+          placeholder={UNTITLED}
           onChange={(e) => setTitleDraft(e.target.value)}
           onBlur={commitTitle}
           onKeyDown={(e) => {
@@ -87,7 +89,7 @@ export function NoteEditor({ store, note, content, editorStatus }: NoteEditorPro
           }}
         />
         <div className="q-notes-editor-meta">
-          <EditorStatusBadge status={editorStatus} />
+          <EditorStatusBadge status={editorStatus} error={error} />
           <span>{formatRelativeDate(note.updatedAt)} · {formatTime(note.updatedAt)}</span>
         </div>
       </div>
@@ -123,26 +125,7 @@ interface ColorPillProps {
 }
 
 function ColorPill({ store, note }: ColorPillProps) {
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLSpanElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  const { open, setOpen, ref: wrapRef } = useMenu<HTMLSpanElement>();
 
   const currentLabel =
     NOTE_COLORS.find((c) => c.id === (note.color ?? "neutral"))?.label ?? "Neutro";
@@ -348,13 +331,18 @@ function JsonEditor({ store, content, wrap }: JsonEditorProps) {
 
 // ── Badge de estado del editor ────────────────────────────────────────────────
 
-function EditorStatusBadge({ status }: { status: EditorStatus }) {
+function EditorStatusBadge({ status, error }: { status: EditorStatus; error: string | null }) {
   const label =
     status === "saved" ? "guardada" : status === "saving" ? "guardando…" : "sin guardar";
   const color = status === "dirty" ? "var(--q-text-secondary)" : "var(--q-text-light)";
   return (
     <span className="q-notes-editor-status" style={{ color }}>
       {label}
+      {error && (
+        <span className="q-notes-editor-error" title={error}>
+          {error}
+        </span>
+      )}
     </span>
   );
 }

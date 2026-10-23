@@ -1,11 +1,10 @@
 /**
- * Sección "Quarky" del modal de Settings: API key, modelo, modo default y hops.
+ * Sección "Quarky" del modal de Settings: API key, modelo y memoria (RAG +
+ * auto-extracción).
  *
- * Vive en archivo aparte (y no inline en `Settings.tsx`) porque la lista de
- * controles del subsistema Quarky tiende a crecer (workspace root, contextos
- * editables, viewer de memoria llegan en M5). Mantener cohesión por subsistema
- * en lugar de por "modal de Settings" hace que la pantalla siga siendo
- * navegable cuando sumemos más quarks con sus propias configs.
+ * Vive en archivo aparte (y no inline en `Settings.tsx`) para mantener la
+ * cohesión por subsistema: los prompts y el viewer de memoria viven en el
+ * inspector del panel, y acá solo lo que se configura una vez.
  *
  * El componente lee/escribe directo a `quarky/config.json` y al keyring; el
  * `useQuarky()` del context se sincroniza vía `setModel` (los demás campos los
@@ -21,6 +20,7 @@ import { deleteSecret, getSecret, setSecret } from "../../services/secrets";
 import { OPENROUTER_KEY } from "../../quarky/provider";
 import { useQuarky } from "../../quarky/hooks/useQuarky";
 import { report } from "../../services/log";
+import { Toggle } from "../components/Toggle";
 
 export function QuarkySettings() {
   return (
@@ -186,14 +186,14 @@ function MemoryRow() {
       hint="RAG: solo inyecta pinneadas + top-10 más relevantes al mensaje (requiere descargar un modelo de ~33MB la primera vez). Captura automática: después de cada respuesta del asistente, un modelo barato/gratis mira los últimos mensajes y decide si guardar hechos durables. Ambos son opt-in."
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <Toggle
+        <ToggleRow
           label="Retrieval semántico (RAG)"
-          value={quarky.config.ragEnabled}
+          checked={quarky.config.ragEnabled}
           onChange={(v) => void quarky.setRagEnabled(v)}
         />
-        <Toggle
+        <ToggleRow
           label="Capturar memorias automáticamente"
-          value={quarky.config.autoExtractMemory}
+          checked={quarky.config.autoExtractMemory}
           onChange={(v) => void quarky.setAutoExtractMemory(v)}
         />
         <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 2 }}>
@@ -205,12 +205,7 @@ function MemoryRow() {
           >
             Modelo para extracción/consolidación
           </label>
-          <TextInput
-            value={quarky.config.extractorModel}
-            onChange={(v) => void quarky.setExtractorModel(v)}
-            placeholder="google/gemma-3-27b-it:free"
-            icon="smart_toy"
-          />
+          <ExtractorModelField />
           <span style={{ fontSize: "var(--q-fs-10)", color: "var(--q-text-light)" }}>
             Cualquier modelo de OpenRouter. Los <code>:free</code> alcanzan; el principal del chat se elige aparte arriba.
           </span>
@@ -220,34 +215,58 @@ function MemoryRow() {
   );
 }
 
-function Toggle({
+/**
+ * Draft local + commit en blur/Enter: `setExtractorModel` hace un
+ * read-modify-write de `config.json`, y dispararlo por tecla era una escritura
+ * a disco (y una carrera) por pulsación.
+ */
+function ExtractorModelField() {
+  const { config, setExtractorModel } = useQuarky();
+  const [draft, setDraft] = useState(config.extractorModel);
+  useEffect(() => {
+    setDraft(config.extractorModel);
+  }, [config.extractorModel]);
+  const commit = () => {
+    const v = draft.trim();
+    if (v !== config.extractorModel) void setExtractorModel(v);
+  };
+  return (
+    <TextInput
+      value={draft}
+      onChange={setDraft}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit();
+      }}
+      placeholder="google/gemma-3-27b-it:free"
+      icon="smart_toy"
+    />
+  );
+}
+
+function ToggleRow({
   label,
-  value,
+  checked,
   onChange,
 }: {
   label: string;
-  value: boolean;
+  checked: boolean;
   onChange: (next: boolean) => void;
 }) {
   return (
-    <label
+    <div
       style={{
         display: "flex",
         alignItems: "center",
+        justifyContent: "space-between",
         gap: 10,
-        cursor: "pointer",
         fontSize: "var(--q-fs-12)",
         color: "var(--q-text-primary)",
       }}
     >
-      <input
-        type="checkbox"
-        checked={value}
-        onChange={(e) => onChange(e.target.checked)}
-        style={{ width: 14, height: 14, cursor: "pointer" }}
-      />
       {label}
-    </label>
+      <Toggle checked={checked} onChange={onChange} />
+    </div>
   );
 }
 

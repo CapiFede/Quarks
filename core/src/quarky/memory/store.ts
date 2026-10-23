@@ -2,15 +2,16 @@
  * CRUD sobre el store JSON de memoria (`quarky/memory.json`).
  *
  * Source of truth único: el array `entries` adentro del archivo. Cualquier
- * mutación pasa por `loadStore` → mutar copia → `saveStore`, y `saveStore`
- * delega en `writeJson` del core (atómico tmp+rename + cola por archivo).
+ * mutación pasa por `loadStore` → mutar copia → `saveStore` dentro de `mutate`
+ * (ciclos serializados), y `saveStore` delega en `writeJson` del core (atómico
+ * tmp+rename + cola por archivo).
  *
  * No cachea en memoria: cada lectura va a disco. Es barato (<1ms para JSONs
  * de hasta cientos de entradas) y evita problemas de stale state cuando hay
  * múltiples consumidores (UI inspector + tool del modelo + extracción
  * background) tocando el mismo store en paralelo.
  *
- * Embeddings (M2): los campos `embedding` se persisten igual que el resto. Si
+ * Embeddings: los campos `embedding` se persisten igual que el resto. Si
  * una entrada no tiene embedding, el retrieval cae a tratarla como pinned.
  */
 import { readJson, writeJson } from "../../services/store";
@@ -25,15 +26,9 @@ import {
   type MemoryStore,
   isMemoryCategory,
 } from "./types";
+import { newId } from "../../services/util";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Id corto random (16 hex), mismo formato que `conversation.ts:randomId`. */
-function randomId(): string {
-  const bytes = new Uint8Array(8);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-}
 
 /**
  * Sanea una entrada cargada del JSON, completando defaults para campos que
@@ -56,6 +51,19 @@ function normalizeEntry(raw: Partial<MemoryEntry> | undefined | null): MemoryEnt
     updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : now,
     embedding: Array.isArray(raw.embedding) ? raw.embedding : undefined,
   };
+}
+
+// ── Serialización de mutaciones ──────────────────────────────────────────────
+//
+// `writeJson` serializa solo la escritura, no el ciclo leer → modificar →
+// escribir. Hay escritores en background por diseño (`incrementUses` del turno,
+// `embedAndSave` tras cada alta) y dos ciclos solapados pierden el primero: el
+// embedding recién calculado desaparecía hasta el próximo backfill.
+let mutationChain: Promise<unknown> = Promise.resolve();
+function mutate<T>(fn: () => Promise<T>): Promise<T> {
+  const next = mutationChain.then(fn, fn);
+  mutationChain = next.catch(() => {});
+  return next;
 }
 
 // ── Carga / guardado del store entero ────────────────────────────────────────
@@ -103,7 +111,7 @@ export async function addEntry(input: AddEntryInput): Promise<MemoryEntry> {
   const pinned = input.pinned ?? category === "identity";
   const now = Date.now();
   const entry: MemoryEntry = {
-    id: randomId(),
+    id: newId(),
     text,
     category,
     pinned,
@@ -111,9 +119,11 @@ export async function addEntry(input: AddEntryInput): Promise<MemoryEntry> {
     createdAt: now,
     updatedAt: now,
   };
-  const store = await loadStore();
-  store.entries.push(entry);
-  await saveStore(store);
+  await mutate(async () => {
+    const store = await loadStore();
+    store.entries.push(entry);
+    await saveStore(store);
+  });
   // Embedding en background: el caller ve la entrada disponible al instante.
   // Si el modelo todavía no cargó, esto dispara la carga.
   void embedAndSave(entry.id, entry.text);
@@ -130,56 +140,43 @@ export async function updateEntry(
   id: string,
   patch: UpdateEntryInput,
 ): Promise<MemoryEntry | null> {
-  const store = await loadStore();
-  const idx = store.entries.findIndex((e) => e.id === id);
-  if (idx === -1) return null;
-  const prev = store.entries[idx];
-  const nextText = patch.text !== undefined ? patch.text.trim() : prev.text;
-  if (!nextText) throw new Error("updateEntry: text vacío");
-  // Si el texto cambió, el embedding (M2) queda inválido y se borra para que
-  // el writer lo recompute en background.
-  const textChanged = nextText !== prev.text;
-  const next: MemoryEntry = {
-    ...prev,
-    text: nextText,
-    category: patch.category ?? prev.category,
-    pinned: patch.pinned ?? prev.pinned,
-    updatedAt: Date.now(),
-    embedding: textChanged ? undefined : prev.embedding,
-  };
-  store.entries[idx] = next;
-  await saveStore(store);
+  const result = await mutate(async () => {
+    const store = await loadStore();
+    const idx = store.entries.findIndex((e) => e.id === id);
+    if (idx === -1) return null;
+    const prev = store.entries[idx];
+    const nextText = patch.text !== undefined ? patch.text.trim() : prev.text;
+    if (!nextText) throw new Error("updateEntry: text vacío");
+    // Si el texto cambió, el embedding queda inválido y se borra para que el
+    // writer lo recompute en background.
+    const textChanged = nextText !== prev.text;
+    const next: MemoryEntry = {
+      ...prev,
+      text: nextText,
+      category: patch.category ?? prev.category,
+      pinned: patch.pinned ?? prev.pinned,
+      updatedAt: Date.now(),
+      embedding: textChanged ? undefined : prev.embedding,
+    };
+    store.entries[idx] = next;
+    await saveStore(store);
+    return { next, textChanged };
+  });
+  if (!result) return null;
   // Si el texto cambió, recalculamos embedding en background.
-  if (textChanged) void embedAndSave(next.id, next.text);
-  return next;
+  if (result.textChanged) void embedAndSave(result.next.id, result.next.text);
+  return result.next;
 }
 
 export async function deleteEntry(id: string): Promise<boolean> {
-  const store = await loadStore();
-  const before = store.entries.length;
-  store.entries = store.entries.filter((e) => e.id !== id);
-  if (store.entries.length === before) return false;
-  await saveStore(store);
-  return true;
-}
-
-/**
- * Bloque de memoria listo para inyectar en el system prompt. Hoy concatena
- * TODAS las entradas (mismo comportamiento que el módulo viejo). En M2 esto
- * lo reemplaza `retrieveMemoriesForTurn(userMessage)` con búsqueda vectorial,
- * y `pinned` empieza a importar.
- *
- * El caller decide si envuelve esto con `untrustedContextMessage`.
- */
-export async function memoryForPrompt(): Promise<string> {
-  const entries = await listEntries();
-  if (entries.length === 0) return "";
-  return entries
-    .map((e) => {
-      const tag = e.pinned ? `### ${e.category} · ${e.id} (pinned)` : `### ${e.category} · ${e.id}`;
-      return `${tag}\n${e.text.trim()}`;
-    })
-    .join("\n\n");
+  return mutate(async () => {
+    const store = await loadStore();
+    const before = store.entries.length;
+    store.entries = store.entries.filter((e) => e.id !== id);
+    if (store.entries.length === before) return false;
+    await saveStore(store);
+    return true;
+  });
 }
 
 // ── Embeddings (background) ──────────────────────────────────────────────────
@@ -187,27 +184,32 @@ export async function memoryForPrompt(): Promise<string> {
 /**
  * Calcula el embedding de `text` y lo persiste en la entrada `id`. Si la
  * entrada se borró antes de que termine, no-op. Best-effort: si el embedder
- * falla, loggea y deja la entrada sin embedding (el retrieval la ignora).
+ * falla, loggea, deja la entrada sin embedding (el retrieval la ignora) y
+ * devuelve `false` para que un backfill pueda frenar.
  */
-async function embedAndSave(id: string, text: string): Promise<void> {
+async function embedAndSave(id: string, text: string): Promise<boolean> {
   try {
     const vec = await embed(text, "passage");
-    const store = await loadStore();
-    const idx = store.entries.findIndex((e) => e.id === id);
-    if (idx === -1) return; // borrada mid-flight
-    if (store.entries[idx].text !== text) return; // el texto cambió otra vez; ese update dispara su propio embed
-    store.entries[idx] = { ...store.entries[idx], embedding: Array.from(vec) };
-    await saveStore(store);
+    await mutate(async () => {
+      const store = await loadStore();
+      const idx = store.entries.findIndex((e) => e.id === id);
+      if (idx === -1) return; // borrada mid-flight
+      if (store.entries[idx].text !== text) return; // el texto cambió otra vez; ese update dispara su propio embed
+      store.entries[idx] = { ...store.entries[idx], embedding: Array.from(vec) };
+      await saveStore(store);
+    });
+    return true;
   } catch (e) {
     report("quarky.memory.embedAndSave:" + id, e);
+    return false;
   }
 }
 
 /**
  * Backfill: recorre las entradas sin embedding y las indexa una a una. Se llama
  * en background al primer `sendMessage` con RAG habilitado, o desde el botón
- * "Recalcular" del inspector. Si el embedder no carga, frena después de la
- * primera falla (no tiene sentido reintentar 100 veces seguidas).
+ * "Recalcular" del inspector. Si el embedder no carga, frena en la primera
+ * falla (no tiene sentido reintentar 100 veces seguidas).
  */
 export async function backfillEmbeddings(): Promise<{ done: number; total: number }> {
   const store = await loadStore();
@@ -216,12 +218,8 @@ export async function backfillEmbeddings(): Promise<{ done: number; total: numbe
   );
   let done = 0;
   for (const e of pending) {
-    try {
-      await embedAndSave(e.id, e.text);
-      done++;
-    } catch {
-      break;
-    }
+    if (!(await embedAndSave(e.id, e.text))) break;
+    done++;
   }
   return { done, total: pending.length };
 }
@@ -237,19 +235,21 @@ export async function embeddingCoverage(): Promise<{ withEmbedding: number; tota
 
 /**
  * Incrementa `uses` y `updatedAt` para las entradas indicadas. Usado por el
- * retrieval (M2+) tras inyectarlas en el system prompt. Best-effort: si falla,
+ * retrieval tras inyectarlas en el system prompt. Best-effort: si falla,
  * loggea pero no rompe el turno del usuario.
  */
 export async function incrementUses(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
   const set = new Set(ids);
-  const store = await loadStore();
-  let touched = false;
-  for (const e of store.entries) {
-    if (set.has(e.id)) {
-      e.uses += 1;
-      touched = true;
+  await mutate(async () => {
+    const store = await loadStore();
+    let touched = false;
+    for (const e of store.entries) {
+      if (set.has(e.id)) {
+        e.uses += 1;
+        touched = true;
+      }
     }
-  }
-  if (touched) await saveStore(store);
+    if (touched) await saveStore(store);
+  });
 }

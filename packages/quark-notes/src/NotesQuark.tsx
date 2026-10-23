@@ -1,5 +1,5 @@
-import { Icon, type AiContext, type Quark } from "@quarks/core";
-import { NotesStore } from "./store";
+import type { AiContext, Quark } from "@quarks/core";
+import { NotesStore, migrateNotesFromSpaces } from "./store";
 import { NotesPage } from "./sections/NotesPage";
 import "./styles/notes.css";
 
@@ -15,8 +15,6 @@ export function createNotesQuark(): Quark {
 
   return {
     id: "notes",
-    name: "Notas",
-    icon: <Icon name="edit_note" size={16} />,
 
     buildPage: () => <NotesPage store={store} />,
 
@@ -32,6 +30,7 @@ export function createNotesQuark(): Quark {
 
     initialize: () => store.init(),
     dispose: () => store.dispose(),
+    migrateSpaces: migrateNotesFromSpaces,
   };
 }
 
@@ -63,7 +62,7 @@ function buildNotesAiContext(store: NotesStore): AiContext | null {
       : "El usuario no tiene ninguna nota abierta.",
   ];
   if (s.notes.length > 0) {
-    headerLines.push("", "Notas en este space:", noteList);
+    headerLines.push("", "Notas:", noteList);
   }
 
   const attachments = active

@@ -8,6 +8,7 @@ import {
 } from "../../services/account/sync";
 import { endBackgroundTask, startBackgroundTask } from "../../services/background";
 import { report } from "../../services/log";
+import { messageOf } from "../../services/util";
 
 export type SyncOp = "idle" | "checking" | "pushing" | "pulling" | "error";
 
@@ -27,13 +28,15 @@ export interface SyncController {
   cancel: () => void;
 }
 
-const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /**
- * Estado del motor de sync para la UI. Hace un `check` automático al montar (el
- * panel solo se monta cuando hay cuenta conectada). Un ref `busy` serializa las
- * operaciones; un `AbortController` permite cancelarlas. Mientras corre una, es
- * tarea en background: en Android sigue aunque se apague la pantalla.
+ * Estado del motor de sync para la UI. Vive en el Shell (no en el panel de
+ * Settings) para que una operación larga sobreviva a cerrar el popup y el botón
+ * Cancelar siga alcanzándola. El `check` automático lo dispara el panel al
+ * abrirse; `enabled` (hay cuenta conectada) en false aborta y limpia. Un ref
+ * `busy` serializa las operaciones; un `AbortController` permite cancelarlas.
+ * Mientras corre una, es tarea en background: en Android sigue aunque se
+ * apague la pantalla.
  *
  * Tras un pull exitoso recargamos el WebView entero (`window.location.reload`):
  * el pull reescribe el árbol en disco por debajo de los stores ya montados
@@ -41,13 +44,15 @@ const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
  * más simple y consistente de que cada quark tome su estado ya actualizado del
  * disco; equivale a un F5.
  */
-export function useSync(): SyncController {
+export function useSync(enabled: boolean): SyncController {
   const [preview, setPreview] = useState<SyncPreview | null>(null);
   const [status, setStatus] = useState<SyncOp>("idle");
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<SyncProgress | null>(null);
   const busy = useRef(false);
   const controller = useRef<AbortController | null>(null);
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
 
   const run = useCallback(
     async (
@@ -72,6 +77,11 @@ export function useSync(): SyncController {
             if (!ctrl.signal.aborted) throw e;
           }
         }
+        // Si en el medio se desconectó la cuenta, no hay contra qué re-chequear.
+        if (!enabledRef.current) {
+          setStatus("idle");
+          return;
+        }
         // Re-check SIEMPRE, con un signal NUEVO: tras cancelar, lo ya subido/bajado
         // deja de aparecer en el resumen (antes quedaba el preview viejo hasta un F5).
         const ctrl = new AbortController();
@@ -87,7 +97,7 @@ export function useSync(): SyncController {
         }
       } catch (e) {
         report(`sync.${op}`, e);
-        setError(msg(e));
+        setError(messageOf(e));
         setStatus("error");
       } finally {
         controller.current = null;
@@ -116,12 +126,13 @@ export function useSync(): SyncController {
   const cancel = useCallback(() => controller.current?.abort(), []);
 
   useEffect(() => {
-    // Check automático al montar. NO abortamos en el cleanup: en dev StrictMode
-    // monta/desmonta/monta, y abortar acá cancelaba este primer check (el segundo
-    // queda bloqueado por el guard `busy`), dejándolo colgado en "Revisando…".
-    // La cancelación es explícita vía `cancel` (botón Cancelar).
-    void check();
-  }, [check]);
+    if (enabled) return;
+    // Cuenta desconectada: abortamos lo que haya y limpiamos el resumen.
+    controller.current?.abort();
+    setPreview(null);
+    setError(null);
+    setStatus("idle");
+  }, [enabled]);
 
   return { preview, status, error, progress, check, push, pull, cancel };
 }

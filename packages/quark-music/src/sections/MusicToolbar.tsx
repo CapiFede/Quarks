@@ -1,24 +1,43 @@
-import { useEffect, useRef, useState } from "react";
-import { QuarkToolbar, IconButton, TextInput, Icon, isAndroid } from "@quarks/core";
-import type { MusicStore } from "../store";
-import { useMusicState } from "../hooks/useMusicStore";
-import type { Playlist, PlaylistView } from "../types";
+import { useEffect, useState, type ReactNode } from "react";
+import {
+  QuarkToolbar,
+  IconButton,
+  TextInput,
+  Icon,
+  isAndroid,
+  useStoreState,
+  MenuDivider,
+  MenuItem,
+  MenuPanel,
+  useMenu,
+} from "@quarks/core";
+import { viewSize, type MusicStore } from "../store";
+import type { Category, Playlist, PlaylistView, PlayOrder, TrackSort } from "../types";
+import { PLAY_ORDERS, TRACK_SORTS } from "../util";
 
 export interface MusicToolbarProps {
   store: MusicStore;
 }
 
-type Editing = { kind: "new" } | { kind: "rename"; id: string } | null;
+type Editing =
+  | { kind: "newPlaylist" }
+  | { kind: "renamePlaylist"; id: string }
+  | { kind: "newCategory" }
+  | { kind: "renameCategory"; id: string }
+  | null;
 
 /**
- * Toolbar del music quark. La izquierda es un dropdown con la playlist activa
- * (incluye las vistas "Todas" / "Sin asignar" y la acción "Nueva playlist") más
- * el acceso rápido a randomizar la vista actual. La derecha es el menú de
- * settings (manejar playlists, carpeta, descarga). Borrar playlists ya no vive
- * acá: solo desde "Manejar playlists".
+ * Toolbar del music quark. La izquierda es un breadcrumb de dos dropdowns:
+ * categoría (o "Biblioteca") › playlist, más el acceso rápido a reproducir la
+ * vista actual en un orden. En "Biblioteca" el segundo lista las pseudo-vistas ("Todas" /
+ * "Sin asignar") y las playlists sueltas; en una categoría lista sus playlists,
+ * y su "Todas" es la categoría entera como una playlist grande. La derecha es
+ * el menú de settings (manejar playlists, carpeta, descarga). Borrar playlists
+ * y categorías no vive acá: solo desde "Manejar playlists".
  */
 export function MusicToolbar({ store }: MusicToolbarProps) {
-  const { playlists, view, spaceId } = useMusicState(store);
+  const state = useStoreState(store);
+  const { playlists, categories, category, view } = state;
   const [editing, setEditing] = useState<Editing>(null);
   const [draft, setDraft] = useState("");
 
@@ -36,13 +55,9 @@ export function MusicToolbar({ store }: MusicToolbarProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, [store]);
 
-  const startNew = () => {
-    setEditing({ kind: "new" });
-    setDraft("");
-  };
-  const startRename = (p: Playlist) => {
-    setEditing({ kind: "rename", id: p.id });
-    setDraft(p.name);
+  const startEdit = (next: Editing, name = "") => {
+    setEditing(next);
+    setDraft(name);
   };
   const cancel = () => {
     setEditing(null);
@@ -51,10 +66,11 @@ export function MusicToolbar({ store }: MusicToolbarProps) {
   const commit = () => {
     if (!editing) return;
     const name = draft.trim();
-    if (editing.kind === "new") {
-      if (name) void store.createPlaylist(name);
-    } else if (name && spaceId) {
-      void store.renamePlaylist(spaceId, editing.id, name);
+    if (name) {
+      if (editing.kind === "newPlaylist") void store.createPlaylist(name, category, true);
+      else if (editing.kind === "newCategory") void store.createCategory(name, true);
+      else if (editing.kind === "renamePlaylist") void store.renamePlaylist(editing.id, name);
+      else void store.renameCategory(editing.id, name);
     }
     cancel();
   };
@@ -64,17 +80,24 @@ export function MusicToolbar({ store }: MusicToolbarProps) {
       value={draft}
       onChange={setDraft}
       autoFocus
-      placeholder="Nombre…"
+      placeholder={
+        editing?.kind === "newCategory" || editing?.kind === "renameCategory"
+          ? "Nombre de la categoría…"
+          : "Nombre…"
+      }
       onKeyDown={(e) => {
         if (e.key === "Enter") commit();
         else if (e.key === "Escape") cancel();
       }}
       onBlur={commit}
-      style={{ height: 24, width: 150 }}
+      style={{ height: 24, width: 170 }}
     />
   );
 
-  const activePlaylist = playlists.find((p) => p.id === view) ?? null;
+  const activeCategory = categories.find((c) => c.id === category) ?? null;
+  // Por el invariante del store, la playlist abierta siempre es de `category`.
+  const scoped = playlists.filter((p) => p.categoryId === category);
+  const activePlaylist = scoped.find((p) => p.id === view) ?? null;
 
   return (
     <QuarkToolbar
@@ -93,14 +116,34 @@ export function MusicToolbar({ store }: MusicToolbarProps) {
             <span>{editor}</span>
           ) : (
             <>
+              <CategoryDropdown
+                category={category}
+                categories={categories}
+                size={(c) => viewSize(state, c, "all")}
+                onSelect={(c) => store.selectCategory(c)}
+                onNew={() => startEdit({ kind: "newCategory" })}
+                onRenameActive={
+                  activeCategory
+                    ? () => startEdit({ kind: "renameCategory", id: activeCategory.id }, activeCategory.name)
+                    : undefined
+                }
+              />
+              <Icon name="chevron_right" size={16} color="var(--q-text-light)" />
               <PlaylistDropdown
                 view={view}
-                playlists={playlists}
+                inCategory={category !== null}
+                playlists={scoped}
+                size={(v) => viewSize(state, category, v)}
                 onSelect={(v) => store.selectView(v)}
-                onNew={startNew}
-                onRenameActive={activePlaylist ? () => startRename(activePlaylist) : undefined}
+                onNew={() => startEdit({ kind: "newPlaylist" })}
+                onRenameActive={
+                  activePlaylist
+                    ? () => startEdit({ kind: "renamePlaylist", id: activePlaylist.id }, activePlaylist.name)
+                    : undefined
+                }
               />
-              <ShuffleAffordance visible onClick={() => void store.startShuffle(view)} />
+              <PlayMenu onPlay={(order) => void store.playViewIn(order)} />
+              <SortMenu sort={state.sort} onSort={(s) => store.setSort(s)} />
             </>
           )}
         </div>
@@ -116,38 +159,137 @@ export function MusicToolbar({ store }: MusicToolbarProps) {
   );
 }
 
-/** Ícono de randomizar (acceso rápido al modo aleatorio de la vista activa). */
-function ShuffleAffordance({ visible, onClick }: { visible: boolean; onClick: () => void }) {
+/**
+ * Acceso rápido para reproducir la vista actual en un orden (aleatorio, menos
+ * o más escuchadas primero…). Deja ese orden elegido en el player.
+ */
+function PlayMenu({ onPlay }: { onPlay: (order: PlayOrder) => void }) {
+  const menu = useMenu<HTMLSpanElement>();
   const [hover, setHover] = useState(false);
   return (
-    <span
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      title="Reproducir al azar"
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        marginLeft: 2,
-        padding: 1,
-        opacity: visible ? 1 : 0,
-        pointerEvents: visible ? "auto" : "none",
-        transition: "opacity var(--q-dur-fast) var(--q-ease)",
-      }}
-    >
-      <Icon
-        name="shuffle"
-        size={13}
-        color={hover ? "var(--q-primary-light)" : "var(--q-text-secondary)"}
-      />
+    <span ref={menu.ref} style={{ position: "relative", display: "inline-flex" }}>
+      <span
+        onClick={() => menu.setOpen((o) => !o)}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        title="Reproducir esta vista…"
+        style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, padding: 1 }}
+      >
+        <Icon
+          name="play_circle"
+          size={15}
+          color={
+            hover || menu.open ? "var(--q-primary-light)" : "var(--q-text-secondary)"
+          }
+        />
+      </span>
+      {menu.open && (
+        <MenuPanel minWidth={220}>
+          {PLAY_ORDERS.map((o) => (
+            <MenuItem
+              key={o.id}
+              icon={o.icon}
+              label={o.label}
+              onClick={menu.run(() => onPlay(o.id))}
+            />
+          ))}
+        </MenuPanel>
+      )}
     </span>
   );
 }
 
-// ── Dropdown de playlists (izquierda) ────────────────────────────────────────
+/**
+ * Orden de la lista: el propio de la vista, por nombre o por fecha de creación.
+ * El ícono queda resaltado mientras no sea el de la lista.
+ */
+function SortMenu({ sort, onSort }: { sort: TrackSort; onSort: (s: TrackSort) => void }) {
+  const menu = useMenu<HTMLSpanElement>();
+  const [hover, setHover] = useState(false);
+  return (
+    <span ref={menu.ref} style={{ position: "relative", display: "inline-flex" }}>
+      <span
+        onClick={() => menu.setOpen((o) => !o)}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        title="Ordenar…"
+        style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, padding: 1 }}
+      >
+        <Icon
+          name="sort"
+          size={15}
+          color={
+            hover || menu.open || sort !== "list"
+              ? "var(--q-primary-light)"
+              : "var(--q-text-secondary)"
+          }
+        />
+      </span>
+      {menu.open && (
+        <MenuPanel minWidth={200}>
+          {TRACK_SORTS.map((s) => (
+            <MenuItem
+              key={s.id}
+              icon={s.icon}
+              label={s.label}
+              checked={sort === s.id}
+              onClick={menu.run(() => onSort(s.id))}
+            />
+          ))}
+        </MenuPanel>
+      )}
+    </span>
+  );
+}
+
+// ── Dropdowns de categoría y playlist (izquierda) ────────────────────────────
+
+function CategoryDropdown({
+  category,
+  categories,
+  size,
+  onSelect,
+  onNew,
+  onRenameActive,
+}: {
+  category: string | null;
+  categories: Category[];
+  /** Canciones de la biblioteca (`null`) o de una categoría entera. */
+  size: (c: string | null) => number;
+  onSelect: (c: string | null) => void;
+  onNew: () => void;
+  onRenameActive?: () => void;
+}) {
+  const label = categories.find((c) => c.id === category)?.name ?? "Biblioteca";
+  return (
+    <Dropdown label={label} onRename={onRenameActive}>
+      {(run) => (
+        <>
+          <MenuItem
+            icon="library_music"
+            label="Biblioteca"
+            count={size(null)}
+            checked={category === null}
+            onClick={run(() => onSelect(null))}
+          />
+          {categories.length > 0 && <MenuDivider />}
+          {categories.map((c) => (
+            <MenuItem
+              key={c.id}
+              icon="folder"
+              label={c.name}
+              count={size(c.id)}
+              checked={category === c.id}
+              onClick={run(() => onSelect(c.id))}
+            />
+          ))}
+          <MenuDivider />
+          <MenuItem icon="create_new_folder" label="Nueva categoría" onClick={run(onNew)} />
+        </>
+      )}
+    </Dropdown>
+  );
+}
 
 /** Nombre visible de la vista activa. */
 function viewLabel(view: PlaylistView, playlists: Playlist[]): string {
@@ -158,60 +300,99 @@ function viewLabel(view: PlaylistView, playlists: Playlist[]): string {
 
 function PlaylistDropdown({
   view,
+  inCategory,
   playlists,
+  size,
   onSelect,
   onNew,
   onRenameActive,
 }: {
   view: PlaylistView;
+  /** Hay una categoría elegida: "Todas" es la categoría entera y no hay "Sin asignar". */
+  inCategory: boolean;
+  /** Playlists de la categoría elegida (o las sueltas, en la biblioteca). */
   playlists: Playlist[];
+  /** Canciones de una vista, en la categoría elegida. */
+  size: (v: PlaylistView) => number;
   onSelect: (v: PlaylistView) => void;
   onNew: () => void;
   onRenameActive?: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  return (
+    <Dropdown label={viewLabel(view, playlists)} onRename={onRenameActive}>
+      {(run) => (
+        <>
+          <MenuItem
+            icon={inCategory ? "queue_music" : "library_music"}
+            label="Todas"
+            count={size("all")}
+            checked={view === "all"}
+            onClick={run(() => onSelect("all"))}
+          />
+          {!inCategory && (
+            <MenuItem
+              icon="label_off"
+              label="Sin asignar"
+              count={size("unassigned")}
+              checked={view === "unassigned"}
+              onClick={run(() => onSelect("unassigned"))}
+            />
+          )}
+          {playlists.length > 0 && <MenuDivider />}
+          {playlists.map((p) => (
+            <MenuItem
+              key={p.id}
+              icon="queue_music"
+              label={p.name}
+              count={size(p.id)}
+              checked={view === p.id}
+              onClick={run(() => onSelect(p.id))}
+            />
+          ))}
+          <MenuDivider />
+          <MenuItem icon="playlist_add" label="Nueva playlist" onClick={run(onNew)} />
+        </>
+      )}
+    </Dropdown>
+  );
+}
+
+/**
+ * Botón con el nombre de lo elegido + menú desplegable. `children` arma el
+ * menú y recibe `run`, que envuelve una acción para que además lo cierre.
+ * Doble click sobre el botón = renombrar (si `onRename`).
+ */
+function Dropdown({
+  label,
+  onRename,
+  children,
+}: {
+  label: string;
+  onRename?: () => void;
+  children: (run: (fn: () => void) => () => void) => ReactNode;
+}) {
+  const menu = useMenu<HTMLSpanElement>();
   const [hover, setHover] = useState(false);
-  const ref = useRef<HTMLSpanElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  const run = (fn: () => void) => () => {
-    fn();
-    setOpen(false);
-  };
 
   return (
-    <span ref={ref} style={{ position: "relative", display: "inline-flex", minWidth: 0 }}>
+    <span ref={menu.ref} style={{ position: "relative", display: "inline-flex", minWidth: 0 }}>
       <div
-        onClick={() => setOpen((o) => !o)}
-        onDoubleClick={onRenameActive}
+        onClick={() => menu.setOpen((o) => !o)}
+        onDoubleClick={onRename}
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
-        title={onRenameActive ? "Doble click para renombrar" : undefined}
+        title={onRename ? "Doble click para renombrar" : undefined}
         style={{
           display: "flex",
           alignItems: "center",
           gap: 4,
+          minWidth: 0,
           padding: "0 6px 0 10px",
           height: 26,
           fontSize: 12,
           fontWeight: 600,
           color: "var(--q-text-primary)",
-          background: open || hover ? "var(--q-surface-alt)" : "transparent",
+          background: menu.open || hover ? "var(--q-surface-alt)" : "transparent",
           borderRadius: 6,
           cursor: "default",
           whiteSpace: "nowrap",
@@ -221,54 +402,10 @@ function PlaylistDropdown({
             "background var(--q-dur-fast) var(--q-ease), color var(--q-dur-fast) var(--q-ease)",
         }}
       >
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-          {viewLabel(view, playlists)}
-        </span>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
         <Icon name="arrow_drop_down" size={18} color="var(--q-text-secondary)" />
       </div>
-      {open && (
-        <div
-          style={{
-            position: "absolute",
-            top: "calc(100% + 6px)",
-            left: 0,
-            zIndex: 1000,
-            minWidth: 200,
-            maxHeight: 320,
-            overflowY: "auto",
-            padding: 4,
-            background: "var(--q-surface)",
-            border: "1px solid var(--q-border-light)",
-            borderRadius: 8,
-            boxShadow: "0 10px 28px rgba(0,0,0,.4)",
-          }}
-        >
-          <MenuItem
-            icon="library_music"
-            label="Todas"
-            checked={view === "all"}
-            onClick={run(() => onSelect("all"))}
-          />
-          <MenuItem
-            icon="label_off"
-            label="Sin asignar"
-            checked={view === "unassigned"}
-            onClick={run(() => onSelect("unassigned"))}
-          />
-          {playlists.length > 0 && <MenuDivider />}
-          {playlists.map((p) => (
-            <MenuItem
-              key={p.id}
-              icon="queue_music"
-              label={p.name}
-              checked={view === p.id}
-              onClick={run(() => onSelect(p.id))}
-            />
-          ))}
-          <MenuDivider />
-          <MenuItem icon="playlist_add" label="Nueva playlist" onClick={run(onNew)} />
-        </div>
-      )}
+      {menu.open && <MenuPanel>{children(menu.run)}</MenuPanel>}
     </span>
   );
 }
@@ -284,54 +421,19 @@ function SettingsMenu({
   onOpenFolder: () => void;
   onDownload: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLSpanElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  const run = (fn: () => void) => () => {
-    fn();
-    setOpen(false);
-  };
+  const menu = useMenu<HTMLSpanElement>();
 
   return (
-    <span ref={ref} style={{ position: "relative", display: "inline-flex" }}>
+    <span ref={menu.ref} style={{ position: "relative", display: "inline-flex" }}>
       <IconButton
         name="settings"
         tooltip="Opciones"
-        selected={open}
-        onClick={() => setOpen((o) => !o)}
+        selected={menu.open}
+        onClick={() => menu.setOpen((o) => !o)}
       />
-      {open && (
-        <div
-          style={{
-            position: "absolute",
-            top: "calc(100% + 6px)",
-            right: 0,
-            zIndex: 1000,
-            minWidth: 212,
-            padding: 4,
-            background: "var(--q-surface)",
-            border: "1px solid var(--q-border-light)",
-            borderRadius: 8,
-            boxShadow: "0 10px 28px rgba(0,0,0,.4)",
-          }}
-        >
-          <MenuItem icon="checklist" label="Manejar playlists" onClick={run(onManage)} />
+      {menu.open && (
+        <MenuPanel align="right" minWidth={212}>
+          <MenuItem icon="checklist" label="Manejar playlists" onClick={menu.run(onManage)} />
           {/* "Abrir carpeta" y "Descargar" son desktop-only (ver MusicPage). */}
           {!isAndroid && (
             <>
@@ -339,61 +441,18 @@ function SettingsMenu({
               <MenuItem
                 icon="folder_open"
                 label="Abrir carpeta de música"
-                onClick={run(onOpenFolder)}
+                onClick={menu.run(onOpenFolder)}
               />
               <MenuDivider />
-              <MenuItem icon="download" label="Descargar de YouTube" onClick={run(onDownload)} />
+              <MenuItem
+                icon="download"
+                label="Descargar de YouTube"
+                onClick={menu.run(onDownload)}
+              />
             </>
           )}
-        </div>
+        </MenuPanel>
       )}
     </span>
-  );
-}
-
-function MenuDivider() {
-  return <div style={{ height: 1, background: "var(--q-border)", margin: "4px 6px" }} />;
-}
-
-function MenuItem({
-  icon,
-  label,
-  checked,
-  onClick,
-}: {
-  icon: string;
-  label: string;
-  checked?: boolean;
-  onClick: () => void;
-}) {
-  const [hover, setHover] = useState(false);
-  return (
-    <div
-      onClick={onClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        height: 32,
-        padding: "0 8px",
-        borderRadius: 6,
-        fontSize: 12.5,
-        cursor: "default",
-        whiteSpace: "nowrap",
-        background: hover ? "var(--q-card-hover)" : "transparent",
-        color: checked
-          ? "var(--q-primary-light)"
-          : hover
-            ? "var(--q-text-primary)"
-            : "var(--q-text-secondary)",
-        transition: "background var(--q-dur-fast) var(--q-ease), color var(--q-dur-fast) var(--q-ease)",
-      }}
-    >
-      <Icon name={icon} size={17} />
-      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
-      {checked && <Icon name="check" size={15} color="var(--q-primary-light)" />}
-    </div>
   );
 }

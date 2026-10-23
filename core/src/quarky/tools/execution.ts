@@ -17,6 +17,7 @@ import { isAllowedInMode } from "./policy";
 import { getTool } from "./registry";
 import type { ToolContext, ToolResult } from "./types";
 import { PathSandboxError } from "./pathSandbox";
+import { messageOf } from "../../services/util";
 
 const MAX_RESULT = 16 * 1024;
 
@@ -58,7 +59,7 @@ export async function executeToolCall(
     if (e instanceof PathSandboxError) {
       return { content: `${call.function.name}: ${e.message}`, isError: true };
     }
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = messageOf(e);
     return {
       content: `${call.function.name} falló: ${msg}`,
       isError: true,

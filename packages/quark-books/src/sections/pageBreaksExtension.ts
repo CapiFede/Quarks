@@ -1,8 +1,9 @@
 /**
  * Cortes de página como DECORACIONES de ProseMirror (no como contenido del
  * documento). Cada corte es un widget de bloque no-editable que materializa el
- * espacio entre páginas (márgenes arriba/abajo) con una línea separadora y la
- * etiqueta "página N".
+ * espacio entre páginas (márgenes abajo/arriba) con el folio de la página que
+ * termina ("N palabras"), una línea separadora y la etiqueta "página N" de la
+ * que empieza.
  *
  * Por qué decoraciones y no nodos ni DOM a mano:
  *   - No entran al documento → no contaminan el markdown ni el undo/redo.
@@ -17,19 +18,24 @@
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { formatWords } from "../util/metrics";
 
 export const pageBreaksKey = new PluginKey<DecorationSet>("pageBreaks");
 
 /**
  * Un corte de página. `gapHeight` es la altura TOTAL del separador (relleno de la
- * página anterior + márgenes), y `lineOffset` es la posición de la línea dentro
- * del separador. Calculados por `RichEditor` para que la línea quede clavada en
- * la grilla de páginas (no se mueve al agregar/quitar texto).
+ * página anterior + márgenes), `lineOffset` la posición de la línea dentro del
+ * separador y `folioOffset` la del folio (centrado en el margen inferior de la
+ * página que termina). Calculados por `RichEditor` para que la línea quede
+ * clavada en la grilla de páginas (no se mueve al agregar/quitar texto).
+ * `words` son las palabras de la página que TERMINA en este corte.
  */
 export interface PageBreak {
   pos: number;
   gapHeight: number;
   lineOffset: number;
+  folioOffset: number;
+  words: number;
 }
 
 declare module "@tiptap/core" {
@@ -55,6 +61,10 @@ function buildDecorations(breaks: PageBreak[]): Decoration[] {
         el.setAttribute("contenteditable", "false");
         el.style.display = "block";
         el.style.height = `${b.gapHeight}px`;
+        const folio = document.createElement("span");
+        folio.className = "q-books-folio";
+        folio.style.top = `${b.folioOffset}px`;
+        folio.textContent = formatWords(b.words);
         const line = document.createElement("span");
         line.className = "q-books-pagebreak-line";
         line.style.top = `${b.lineOffset}px`;
@@ -62,13 +72,16 @@ function buildDecorations(breaks: PageBreak[]): Decoration[] {
         label.className = "q-books-pagebreak-label";
         label.style.top = `${b.lineOffset}px`;
         label.textContent = `página ${i + 2}`;
-        el.append(line, label);
+        el.append(folio, line, label);
         return el;
       },
       // `side: -1` → el widget va ANTES de la posición (cierra la página previa y
-      // abre la siguiente). `key` estable (incluye la geometría) → ProseMirror
-      // reusa el DOM si no cambió y lo recrea si cambió.
-      { side: -1, key: `pb-${i}-${b.pos}-${b.gapHeight}-${b.lineOffset}` },
+      // abre la siguiente). `key` estable (incluye la geometría y el conteo) →
+      // ProseMirror reusa el DOM si no cambió y lo recrea si cambió.
+      {
+        side: -1,
+        key: `pb-${i}-${b.pos}-${b.gapHeight}-${b.lineOffset}-${b.folioOffset}-${b.words}`,
+      },
     ),
   );
 }

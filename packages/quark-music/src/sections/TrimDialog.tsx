@@ -1,10 +1,10 @@
 import { useEffect, useRef } from "react";
-import { Button, Icon, IconButton } from "@quarks/core";
+import { Button, Icon, IconButton, useStoreState } from "@quarks/core";
 import type { MusicStore, TrimState } from "../store";
-import { useMusicState } from "../hooks/useMusicStore";
 import { TrimWave } from "./TrimWave";
 import { PreviewPlayer } from "../services/trim";
 import { fmtTime, fmtFine } from "../util";
+import { PlayButton } from "./PlayButton";
 
 export interface TrimDialogProps {
   store: MusicStore;
@@ -19,7 +19,7 @@ const EPS = 0.02;
  * `DownloadDialog`; Escape lo maneja el quark (`onEscape`).
  */
 export function TrimDialog({ store }: TrimDialogProps) {
-  const { trim } = useMusicState(store);
+  const { trim } = useStoreState(store);
   if (!trim.open) return null;
   return <Dialog store={store} t={trim} />;
 }
@@ -154,7 +154,7 @@ function Editor({ store, t }: { store: MusicStore; t: TrimState }) {
 
       {/* Transporte + readout del rango. */}
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-        <PlayButton playing={t.playing} onClick={() => store.trimTogglePlay()} />
+        <PlayButton playing={t.playing} size={34} onClick={() => store.trimTogglePlay()} />
         <span
           style={{
             fontSize: 11.5,
@@ -302,23 +302,3 @@ function Preview({ store, t }: { store: MusicStore; t: TrimState }) {
   return null;
 }
 
-function PlayButton({ playing, onClick }: { playing: boolean; onClick: () => void }) {
-  return (
-    <span
-      onClick={onClick}
-      style={{
-        width: 34,
-        height: 34,
-        borderRadius: "50%",
-        background: "var(--q-primary-light)",
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        cursor: "default",
-        flex: "0 0 auto",
-      }}
-    >
-      <Icon name={playing ? "pause" : "play_arrow"} size={18} fill={1} color="#fff" />
-    </span>
-  );
-}

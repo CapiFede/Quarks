@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
-import { Button, Icon, useActiveSpace } from "@quarks/core";
+import { Button, Icon, useStoreState } from "@quarks/core";
 import type { NotesStore } from "../store";
-import { useNotesState } from "../hooks/useNotesStore";
 import { filterNotes } from "../util";
 import { NotesSidebar } from "./NotesSidebar";
 import { NoteEditor } from "./NoteEditor";
@@ -10,18 +9,10 @@ export interface NotesPageProps {
   store: NotesStore;
 }
 
-/**
- * Pantalla única del notes quark: sidebar 260px (lista + búsqueda) + editor flex 1.
- * El space activo se sincroniza con un efecto, mismo patrón que `BooksPage`.
- */
+/** Pantalla única del notes quark: sidebar 260px (lista + búsqueda) + editor flex 1. */
 export function NotesPage({ store }: NotesPageProps) {
-  const state = useNotesState(store);
-  const space = useActiveSpace();
+  const state = useStoreState(store);
   const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    void store.setSpace(space.id);
-  }, [store, space.id]);
 
   // Ctrl/Cmd+F abre el buscador. El Shell mantiene TODAS las panes montadas
   // (las inactivas con `display:none`), así que registramos un listener global
@@ -48,7 +39,7 @@ export function NotesPage({ store }: NotesPageProps) {
     ? state.notes.find((n) => n.id === state.activeNoteId) ?? null
     : null;
 
-  // Estado vacío total: ni una nota en el space.
+  // Estado vacío total: ni una nota.
   if (state.status === "ready" && state.notes.length === 0) {
     return (
       <div ref={rootRef} className="q-notes-page">
@@ -76,6 +67,7 @@ export function NotesPage({ store }: NotesPageProps) {
           note={activeNote}
           content={state.activeContent}
           editorStatus={state.editorStatus}
+          error={state.error}
         />
       ) : (
         <NotesEmpty />

@@ -1,5 +1,6 @@
-import { Icon, type AiContext, type Quark } from "@quarks/core";
-import { MusicStore } from "./store";
+import type { AiContext, Quark } from "@quarks/core";
+import { MusicStore, migrateMusicFromSpaces } from "./store";
+import { PLAY_ORDERS } from "./util";
 import { MusicPage } from "./sections/MusicPage";
 import { MusicToolbar } from "./sections/MusicToolbar";
 
@@ -13,8 +14,6 @@ export function createMusicQuark(): Quark {
 
   return {
     id: "music",
-    name: "Música",
-    icon: <Icon name="music_note" size={16} />,
 
     buildPage: () => <MusicPage store={store} />,
     buildToolbar: () => <MusicToolbar store={store} />,
@@ -42,19 +41,26 @@ export function createMusicQuark(): Quark {
 
     initialize: () => store.init(),
     dispose: () => store.dispose(),
+    migrateSpaces: migrateMusicFromSpaces,
   };
 }
 
 /** Vista activa traducida a algo humano para el prompt. */
-function viewLabel(view: string, playlistName: string | null): string {
-  if (view === "all") return "Toda la biblioteca";
+function viewLabel(view: string, playlistName: string | null, categoryName: string | null): string {
+  if (view === "all") {
+    return categoryName
+      ? `Categoría "${categoryName}" (todas sus playlists juntas)`
+      : "Toda la biblioteca";
+  }
   if (view === "unassigned") return "Sin asignar a playlist";
-  return playlistName ? `Playlist "${playlistName}"` : `Playlist ${view}`;
+  const pl = playlistName ? `Playlist "${playlistName}"` : `Playlist ${view}`;
+  return categoryName ? `${pl}, de la categoría "${categoryName}"` : pl;
 }
 
 /**
  * Snapshot del state de Música para Quarky.
- *   - `instructions`: vista activa, playlist, track sonando, estado del player.
+ *   - `instructions`: vista activa, playlist, track sonando, estado del player,
+ *     orden de reproducción y las canciones más escuchadas.
  *   - Sin attachments: el audio en sí no se inyecta (sería binario).
  */
 function buildMusicAiContext(store: MusicStore): AiContext | null {
@@ -65,12 +71,13 @@ function buildMusicAiContext(store: MusicStore): AiContext | null {
     typeof s.view === "string" && s.view !== "all" && s.view !== "unassigned"
       ? s.playlists.find((p) => p.id === s.view) ?? null
       : null;
+  const category = s.categories.find((c) => c.id === s.category) ?? null;
   const playing = s.activePath ? s.tracks.find((t) => t.path === s.activePath) ?? null : null;
 
   const lines = [
     "Estás en el quark Música (reproductor + biblioteca local).",
     `Biblioteca: ${s.tracks.length} tracks, ${s.playlists.length} playlists.`,
-    `Vista actual: ${viewLabel(String(s.view), activePlaylist?.name ?? null)}.`,
+    `Vista actual: ${viewLabel(String(s.view), activePlaylist?.name ?? null, category?.name ?? null)}.`,
   ];
 
   if (playing) {
@@ -81,11 +88,37 @@ function buildMusicAiContext(store: MusicStore): AiContext | null {
   } else {
     lines.push("Sin track sonando.");
   }
+  const order = PLAY_ORDERS.find((o) => o.id === s.order);
+  if (order) lines.push(`Orden de reproducción: ${order.label}.`);
 
   if (s.playlists.length > 0) {
     const names = s.playlists.map((p) => `"${p.name}" (${p.trackPaths.length})`).join(", ");
     lines.push("", `Playlists disponibles: ${names}.`);
   }
+
+  if (s.categories.length > 0) {
+    const cats = s.categories
+      .map((c) => {
+        const inCat = s.playlists.filter((p) => p.categoryId === c.id).map((p) => `"${p.name}"`);
+        return `"${c.name}" (${inCat.length > 0 ? inCat.join(", ") : "vacía"})`;
+      })
+      .join(", ");
+    lines.push(`Categorías de playlists: ${cats}.`);
+  }
+
+  const top = s.tracks
+    .filter((t) => (s.plays[t.path] ?? 0) > 0)
+    .sort((a, b) => (s.plays[b.path] ?? 0) - (s.plays[a.path] ?? 0))
+    .slice(0, 5)
+    .map((t) => `"${t.title}" (${s.plays[t.path]})`);
+  if (top.length > 0) lines.push(`Más escuchadas (reproducciones): ${top.join(", ")}.`);
+
+  const best = s.tracks
+    .filter((t) => s.ratings[t.path] !== undefined)
+    .sort((a, b) => s.ratings[b.path] - s.ratings[a.path])
+    .slice(0, 5)
+    .map((t) => `"${t.title}" (${s.ratings[t.path]})`);
+  if (best.length > 0) lines.push(`Mejor puntuadas (de 1 a 10): ${best.join(", ")}.`);
 
   return { instructions: lines.join("\n") };
 }

@@ -276,6 +276,19 @@
   text-transform: lowercase;
 }
 
+/* Error de guardado al lado del badge: acotado para no comer el título. */
+.q-notes-editor-error {
+  color: var(--q-error);
+  text-transform: none;
+  margin-left: 8px;
+  display: inline-block;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
 .q-notes-pills {
   padding: 0 24px 8px;
   display: flex;

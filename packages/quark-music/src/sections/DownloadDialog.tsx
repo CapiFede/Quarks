@@ -1,20 +1,27 @@
-import { useEffect, useState, type CSSProperties } from "react";
-import { Button, Icon, IconButton, TextInput, Toggle } from "@quarks/core";
-import type { MusicStore, SpacePlaylists } from "../store";
-import { useMusicState } from "../hooks/useMusicStore";
+import { useEffect, type CSSProperties } from "react";
+import {
+  Button,
+  Icon,
+  IconButton,
+  TextInput,
+  Toggle,
+  useStoreState,
+  ProgressBar,
+} from "@quarks/core";
+import type { MusicStore, PlaylistGroup } from "../store";
 import { fmtTime } from "../util";
+import { Chip } from "./Chip";
 
 export interface DownloadDialogProps {
   store: MusicStore;
-  /** Playlists de todos los spaces (el activo primero), para elegir destinos. */
-  spaceGroups: SpacePlaylists[];
+  /** Playlists agrupadas por categoría, para elegir destinos. */
+  groups: PlaylistGroup[];
 }
 
 /**
  * Diálogo de descarga de YouTube/otros (yt-dlp + ffmpeg). Vive dentro del pane
- * del quark (renderizado por `MusicPage`), no como overlay del Shell, porque el
- * contrato `Quark.buildOverlay` aún no lo monta el Shell. Posición fixed para
- * cubrir toda la ventana del quark.
+ * del quark (renderizado por `MusicPage`) con posición fixed para cubrir toda
+ * la ventana del quark.
  *
  * Es UN solo form: la URL siempre visible arriba; al probarla aparece el
  * preview + opciones debajo, la descarga muestra su progreso ahí mismo y al
@@ -22,8 +29,8 @@ export interface DownloadDialogProps {
  * Solo se cierra explícitamente (X, Cancelar o Escape) — el click en el fondo
  * no cierra, para no perder una descarga configurada por un mis-click.
  */
-export function DownloadDialog({ store, spaceGroups }: DownloadDialogProps) {
-  const { download: d } = useMusicState(store);
+export function DownloadDialog({ store, groups }: DownloadDialogProps) {
+  const { download: d } = useStoreState(store);
 
   useEffect(() => {
     if (!d.open) return;
@@ -54,7 +61,8 @@ export function DownloadDialog({ store, spaceGroups }: DownloadDialogProps) {
           width: 460,
           maxWidth: "calc(100vw - 40px)",
           maxHeight: "calc(100vh - 60px)",
-          overflowY: "auto",
+          // Sin scroll propio: si no entra, se achica (y scrollea) solo el
+          // selector de playlists, así la X y los botones quedan siempre a mano.
           background: "var(--q-surface)",
           border: "1px solid var(--q-border-light)",
           borderRadius: 12,
@@ -67,7 +75,7 @@ export function DownloadDialog({ store, spaceGroups }: DownloadDialogProps) {
         }}
       >
         <Header onClose={() => store.closeDownload()} />
-        <Body store={store} state={d} spaceGroups={spaceGroups} />
+        <Body store={store} state={d} groups={groups} />
       </div>
     </div>
   );
@@ -83,16 +91,16 @@ function Header({ onClose }: { onClose: () => void }) {
   );
 }
 
-type DlState = ReturnType<typeof useMusicState>["download"];
+type DlState = ReturnType<MusicStore["getSnapshot"]>["download"];
 
 function Body({
   store,
   state,
-  spaceGroups,
+  groups,
 }: {
   store: MusicStore;
   state: DlState;
-  spaceGroups: SpacePlaylists[];
+  groups: PlaylistGroup[];
 }) {
   switch (state.step) {
     case "needsSetup": {
@@ -136,7 +144,7 @@ function Body({
       return (
         <Section>
           <div style={{ fontSize: 12, color: "var(--q-text-secondary)" }}>{label}</div>
-          <ProgressBar pct={state.setup?.pct ?? 0} />
+          <ProgressBar value={state.setup?.pct ?? 0} />
         </Section>
       );
     }
@@ -147,7 +155,7 @@ function Body({
           <div style={{ fontSize: 12, color: "var(--q-text-secondary)" }}>
             Actualizando yt-dlp…
           </div>
-          <ProgressBar pct={state.setup?.pct ?? 0} />
+          <ProgressBar value={state.setup?.pct ?? 0} />
         </Section>
       );
 
@@ -157,7 +165,7 @@ function Body({
     case "probing":
     case "preview":
     case "downloading":
-      return <Form store={store} state={state} spaceGroups={spaceGroups} />;
+      return <Form store={store} state={state} groups={groups} />;
 
     // Solo fallas de instalación/estado de herramientas; los errores de
     // probe/descarga van inline dentro del form.
@@ -194,11 +202,11 @@ function Body({
 function Form({
   store,
   state,
-  spaceGroups,
+  groups,
 }: {
   store: MusicStore;
   state: DlState;
-  spaceGroups: SpacePlaylists[];
+  groups: PlaylistGroup[];
 }) {
   const probing = state.step === "probing";
   const downloading = state.step === "downloading";
@@ -206,7 +214,7 @@ function Form({
   const loaded = state.step === "preview" || downloading ? state.probe : null;
 
   return (
-    <Section>
+    <Section style={{ minHeight: 0 }}>
       {state.completedCount != null && <SuccessLine count={state.completedCount} />}
 
       <div style={{ display: "flex", gap: 8 }}>
@@ -252,6 +260,7 @@ function Form({
           display: "flex",
           flexDirection: "column",
           gap: 12,
+          minHeight: 0,
           ...(downloading ? { opacity: 0.55, pointerEvents: "none" as const } : null),
         }}
       >
@@ -280,9 +289,9 @@ function Form({
             </span>
           </div>
         </Field>
-        <Field label="Agregar a playlists">
+        <Field label="Agregar a playlists" style={{ minHeight: 0 }}>
           <PlaylistPicker
-            spaceGroups={spaceGroups}
+            groups={groups}
             targetIds={state.targetPlaylistIds}
             onToggle={(id) => store.toggleDownloadTarget(id)}
           />
@@ -358,29 +367,39 @@ function PreviewPlaceholder({ probing }: { probing: boolean }) {
   );
 }
 
-/** Chips de playlists destino, agrupadas por space (mismo layout que el trackpanel). */
+/** Chips de playlists destino, agrupadas por categoría (mismo layout que el trackpanel). */
 function PlaylistPicker({
-  spaceGroups,
+  groups,
   targetIds,
   onToggle,
 }: {
-  spaceGroups: SpacePlaylists[];
+  groups: PlaylistGroup[];
   targetIds: string[];
   onToggle: (id: string) => void;
 }) {
-  if (spaceGroups.every((g) => g.playlists.length === 0)) {
-    return (
-      <span style={{ fontSize: 12, color: "var(--q-text-light)" }}>
-        No hay playlists en ningún espacio.
-      </span>
-    );
+  if (groups.length === 0) {
+    return <span style={{ fontSize: 12, color: "var(--q-text-light)" }}>No hay playlists.</span>;
   }
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {spaceGroups
-        .filter((g) => g.playlists.length > 0)
-        .map((g) => (
-          <div key={g.spaceId}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        // Única parte del diálogo que scrollea. La barra va pegada al borde del
+        // diálogo, no flotando entre los chips y el padding.
+        minHeight: 0,
+        overflowY: "auto",
+        margin: "0 -20px 0 0",
+        padding: "0 20px 0 0",
+      }}
+    >
+      {groups.map((g) => (
+        // Sin `flexShrink: 0` WebKit achica cada grupo al alto de una sola fila
+        // de chips (mide mal el min-content de un flex con wrap) y, cuando no
+        // entran, los grupos se pisan en vez de scrollear.
+        <div key={g.category?.id ?? "loose"} style={{ flexShrink: 0 }}>
+          {g.category && (
             <div
               style={{
                 display: "flex",
@@ -392,29 +411,22 @@ function PlaylistPicker({
                 marginBottom: 5,
               }}
             >
-              <span
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
-                  background: g.color,
-                  flex: "0 0 auto",
-                }}
+              <Icon name="folder" size={12} />
+              {g.category.name}
+            </div>
+          )}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {g.playlists.map((pl) => (
+              <Chip
+                key={pl.id}
+                label={pl.name}
+                active={targetIds.includes(pl.id)}
+                onClick={() => onToggle(pl.id)}
               />
-              {g.spaceName}
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {g.playlists.map((pl) => (
-                <TargetChip
-                  key={pl.id}
-                  name={pl.name}
-                  active={targetIds.includes(pl.id)}
-                  onClick={() => onToggle(pl.id)}
-                />
-              ))}
-            </div>
+            ))}
           </div>
-        ))}
+        </div>
+      ))}
     </div>
   );
 }
@@ -429,7 +441,7 @@ function Progress({ prog }: { prog: DlState["progress"] }) {
         <div style={{ fontSize: 12, color: "var(--q-text-secondary)" }}>
           Actualizando yt-dlp y reintentando…
         </div>
-        <ProgressBar pct={prog.updatingTools.pct} />
+        <ProgressBar value={prog.updatingTools.pct} />
         <div style={{ fontSize: 11, color: "var(--q-text-light)" }}>
           YouTube cambió algo y la versión instalada quedó vieja.
         </div>
@@ -474,7 +486,7 @@ function Progress({ prog }: { prog: DlState["progress"] }) {
           {title}
         </span>
       </div>
-      <ProgressBar pct={prog?.pct ?? 0} indeterminate={!!prog?.converting} />
+      <ProgressBar value={prog?.pct ?? 0} indeterminate={!!prog?.converting} />
       {!prog?.converting && (prog?.speed || prog?.eta) && (
         <div
           style={{
@@ -493,13 +505,21 @@ function Progress({ prog }: { prog: DlState["progress"] }) {
   );
 }
 
-function Section({ children }: { children: React.ReactNode }) {
-  return <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>{children}</div>;
+function Section({ children, style }: { children: React.ReactNode; style?: CSSProperties }) {
+  return <div style={{ display: "flex", flexDirection: "column", gap: 12, ...style }}>{children}</div>;
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+  style,
+}: {
+  label: string;
+  children: React.ReactNode;
+  style?: CSSProperties;
+}) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, ...style }}>
       <div
         style={{
           fontSize: 10,
@@ -616,31 +636,6 @@ function SuccessLine({ count }: { count: number }) {
   );
 }
 
-function ProgressBar({ pct, indeterminate }: { pct: number; indeterminate?: boolean }) {
-  return (
-    <div
-      style={{
-        height: 6,
-        width: "100%",
-        background: "var(--q-surface-alt)",
-        borderRadius: 9999,
-        overflow: "hidden",
-      }}
-    >
-      <div
-        style={{
-          height: "100%",
-          width: indeterminate ? "40%" : `${Math.max(0, Math.min(1, pct)) * 100}%`,
-          background: "var(--q-primary-light)",
-          borderRadius: 9999,
-          transition: "width var(--q-dur-fast) var(--q-ease)",
-          opacity: indeterminate ? 0.7 : 1,
-        }}
-      />
-    </div>
-  );
-}
-
 function ErrorLine({ message }: { message: string }) {
   return (
     <div
@@ -659,48 +654,6 @@ function ErrorLine({ message }: { message: string }) {
       <Icon name="error" size={14} color="var(--q-error)" />
       <span style={{ flex: 1 }}>{message}</span>
     </div>
-  );
-}
-
-function TargetChip({
-  name,
-  active,
-  onClick,
-}: {
-  name: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  const [hover, setHover] = useState(false);
-  const style: CSSProperties = {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 4,
-    padding: "2px 8px",
-    height: 24,
-    fontSize: 11,
-    fontWeight: 500,
-    borderRadius: 6,
-    cursor: "default",
-    background: active
-      ? "var(--q-primary-soft)"
-      : hover
-        ? "var(--q-card-hover)"
-        : "var(--q-surface-alt)",
-    color: active ? "var(--q-primary-light)" : "var(--q-text-secondary)",
-    transition:
-      "background var(--q-dur-fast) var(--q-ease), color var(--q-dur-fast) var(--q-ease)",
-  };
-  return (
-    <span
-      onClick={onClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={style}
-    >
-      <Icon name={active ? "check" : "add"} size={13} />
-      {name}
-    </span>
   );
 }
 

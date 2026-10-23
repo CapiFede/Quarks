@@ -13,9 +13,8 @@
  * que esté siempre a mano. `write`/`update`/`delete`/`pin`/`unpin` NO piden
  * aprobación — el alcance es `quarky/memory.json`, no toca archivos del usuario.
  *
- * Nota: en M1 todas las entradas se inyectan siempre (haya `pinned` o no). El
- * flag se respeta y se persiste para que cuando aterrice el retrieval (M2), las
- * pinneadas existentes ya estén marcadas correctamente.
+ * `pinned` manda con RAG activo: las pinneadas se inyectan siempre y el resto
+ * compite por similitud (ver memory/retrieve.ts).
  */
 import {
   addEntry,

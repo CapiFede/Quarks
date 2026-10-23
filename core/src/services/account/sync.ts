@@ -1,7 +1,7 @@
 /**
  * Motor de sync: espeja el árbol GESTIONADO del core con la carpeta "Quarks" del
  * Drive del usuario. El conjunto gestionado lo define `listDataTree` (store.ts):
- * `settings.json` + todo `spaces/` + todo `packages/`. Queda fuera lo device-local
+ * `settings.json` + todo `packages/` + todo `quarky/`. Queda fuera lo device-local
  * (`appState`, `account`, `manifest`) y la cache del WebView. La estructura local
  * se replica igual en Drive (subcarpetas incluidas) y viceversa.
  *
@@ -35,7 +35,7 @@
  * diff y solo procesa lo que falta.
  */
 import {
-  deleteDataFile,
+  deleteFile,
   listDataTree,
   readDataFile,
   readJson,
@@ -55,16 +55,13 @@ const FOLDER_NAME = "Quarks";
 const MANIFEST_NAME = "manifest.json";
 
 /**
- * Archivos que nunca se sincronizan: device-local (`appState`, `account`) y el
- * propio manifiesto. `sync.json` era el nombre viejo del manifiesto local; queda
- * en la lista para que un huérfano de la versión anterior no se suba.
+ * Entradas de un manifiesto remoto que se ignoran: device-local (`appState`,
+ * `account`), el nombre viejo del manifiesto local (`sync.json`) y el propio
+ * manifiesto. Localmente `listDataTree` ya no las recorre; el filtro queda para
+ * manifiestos subidos por versiones anteriores que sí las incluían (si no, un
+ * "bajar" las traería y pisaría lo device-local).
  */
-const DENYLIST = new Set(["appState.json", "account.json", "sync.json", MANIFEST_NAME]);
-
-/** ¿La ruta relativa se sincroniza? (todo el árbol salvo lo device-local). */
-function isManaged(relPath: string): boolean {
-  return !DENYLIST.has(relPath);
-}
+const REMOTE_IGNORE = new Set(["appState.json", "account.json", "sync.json", MANIFEST_NAME]);
 
 export interface SyncProgress {
   /** "scanning": hasheo local; "transferring": subida/bajada/borrado. */
@@ -226,7 +223,7 @@ async function fetchRemote(
   const bytes = await auth.run((t) => provider.download(t, manifestRef.id, signal));
   const json = JSON.parse(new TextDecoder().decode(bytes)) as Partial<CloudManifest>;
   for (const [rel, entry] of Object.entries(json.files ?? {})) {
-    if (isManaged(rel)) files.set(rel, entry);
+    if (!REMOTE_IGNORE.has(rel)) files.set(rel, entry);
   }
   return { files, manifestId: manifestRef.id };
 }
@@ -283,7 +280,7 @@ async function gatherLocal(
   opts: SyncRunOptions,
   prev: Record<string, ManifestEntry>,
 ): Promise<{ shas: Map<string, string>; files: Record<string, ManifestEntry> }> {
-  const all = (await listDataTree()).filter(isManaged);
+  const all = await listDataTree();
   const shas = new Map<string, string>();
   const files: Record<string, ManifestEntry> = {};
   let done = 0;
@@ -494,7 +491,7 @@ export async function pull(opts: SyncRunOptions = {}): Promise<void> {
         const st = await statDataFile(t.name);
         files[t.name] = { sha: r.sha || (await sha256Hex(bytes)), mtime: st?.mtime ?? 0, size: st?.size ?? 0 };
       } else {
-        await deleteDataFile(t.name);
+        await deleteFile(t.name);
         delete files[t.name];
       }
       done++;

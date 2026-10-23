@@ -66,10 +66,10 @@ mod imp {
     }
 
     /// Estado gestionado por Tauri: solo el extremo emisor del canal hacia el
-    /// thread de MPRIS. `None` si no se pudo abrir el servicio (sin D-Bus): los
-    /// comandos quedan como no-op.
+    /// thread de MPRIS. Si el servicio no se pudo abrir (sin D-Bus), el thread
+    /// descarta los comandos y quedan como no-op.
     pub struct MprisState {
-        tx: Mutex<Option<Sender<MprisCmd>>>,
+        tx: Mutex<Sender<MprisCmd>>,
     }
 
     impl MprisState {
@@ -78,17 +78,12 @@ mod imp {
         pub fn spawn(app: AppHandle) -> Self {
             let (tx, rx) = mpsc::channel::<MprisCmd>();
             thread::spawn(move || mpris_thread(app, rx));
-            MprisState {
-                tx: Mutex::new(Some(tx)),
-            }
+            MprisState { tx: Mutex::new(tx) }
         }
 
         fn send(&self, cmd: MprisCmd) -> Result<(), String> {
             let guard = self.tx.lock().map_err(|e| e.to_string())?;
-            match guard.as_ref() {
-                Some(tx) => tx.send(cmd).map_err(|e| e.to_string()),
-                None => Ok(()),
-            }
+            guard.send(cmd).map_err(|e| e.to_string())
         }
     }
 

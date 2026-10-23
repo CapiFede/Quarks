@@ -18,50 +18,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
-#[cfg(windows)]
-const FFMPEG_BIN: &str = "ffmpeg.exe";
-#[cfg(not(windows))]
-const FFMPEG_BIN: &str = "ffmpeg";
-
-#[cfg(windows)]
-const FFPROBE_BIN: &str = "ffprobe.exe";
-#[cfg(not(windows))]
-const FFPROBE_BIN: &str = "ffprobe";
-
-// ── Resolución de binarios (espejo del helper de `download.rs`) ───────────────
-
-fn which_in_path(name: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path) {
-        let candidate = dir.join(name);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-    }
-    None
-}
-
-fn bin_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("bin");
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir)
-}
-
-/// Resuelve un binario: primero en el `PATH` del sistema, luego en `<AppData>/bin/`
-/// (donde lo deja el auto-download del quark Música). `None` = no está instalado.
-fn resolve_tool(app: &AppHandle, bin_name: &str) -> Option<PathBuf> {
-    if let Some(p) = which_in_path(bin_name) {
-        return Some(p);
-    }
-    let local = bin_dir(app).ok()?.join(bin_name);
-    local.exists().then_some(local)
-}
+use crate::paths::songs_dir;
+use crate::tools::{prepare_child, resolve_tool, FFMPEG_BIN, FFPROBE_BIN};
 
 fn resolve_ffmpeg(app: &AppHandle) -> Result<PathBuf, String> {
     resolve_tool(app, FFMPEG_BIN).ok_or_else(|| {
@@ -74,29 +34,6 @@ fn resolve_ffprobe(app: &AppHandle) -> Result<PathBuf, String> {
         "No se encontró ffprobe. Instalalo desde el sistema o usá la descarga de Música.".into()
     })
 }
-
-/// Carpeta fija de canciones del quark Música (espejo de `music::songs_dir`).
-fn songs_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("packages")
-        .join("music")
-        .join("songs");
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir)
-}
-
-/// Esconde la ventana de consola al spawnear ffmpeg en Windows.
-#[cfg(windows)]
-fn hide_console(cmd: &mut Command) {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    cmd.creation_flags(CREATE_NO_WINDOW);
-}
-#[cfg(not(windows))]
-fn hide_console(_: &mut Command) {}
 
 // ── Comandos ──────────────────────────────────────────────────────────────────
 
@@ -111,7 +48,7 @@ pub fn music_trim_probe(app: AppHandle, path: String) -> Result<f64, String> {
         .arg(&path)
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    hide_console(&mut cmd);
+    prepare_child(&mut cmd);
 
     let output = cmd.output().map_err(|e| e.to_string())?;
     if !output.status.success() {
@@ -194,7 +131,7 @@ pub fn music_trim_export(
     }
     cmd.arg(&tmp);
     cmd.stdout(Stdio::null()).stderr(Stdio::piped());
-    hide_console(&mut cmd);
+    prepare_child(&mut cmd);
 
     let output = cmd.output().map_err(|e| e.to_string())?;
     if !output.status.success() {

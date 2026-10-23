@@ -6,6 +6,7 @@ import {
   type UpdateInfo,
 } from "../../services/updater";
 import { report } from "../../services/log";
+import { messageOf } from "../../services/util";
 
 export type UpdaterStatus =
   | "idle" // nunca chequeamos en esta sesión
@@ -64,7 +65,7 @@ export function useUpdater(): UpdaterController {
     } catch (e) {
       report("updater.check", e);
       if (!silent) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(messageOf(e));
         setStatus("error");
       }
     } finally {
@@ -86,7 +87,7 @@ export function useUpdater(): UpdaterController {
       // así que no tiene mucho sentido tocar el estado.
     } catch (e) {
       report("updater.install", e);
-      setError(e instanceof Error ? e.message : String(e));
+      setError(messageOf(e));
       setStatus("error");
     } finally {
       busy.current = false;

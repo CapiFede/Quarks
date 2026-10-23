@@ -11,6 +11,7 @@
  * modelo lo digiera. Funciona bien con LLMs modernos.
  */
 import type { ToolDef } from "../types";
+import { messageOf } from "../../../services/util";
 
 const MAX_BYTES = 64 * 1024;
 const TIMEOUT_MS = 15_000;
@@ -78,7 +79,7 @@ export const webFetch: ToolDef = {
       const header = `# ${url}\n# content-type: ${res.headers.get("content-type") ?? "?"}${truncated ? ` · truncado a ${MAX_BYTES} chars` : ""}\n\n`;
       return { content: header + text };
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = messageOf(e);
       return { content: `web_fetch: falló ${url} (${msg})`, isError: true };
     } finally {
       clearTimeout(timer);

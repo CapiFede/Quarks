@@ -1,6 +1,6 @@
 /**
  * Barra de tabs de conversaciones. Cada tab es una conversación abierta; el
- * estado (qué tabs y cuál activa) persiste por space, así que reabrir la app las
+ * estado (qué tabs y cuál activa) persiste en disco, así que reabrir la app las
  * recupera. Acciones por tab: seleccionar (click), renombrar (doble-click o menú),
  * limpiar el chat sin cerrar la tab, y cerrar/borrar.
  *
@@ -10,6 +10,8 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useQuarky } from "../../../quarky/hooks/useQuarky";
 import { Icon } from "../../components/Icon";
+import { UNTITLED } from "../../../services/util";
+import { MenuItem, MenuPanel, useMenu } from "../../components/Menu";
 
 export function TabBar() {
   const { openTabIds, conversations, active, newConversation } = useQuarky();
@@ -48,7 +50,7 @@ export function TabBar() {
           <Tab
             key={id}
             id={id}
-            title={titleOf.get(id) ?? "Sin título"}
+            title={titleOf.get(id) ?? UNTITLED}
             isActive={id === active?.id}
           />
         ))}
@@ -99,27 +101,18 @@ function Tab({ id, title, isActive }: { id: string; title: string; isActive: boo
     useQuarky();
   const [hover, setHover] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const menu = useMenu<HTMLDivElement>();
   const [draft, setDraft] = useState(title);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const ref = useRef<HTMLDivElement | null>(null);
 
+  // Solo al entrar en edición: si el título cambia mientras editás (auto-rename
+  // tras el primer turno), no pisamos el draft.
   useEffect(() => {
-    if (editing) {
-      setDraft(title);
-      setTimeout(() => inputRef.current?.select(), 0);
-    }
-  }, [editing, title]);
-
-  // Cerrar el menú al clickear afuera.
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setMenuOpen(false);
-    };
-    window.addEventListener("mousedown", onClick);
-    return () => window.removeEventListener("mousedown", onClick);
-  }, [menuOpen]);
+    if (!editing) return;
+    setDraft(title);
+    const t = setTimeout(() => inputRef.current?.select(), 0);
+    return () => clearTimeout(t);
+  }, [editing]);
 
   const commit = () => {
     const t = draft.trim();
@@ -140,7 +133,7 @@ function Tab({ id, title, isActive }: { id: string; title: string; isActive: boo
 
   return (
     <div
-      ref={ref}
+      ref={menu.ref}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       onClick={() => !editing && void selectConversation(id)}
@@ -203,14 +196,14 @@ function Tab({ id, title, isActive }: { id: string; title: string; isActive: boo
         <span
           onClick={(e) => {
             e.stopPropagation();
-            setMenuOpen((v) => !v);
+            menu.setOpen((v) => !v);
           }}
           title="Opciones"
           style={{
             display: "inline-flex",
             padding: 1,
             borderRadius: 4,
-            opacity: hover || isActive || menuOpen ? 1 : 0,
+            opacity: hover || isActive || menu.open ? 1 : 0,
             cursor: "default",
           }}
         >
@@ -237,84 +230,22 @@ function Tab({ id, title, isActive }: { id: string; title: string; isActive: boo
         </span>
       )}
 
-      {menuOpen && (
-        <div
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            position: "absolute",
-            top: 28,
-            left: 0,
-            minWidth: 180,
-            background: "var(--q-surface)",
-            border: "1px solid var(--q-border-dark)",
-            borderRadius: 8,
-            boxShadow: "0 8px 24px rgba(0,0,0,.28)",
-            padding: 4,
-            zIndex: 10,
-          }}
-        >
-          <MenuItem
-            icon="edit"
-            label="Renombrar"
-            onClick={() => {
-              setMenuOpen(false);
-              setEditing(true);
-            }}
-          />
+      {menu.open && (
+        <MenuPanel minWidth={180}>
+          <MenuItem icon="edit" label="Renombrar" onClick={menu.run(() => setEditing(true))} />
           <MenuItem
             icon="ink_eraser"
             label="Limpiar chat"
-            onClick={() => {
-              setMenuOpen(false);
-              void clearMessages(id);
-            }}
+            onClick={menu.run(() => void clearMessages(id))}
           />
           <MenuItem
             icon="delete"
             label="Borrar conversación"
             danger
-            onClick={() => {
-              setMenuOpen(false);
-              void deleteConversation(id);
-            }}
+            onClick={menu.run(() => void deleteConversation(id))}
           />
-        </div>
+        </MenuPanel>
       )}
-    </div>
-  );
-}
-
-function MenuItem({
-  icon,
-  label,
-  danger,
-  onClick,
-}: {
-  icon: string;
-  label: string;
-  danger?: boolean;
-  onClick: () => void;
-}) {
-  const [hover, setHover] = useState(false);
-  return (
-    <div
-      onClick={onClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "6px 10px",
-        borderRadius: 6,
-        background: hover ? "var(--q-card-hover)" : "transparent",
-        color: danger ? "var(--q-error)" : "var(--q-text-primary)",
-        fontSize: "var(--q-fs-12)",
-        cursor: "default",
-      }}
-    >
-      <Icon name={icon} size={14} color={danger ? "var(--q-error)" : "var(--q-text-light)"} />
-      {label}
     </div>
   );
 }

@@ -217,7 +217,7 @@ async function llmExtract(lines: DialogueLine[], model: string): Promise<Candida
   // Usamos `chatCompletion` con una "conversación efímera" que no se persiste:
   // un mensaje user con el diálogo formateado + el system prompt restrictivo.
   // Es el mismo wire format que el resto de Quarky, así se reusa el provider.
-  const ephemeral = newConversation("__extractor__", "ask");
+  const ephemeral = newConversation("ask");
   ephemeral.messages = [makeUserMessage(formatDialogueForLlm(lines))];
   const result = await chatCompletion({
     systemPrompt: EXTRACTOR_SYSTEM_PROMPT,

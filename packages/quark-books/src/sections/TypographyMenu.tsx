@@ -1,46 +1,32 @@
-import { useEffect, useRef, useState } from "react";
-import { Icon, IconButton } from "@quarks/core";
+import { Icon, IconButton, useStoreState, useMenu } from "@quarks/core";
 import type { BooksStore } from "../store";
 import { SIZE_MAX, SIZE_MIN } from "../store";
-import type { BookFontFamily } from "../types";
-import { useBooksState } from "../hooks/useBooksStore";
+import type { BookFontFamily, TrimSize } from "../types";
+import { TRIMS, TRIM_SIZES } from "../util/pageGeometry";
 
 export interface TypographyMenuProps {
   store: BooksStore;
 }
 
-/** Presets de interlineado expuestos en la UI (el store acepta cualquier valor). */
+/**
+ * Presets de interlineado expuestos en la UI (el store acepta cualquier valor).
+ * Rango de libro impreso: una novela va de ~1.3 (apretado) a ~1.65 (aireado).
+ */
 const LINE_HEIGHT_PRESETS: { label: string; value: number }[] = [
-  { label: "Compacto", value: 1.45 },
-  { label: "Normal", value: 1.65 },
-  { label: "Amplio", value: 1.9 },
+  { label: "Compacto", value: 1.3 },
+  { label: "Normal", value: 1.45 },
+  { label: "Amplio", value: 1.65 },
 ];
 
 /**
- * Control de tipografía de la página: familia (serif/sans), tamaño de cuerpo e
- * interlineado. Vive en la barra del editor; abre un popover con tres filas.
- * Los cambios se aplican en vivo (preferencia global, persistida en el store).
+ * Control de tipografía de la página: familia (serif/sans), tamaño de cuerpo,
+ * interlineado y formato de hoja. Vive en la barra del editor; abre un popover
+ * con cuatro filas. Los cambios se aplican en vivo (preferencia global,
+ * persistida en el store).
  */
 export function TypographyMenu({ store }: TypographyMenuProps) {
-  const { typography } = useBooksState(store);
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLSpanElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  const { typography } = useStoreState(store);
+  const { open, setOpen, ref } = useMenu<HTMLSpanElement>();
 
   return (
     <span ref={ref} style={{ position: "relative", display: "inline-flex" }}>
@@ -96,6 +82,14 @@ export function TypographyMenu({ store }: TypographyMenuProps) {
               onChange={(lineHeight) => store.setTypography({ lineHeight })}
             />
           </Row>
+
+          <Row label="Formato de hoja" hint={TRIMS[typography.trim].cm}>
+            <Segmented<TrimSize>
+              value={typography.trim}
+              options={TRIM_SIZES.map((t) => ({ label: TRIMS[t].label, value: t }))}
+              onChange={(trim) => store.setTypography({ trim })}
+            />
+          </Row>
         </div>
       )}
     </span>
@@ -118,11 +112,29 @@ function closestPreset(lineHeight: number): number {
 
 // ── Subcomponentes ──────────────────────────────────────────────────────────────
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+function Row({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  /** Texto chico a la derecha de la etiqueta (p. ej. el formato en cm). */
+  hint?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <span style={{ fontSize: 10, fontWeight: 600, color: "var(--q-text-light)" }}>
+      <span
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          fontSize: 10,
+          fontWeight: 600,
+          color: "var(--q-text-light)",
+        }}
+      >
         {label}
+        {hint && <span style={{ fontWeight: 400 }}>{hint}</span>}
       </span>
       {children}
     </div>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { IconButton } from "@quarks/core";
 import type { WavePeaks } from "../services/trim";
-import { fmtFine, fmtScaled } from "../util";
+import { fmtFine, fmtScaled, fractionAt } from "../util";
 
 export interface TrimWaveProps {
   /** Duración del archivo (segundos) — el dominio de toda la vista. */
@@ -397,10 +397,7 @@ function Minimap({
   const drag = useRef(false);
 
   const scrub = (clientX: number) => {
-    const el = ref.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    onScrub(Math.max(0, Math.min(total, ((clientX - rect.left) / rect.width) * total)));
+    if (ref.current) onScrub(fractionAt(ref.current, clientX) * total);
   };
 
   return (

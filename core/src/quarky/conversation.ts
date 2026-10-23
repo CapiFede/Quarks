@@ -5,25 +5,18 @@
  * disco hasta el commit.
  */
 import type { Conversation, Message, Mode, TokenUsage, ToolCall } from "./types";
-
-/** Id corto random (16 hex). `crypto.randomUUID()` también funciona; usamos esto por brevedad. */
-function randomId(): string {
-  const bytes = new Uint8Array(8);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-}
+import { newId, UNTITLED } from "../services/util";
 
 /**
  * Conversación vacía nueva, lista para persistir. `model` se hereda del último
  * usado (lo pasa el caller); `attachContext` arranca en `true` — si hay contexto
  * de quark (capítulo abierto), se inyecta hasta que el usuario lo apague.
  */
-export function newConversation(spaceId: string, mode: Mode, model?: string): Conversation {
+export function newConversation(mode: Mode, model?: string): Conversation {
   const now = Date.now();
   return {
-    id: randomId(),
-    title: "Sin título",
-    spaceId,
+    id: newId(),
+    title: UNTITLED,
     mode,
     model,
     attachContext: true,
@@ -35,7 +28,7 @@ export function newConversation(spaceId: string, mode: Mode, model?: string): Co
 
 export function makeUserMessage(content: string, images?: string[]): Message {
   return {
-    id: randomId(),
+    id: newId(),
     role: "user",
     content,
     images: images && images.length > 0 ? images : undefined,
@@ -49,7 +42,7 @@ export function makeAssistantMessage(
   usage?: TokenUsage,
 ): Message {
   return {
-    id: randomId(),
+    id: newId(),
     role: "assistant",
     content,
     toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
@@ -62,13 +55,15 @@ export function makeToolMessage(
   toolCallId: string,
   name: string,
   content: string,
+  isError = false,
 ): Message {
   return {
-    id: randomId(),
+    id: newId(),
     role: "tool",
     content,
     toolCallId,
     name,
+    isError: isError || undefined,
     createdAt: Date.now(),
   };
 }

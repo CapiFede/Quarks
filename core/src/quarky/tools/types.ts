@@ -24,7 +24,7 @@ export interface ToolSchema {
 
 /**
  * Contexto pasado a cada `execute()`. Lleva el workspace root, el modo activo
- * y un signal para cancelar mid-ejecución (M2 streaming/abort).
+ * y el signal del turno para cortar una ejecución larga si el usuario frena.
  */
 export interface ToolContext {
   /** Ruta relativa a AppData (p. ej. "packages") que actúa como jaula. */

@@ -9,6 +9,7 @@
  */
 import { resolveInWorkspace, relToWorkspace } from "../pathSandbox";
 import type { ToolDef } from "../types";
+import { walkFiles } from "../../../services/store";
 
 const MAX_FILES = 50;
 const MAX_PER_FILE = 5;
@@ -54,7 +55,7 @@ export const grep: ToolDef = {
       return { content: `grep: regex inválido (${(e as Error).message})`, isError: true };
     }
     const root = resolveInWorkspace(ctx.workspaceRoot, args.path ?? "");
-    const { BaseDirectory, exists, readDir, readTextFile } = await import("@tauri-apps/plugin-fs");
+    const { BaseDirectory, exists, readTextFile } = await import("@tauri-apps/plugin-fs");
     if (!(await exists(root, { baseDir: BaseDirectory.AppData }))) {
       return { content: `grep: no existe \`${args.path ?? "."}\``, isError: true };
     }
@@ -62,39 +63,27 @@ export const grep: ToolDef = {
     const hits: string[] = [];
     let filesHit = 0;
 
-    const walk = async (rel: string): Promise<void> => {
-      if (filesHit >= MAX_FILES) return;
-      const entries = await readDir(rel, { baseDir: BaseDirectory.AppData });
-      for (const e of entries) {
-        if (filesHit >= MAX_FILES) return;
-        const childRel = `${rel}/${e.name}`;
-        if (e.isDirectory) {
-          await walk(childRel);
-        } else if (e.isFile && !shouldSkip(e.name)) {
-          let text: string;
-          try {
-            text = await readTextFile(childRel, { baseDir: BaseDirectory.AppData });
-          } catch {
-            continue; // binarios crashean readTextFile; los saltamos.
-          }
-          const matches = matchLines(text, re);
-          if (matches.length > 0) {
-            filesHit++;
-            const display = relToWorkspace(ctx.workspaceRoot, childRel);
-            hits.push(`## ${display}`);
-            for (const m of matches.slice(0, MAX_PER_FILE)) {
-              hits.push(`${m.lineNum}: ${m.text}`);
-            }
-            if (matches.length > MAX_PER_FILE) {
-              hits.push(`… +${matches.length - MAX_PER_FILE} matches`);
-            }
-            hits.push("");
-          }
-        }
+    for await (const rel of walkFiles(root)) {
+      if (filesHit >= MAX_FILES) break;
+      if (shouldSkip(rel)) continue;
+      let text: string;
+      try {
+        text = await readTextFile(rel, { baseDir: BaseDirectory.AppData });
+      } catch {
+        continue; // binarios crashean readTextFile; los saltamos.
       }
-    };
-
-    await walk(root);
+      const matches = matchLines(text, re);
+      if (matches.length === 0) continue;
+      filesHit++;
+      hits.push(`## ${relToWorkspace(ctx.workspaceRoot, rel)}`);
+      for (const m of matches.slice(0, MAX_PER_FILE)) {
+        hits.push(`${m.lineNum}: ${m.text}`);
+      }
+      if (matches.length > MAX_PER_FILE) {
+        hits.push(`… +${matches.length - MAX_PER_FILE} matches`);
+      }
+      hits.push("");
+    }
     if (hits.length === 0) {
       return { content: `grep: sin matches para /${args.pattern}/${flags}` };
     }

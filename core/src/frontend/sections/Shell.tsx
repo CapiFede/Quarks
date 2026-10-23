@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { WindowFrame } from "./WindowFrame";
 import { TitleBar } from "./TitleBar";
 import { Home } from "./Home";
@@ -12,17 +12,14 @@ import { useShellHotkeys } from "../hooks/useShellHotkeys";
 import { useReloadShortcut } from "../hooks/useReloadShortcut";
 import { useSettings } from "../hooks/useSettings";
 import { useAccount } from "../hooks/useAccount";
-import { useSpaces } from "../hooks/useSpaces";
 import { useUpdater } from "../hooks/useUpdater";
-import { SpaceProvider } from "../hooks/useActiveSpace";
+import { useSync } from "../hooks/useSync";
 import { QuarkyProvider, useQuarky } from "../../quarky/hooks/useQuarky";
 import { useQuarkyHotkeys } from "../../quarky/hooks/useQuarkyHotkeys";
 import { report, withScope } from "../../services/log";
 import {
   getPendingQuark,
   clearPendingQuark,
-  getPendingSpace,
-  clearPendingSpace,
   subscribeNavigation,
 } from "../../services/navigation";
 import type { AppState } from "../../services/appState";
@@ -35,14 +32,23 @@ export interface ShellProps {
   initialAccount: AccountInfo | null;
 }
 
+/**
+ * Contexto que el quark `id` aporta a Quarky. A nivel módulo (no cierra sobre
+ * nada) para que el context value del provider no se recree en cada render del
+ * Shell: es dep de su `useMemo`.
+ */
+const resolveAiContext = (id: string) => getQuarkInstance(id)?.buildAiContext?.() ?? null;
+
 /** Shell de la app: titlebar + tabs + panes + popup de Settings. */
 export function Shell({ initialAppState, initialSettings, initialAccount }: ShellProps) {
   const shell = useShell(initialAppState);
   const settingsCtl = useSettings(initialSettings);
   const { settings, update } = settingsCtl;
-  const spaces = useSpaces(settingsCtl, shell);
   const { account, status, error, connect, disconnect } = useAccount(initialAccount);
   const updater = useUpdater();
+  // Sync acá y no dentro del panel de Settings: un push/pull largo tiene que
+  // sobrevivir a cerrar el popup, y Cancelar tiene que alcanzarlo al reabrir.
+  const sync = useSync(account !== null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SectionId | undefined>();
 
@@ -59,8 +65,7 @@ export function Shell({ initialAppState, initialSettings, initialAccount }: Shel
     }
   }, [account, settings.displayName, update]);
 
-  // Un quark puede pedir el foco de su tab (alarma sonando, fin de timer) o la
-  // activación de un space (abrir una playlist de otro space desde Música). El
+  // Un quark puede pedir el foco de su tab (alarma sonando, fin de timer). El
   // store vive en otro paquete y publica en el bus de navegación; acá lo
   // consumimos.
   useEffect(() => {
@@ -70,28 +75,28 @@ export function Shell({ initialAppState, initialSettings, initialAccount }: Shel
         clearPendingQuark();
         shell.openTab(id);
       }
-      const spaceId = getPendingSpace();
-      if (spaceId) {
-        clearPendingSpace();
-        // Ignorar ids que no correspondan a un space definido (pedido viejo /
-        // space borrado entre que se publicó y se consumió).
-        if (spaces.spaces.some((s) => s.id === spaceId)) spaces.setActive(spaceId);
-      }
     };
     consume(); // por si quedó un pedido publicado antes de montar el Shell
     return subscribeNavigation(consume);
-  }, [shell.openTab, spaces.spaces, spaces.setActive]);
+  }, [shell.openTab]);
 
   /** Abre Settings, opcionalmente en una sección puntual. */
-  const openSettings = (section?: SectionId) => {
+  const openSettings = useCallback((section?: SectionId) => {
     setSettingsSection(section);
     setSettingsOpen(true);
-  };
+  }, []);
+  const openQuarkySettings = useCallback(() => openSettings("quarky"), [openSettings]);
 
-  const tabs = shell.openTabs
-    .map((id) => getQuark(id))
-    .filter((q) => q !== undefined)
-    .map((q) => ({ id: q.id, name: q.name, icon: q.icon }));
+  // Memoizado: es dep del `useLayoutEffect` que mide los pills en la TitleBar;
+  // con identidad nueva por render, cada render del Shell re-medía todo.
+  const tabs = useMemo(
+    () =>
+      shell.openTabs
+        .map((id) => getQuark(id))
+        .filter((q) => q !== undefined)
+        .map((q) => ({ id: q.id, name: q.name, icon: q.icon })),
+    [shell.openTabs],
+  );
 
   // Toolbar del quark activo (si lo aporta). Home y los quarks sin instancia
   // no muestran sub-toolbar.
@@ -102,10 +107,9 @@ export function Shell({ initialAppState, initialSettings, initialAccount }: Shel
   return (
     <WindowFrame>
       <QuarkyProvider
-        activeSpaceId={spaces.active.id}
         activeQuarkId={shell.active === "home" ? null : shell.active}
-        resolveAiContext={(id) => getQuarkInstance(id)?.buildAiContext?.() ?? null}
-        onOpenSettings={() => openSettings("quarky")}
+        resolveAiContext={resolveAiContext}
+        onOpenSettings={openQuarkySettings}
       >
         <TitleBar
           active={shell.active}
@@ -114,65 +118,53 @@ export function Shell({ initialAppState, initialSettings, initialAccount }: Shel
           onCloseTab={shell.closeTab}
           onReorderTab={shell.reorderTab}
           pinnedTabs={isAndroid ? [...ANDROID_PINNED_TABS] : undefined}
-          spaces={spaces.spaces}
-          activeSpaceId={spaces.active.id}
           onOpenSettings={() => openSettings()}
           updateAvailable={updater.status === "available"}
           onClickUpdate={() => openSettings("general")}
         />
 
-        {/* SpaceProvider envuelve la toolbar Y los panes: ambos consumen el space
-            activo (la toolbar del quark también lo necesita para sus playlists).
-            Cada pane se mantiene montado; los inactivos se ocultan con display:none
-            para preservar el estado interno del quark al cambiar de tab. */}
-        <SpaceProvider space={spaces.active}>
-          {toolbar}
-          <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
-            {/* Home solo en desktop: en Android no existe (music + notes son los
-                tabs fijos y el activo es uno de ellos, nunca 'home'). */}
-            {!isAndroid && (
-              <Pane visible={shell.active === "home"}>
-                <Home
-                  displayName={settings.displayName}
-                  account={account}
-                  onOpen={shell.openTab}
-                  onSettings={() => openSettings()}
-                  onLogin={() => openSettings("account")}
-                />
+        {toolbar}
+        {/* Cada pane se mantiene montado; los inactivos se ocultan con
+            display:none para preservar el estado interno del quark al cambiar
+            de tab. */}
+        <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
+          {/* Home solo en desktop: en Android no existe (music + notes son los
+              tabs fijos y el activo es uno de ellos, nunca 'home'). */}
+          {!isAndroid && (
+            <Pane visible={shell.active === "home"}>
+              <Home
+                displayName={settings.displayName}
+                account={account}
+                onOpen={shell.openTab}
+                onSettings={() => openSettings()}
+                onLogin={() => openSettings("account")}
+              />
+            </Pane>
+          )}
+          {shell.openTabs.map((id) => {
+            const instance = getQuarkInstance(id);
+            return (
+              <Pane key={id} visible={shell.active === id}>
+                {instance ? instance.buildPage() : <Placeholder quark={getQuark(id)} />}
               </Pane>
-            )}
-            {shell.openTabs.map((id) => {
-              const instance = getQuarkInstance(id);
-              return (
-                <Pane key={id} visible={shell.active === id}>
-                  {instance ? instance.buildPage() : <Placeholder quark={getQuark(id)} />}
-                </Pane>
-              );
-            })}
-          </div>
-        </SpaceProvider>
+            );
+          })}
+        </div>
 
         <Settings
           open={settingsOpen}
           onClose={() => setSettingsOpen(false)}
           initialSection={settingsSection}
-          spaces={spaces.spaces}
-          activeSpaceId={spaces.active.id}
-          onSelectSpace={spaces.setActive}
-          onCreateSpace={spaces.create}
-          onRenameSpace={spaces.rename}
-          onDeleteSpace={spaces.remove}
           account={account}
           status={status}
           error={error}
           onConnect={connect}
           onDisconnect={disconnect}
           updater={updater}
+          sync={sync}
         />
 
-        {/* Panel global de Quarky: overlay derecho, abre/cierra con F4. Va
-            adentro de SpaceProvider para que pueda leer el space activo si en el
-            futuro lo necesita (M5, para inyectar `buildAiContext` del quark). */}
+        {/* Panel global de Quarky: overlay derecho, abre/cierra con F4. */}
         <QuarkyPanel />
         <ShellSideEffects
           settingsOpen={settingsOpen}

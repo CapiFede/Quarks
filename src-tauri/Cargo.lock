@@ -3885,6 +3885,7 @@ name = "quarks"
 version = "0.4.8"
 dependencies = [
  "base64 0.22.1",
+ "gtk",
  "keyring",
  "lofty",
  "log",

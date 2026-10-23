@@ -3,25 +3,33 @@
  * estado + acciones, compartido por toolbar y página vía `useSyncExternalStore`.
  * Vive en la instancia del quark y sobrevive a cambios de tab.
  *
- * Reparto por Space:
- *   - ÍNDICE de notas (id, título, preview, color, updatedAt) → sección `notes`
- *     de `spaces/<spaceId>.json` vía `readSpaceSection`/`writeSpaceSection`.
- *   - CUERPO de cada nota → `packages/notes/<noteId>.md`. El noteId NO contiene
- *     el spaceId: renombrar / mover el space no toca los .md.
+ * Persistencia:
+ *   - ÍNDICE de notas (id, título, preview, color, updatedAt) →
+ *     `packages/notes/index.json`.
+ *   - CUERPO de cada nota → `packages/notes/<noteId>.md`.
  *
- * Autosave: 800ms de debounce sobre `activeContent`. Al cambiar de nota / space /
+ * Autosave: 800ms de debounce sobre `activeContent`. Al cambiar de nota o en
  * dispose se hace `flushSave()` para no perder el último tramo.
  */
-import { readSpaceSection, writeSpaceSection } from "@quarks/core";
+import {
+  readJson,
+  writeJson,
+  type LegacySpace,
+  ExternalStore,
+  newId,
+  messageOf,
+  UNTITLED,
+} from "@quarks/core";
 import type { NoteIndex, NoteMode, NotesState } from "./types";
 import { deleteNote as deleteNoteFile, readNote, writeNote } from "./services/persistence";
 import { buildPreview, formatJson, randomNoteColorId, sortByRecency } from "./util";
 
-/** Id del quark: clave de su sección dentro del archivo del space. */
+/** Id del quark: clave de su sección en los archivos de la época de los Spaces. */
 const QUARK_ID = "notes";
+/** Índice de notas. */
+const INDEX_KEY = "packages/notes/index";
 
-/** Estructura de la sección `notes` dentro de `spaces/<spaceId>.json`. */
-interface SpaceFile {
+interface IndexFile {
   notes: NoteIndex[];
 }
 
@@ -30,7 +38,6 @@ const AUTOSAVE_MS = 800;
 const INITIAL: NotesState = {
   status: "idle",
   error: null,
-  spaceId: null,
   notes: [],
   activeNoteId: null,
   activeContent: "",
@@ -54,7 +61,7 @@ function isValidNoteIndex(v: unknown): v is NoteIndex {
 function normalizeNote(raw: NoteIndex): NoteIndex {
   return {
     id: raw.id,
-    title: raw.title || "Sin título",
+    title: raw.title || UNTITLED,
     preview: typeof raw.preview === "string" ? raw.preview : "",
     color: typeof raw.color === "string" ? raw.color : null,
     mode: raw.mode === "json" ? "json" : "text",
@@ -63,44 +70,54 @@ function normalizeNote(raw: NoteIndex): NoteIndex {
   };
 }
 
-function newId(): string {
-  return crypto.randomUUID();
+/** Notas válidas (y con defaults) de un `notes` leído de disco, sin validar. */
+function parseNotes(raw: unknown): NoteIndex[] {
+  return (Array.isArray(raw) ? raw : []).filter(isValidNoteIndex).map(normalizeNote);
 }
 
-function messageOf(e: unknown): string {
-  return e instanceof Error ? e.message : typeof e === "string" ? e : String(e);
+/**
+ * Migración única desde los Spaces: suma las notas de todos los spaces al
+ * índice (ver `Quark.migrateSpaces`). Las que ya estaban, por id, no se tocan.
+ */
+export async function migrateNotesFromSpaces(spaces: LegacySpace[]): Promise<void> {
+  const current = await readJson<IndexFile>(INDEX_KEY, { notes: [] });
+  const byId = new Map(parseNotes(current.notes).map((n) => [n.id, n]));
+  for (const s of spaces) {
+    const section = s.sections[QUARK_ID] as Partial<IndexFile> | undefined;
+    for (const n of parseNotes(section?.notes)) if (!byId.has(n.id)) byId.set(n.id, n);
+  }
+  await writeJson<IndexFile>(INDEX_KEY, { notes: sortByRecency([...byId.values()]) });
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────────
 
-export class NotesStore {
-  private state: NotesState = INITIAL;
-  private listeners = new Set<() => void>();
+export class NotesStore extends ExternalStore<NotesState> {
+  constructor() {
+    super(INITIAL);
+  }
 
   // Estado fuera del snapshot.
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Para descartar resultados viejos cuando el space cambia rápido. */
-  private spaceSeq = 0;
-  /** Idem cuando se selecciona nota y se cambia antes de que termine la carga. */
+  /** El índice ya se leyó de disco. Antes de eso no se escribe (lo pisaría vacío). */
+  private loaded = false;
+  /** Para descartar resultados viejos cuando se selecciona nota y se cambia
+   *  antes de que termine la carga. */
   private noteSeq = 0;
-
-  // ── useSyncExternalStore ──
-  subscribe = (cb: () => void): (() => void) => {
-    this.listeners.add(cb);
-    return () => {
-      this.listeners.delete(cb);
-    };
-  };
-  getSnapshot = (): NotesState => this.state;
-
-  private set(patch: Partial<NotesState>): void {
-    this.state = { ...this.state, ...patch };
-    for (const l of this.listeners) l();
-  }
 
   // ── Ciclo de vida ──
   async init(): Promise<void> {
-    this.set({ status: "ready" });
+    await this.flushSave();
+    this.set({ status: "loading" });
+    try {
+      const file = await readJson<IndexFile>(INDEX_KEY, { notes: [] });
+      const notes = sortByRecency(parseNotes(file.notes));
+      this.loaded = true;
+      this.set({ notes, status: "ready" });
+      // Auto-abrir la nota más reciente, si existe.
+      if (notes.length > 0) await this.selectNote(notes[0].id);
+    } catch (e) {
+      this.set({ status: "error", error: messageOf(e) });
+    }
   }
 
   dispose(): void {
@@ -108,42 +125,9 @@ export class NotesStore {
     void this.flushSave();
   }
 
-  // ── Space → índice ──
-  async setSpace(spaceId: string): Promise<void> {
-    if (this.state.spaceId === spaceId) return;
-    await this.flushSave();
-    const seq = ++this.spaceSeq;
-    this.set({
-      spaceId,
-      status: "loading",
-      notes: [],
-      activeNoteId: null,
-      activeContent: "",
-      editorStatus: "saved",
-      searchOpen: false,
-      search: "",
-    });
-    try {
-      const section = await readSpaceSection<SpaceFile>(spaceId, QUARK_ID, { notes: [] });
-      if (seq !== this.spaceSeq) return;
-      const notes = sortByRecency(
-        (Array.isArray(section.notes) ? section.notes : [])
-          .filter(isValidNoteIndex)
-          .map(normalizeNote),
-      );
-      this.set({ notes, status: "ready" });
-      // Auto-abrir la nota más reciente, si existe.
-      if (notes.length > 0) await this.selectNote(notes[0].id);
-    } catch (e) {
-      if (seq !== this.spaceSeq) return;
-      this.set({ status: "error", error: messageOf(e) });
-    }
-  }
-
   private async persistIndex(): Promise<void> {
-    const { spaceId, notes } = this.state;
-    if (!spaceId) return;
-    await writeSpaceSection<SpaceFile>(spaceId, QUARK_ID, { notes });
+    if (!this.loaded) return;
+    await writeJson<IndexFile>(INDEX_KEY, { notes: this.state.notes });
   }
 
   // ── Notas (CRUD) ──
@@ -151,7 +135,7 @@ export class NotesStore {
    *  que la sidebar sea visualmente variada de entrada — el usuario lo cambia
    *  desde el pill del editor si quiere. */
   async createNote(): Promise<string | null> {
-    if (!this.state.spaceId) return null;
+    if (!this.loaded) return null;
     await this.flushSave();
     const note: NoteIndex = {
       id: newId(),
@@ -245,14 +229,12 @@ export class NotesStore {
     const seq = ++this.noteSeq;
     const exists = this.state.notes.find((n) => n.id === id);
     if (!exists) return;
-    this.set({
-      activeNoteId: id,
-      activeContent: "",
-      editorStatus: "saved",
-    });
+    // Leer ANTES de cambiar la nota activa y hacer un solo `set`: si primero
+    // seteáramos `activeContent: ""`, el editor montaría vacío y lo tipeado
+    // antes de que resuelva la lectura se pisaría con el segundo `set`.
     const content = await readNote(id);
     if (seq !== this.noteSeq) return;
-    this.set({ activeContent: content, editorStatus: "saved" });
+    this.set({ activeNoteId: id, activeContent: content, editorStatus: "saved" });
   }
 
   // ── Editor ──
@@ -279,20 +261,27 @@ export class NotesStore {
   /** Forzar guardar lo pendiente AHORA (cambio de nota, dispose, etc.). */
   async flushSave(): Promise<void> {
     this.cancelAutosave();
-    const { activeNoteId, activeContent, editorStatus, notes } = this.state;
+    const { activeNoteId, activeContent, editorStatus } = this.state;
     if (!activeNoteId || editorStatus === "saved") return;
     this.set({ editorStatus: "saving" });
     try {
       await writeNote(activeNoteId, activeContent);
+      // Derivar de `this.state.notes`, no de la copia previa al await: mientras
+      // se escribía pudieron cambiar título/color de alguna nota y no queremos
+      // pisarlos. Si la nota activa cambió, quien la cambió ya reseteó el editor.
+      if (this.state.activeNoteId !== activeNoteId) return;
       const now = Date.now();
       const preview = buildPreview(activeContent);
       this.set({
         notes: sortByRecency(
-          notes.map((n) =>
+          this.state.notes.map((n) =>
             n.id === activeNoteId ? { ...n, preview, updatedAt: now } : n,
           ),
         ),
-        editorStatus: "saved",
+        // Si se tipeó durante la escritura, lo grabado ya es viejo: queda
+        // "dirty" para que el autosave pendiente lo vuelva a bajar.
+        editorStatus: this.state.activeContent === activeContent ? "saved" : "dirty",
+        error: null,
       });
       await this.persistIndex();
     } catch (e) {

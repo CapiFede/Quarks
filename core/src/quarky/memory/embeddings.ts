@@ -15,9 +15,13 @@
  * notablemente.
  *
  * Si la carga falla (sin red, OOM en Android), el módulo queda en estado
- * `"error"` y los callers caen a degradación (tratar todo como pinned).
+ * `"error"`: la promesa rechazada queda cacheada y cada `embed()` falla al
+ * instante sin volver a descargar/compilar el modelo. Los callers caen a
+ * degradación (tratar todo como pinned); el reintento es explícito vía
+ * `resetEmbedder()` (botón "Probar embedder" del inspector).
  */
 import { report } from "../../services/log";
+import { messageOf } from "../../services/util";
 
 export type EmbedderStatus = "idle" | "loading" | "ready" | "error";
 
@@ -72,6 +76,17 @@ export function subscribeEmbedder(cb: () => void): () => void {
  */
 export function ensureEmbedderLoading(): void {
   if (status === "idle") void getPipeline();
+}
+
+/**
+ * Vuelve a `idle` tras un error para que el próximo `embed()` reintente la
+ * carga. Sin esto, con el embedder roto, un backfill de N entradas serían N
+ * intentos de descarga seguidos.
+ */
+export function resetEmbedder(): void {
+  if (status !== "error") return;
+  pipelinePromise = null;
+  setStatus("idle");
 }
 
 /**
@@ -133,15 +148,14 @@ async function getPipeline(): Promise<EmbedderFn> {
       setStatus("ready");
       return embedder;
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = messageOf(e);
       progressLabel = null;
       setStatus("error", msg);
       // El status="error" + el label ya están visibles en el inspector y
       // accesibles vía `getEmbedderStatus()`. Reportamos al sink global solo si
       // es realmente fatal (el usuario va a verlo en el ErrorOverlay si abre).
       report("quarky.embeddings.load", e);
-      // Reset para que un retry futuro pueda volver a intentar.
-      pipelinePromise = null;
+      // La promesa rechazada queda cacheada a propósito: ver `resetEmbedder`.
       throw e;
     }
   })();

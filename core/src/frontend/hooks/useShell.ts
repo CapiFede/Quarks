@@ -16,8 +16,6 @@ export const ANDROID_PINNED_TABS = ["music", "notes"] as const;
 export interface Shell {
   openTabs: string[];
   active: ActiveTab;
-  /** id del Space activo (crudo; el Shell lo resuelve contra la lista de spaces). */
-  activeSpace: string;
   /** Abre el quark (si no estaba) y lo activa. */
   openTab: (id: string) => void;
   /** Cierra el tab; activa el anterior, o Home si no queda ninguno. */
@@ -26,14 +24,11 @@ export interface Shell {
   activate: (id: ActiveTab) => void;
   /** Mueve `draggedId` a la posición que ocupa `targetId` (drag de tabs). */
   reorderTab: (draggedId: string, targetId: string) => void;
-  /** Cambia el Space activo (persistido en appState). */
-  setActiveSpace: (id: string) => void;
 }
 
 interface ShellState {
   openTabs: string[];
   active: ActiveTab;
-  activeSpace: string;
 }
 
 /** Saneo del estado persistido contra el registro actual de quarks. */
@@ -50,16 +45,14 @@ function sanitize(state: AppState): ShellState {
     const active = openTabs.includes(state.activeTab)
       ? state.activeTab
       : openTabs[0] ?? "music";
-    return { openTabs, active, activeSpace: state.activeSpace };
+    return { openTabs, active };
   }
   const openTabs = state.openTabs.filter((id) => getQuark(id));
   const active =
     state.activeTab === "home" || openTabs.includes(state.activeTab)
       ? state.activeTab
       : "home";
-  // `activeSpace` se copia tal cual: appState no conoce la lista de spaces
-  // (vive en settings). El Shell valida con `resolveActive` al leer.
-  return { openTabs, active, activeSpace: state.activeSpace };
+  return { openTabs, active };
 }
 
 /**
@@ -74,7 +67,6 @@ export function useShell(initial: AppState): Shell {
       saveAppState({
         openTabs: state.openTabs,
         activeTab: state.active,
-        activeSpace: state.activeSpace,
       }),
     ).catch(report);
   }, [state]);
@@ -89,10 +81,6 @@ export function useShell(initial: AppState): Shell {
 
   const activate = useCallback((id: ActiveTab) => {
     setState((s) => (s.active === id ? s : { ...s, active: id }));
-  }, []);
-
-  const setActiveSpace = useCallback((id: string) => {
-    setState((s) => (s.activeSpace === id ? s : { ...s, activeSpace: id }));
   }, []);
 
   const reorderTab = useCallback((draggedId: string, targetId: string) => {
@@ -130,11 +118,9 @@ export function useShell(initial: AppState): Shell {
   return {
     openTabs: state.openTabs,
     active: state.active,
-    activeSpace: state.activeSpace,
     openTab,
     closeTab,
     activate,
     reorderTab,
-    setActiveSpace,
   };
 }

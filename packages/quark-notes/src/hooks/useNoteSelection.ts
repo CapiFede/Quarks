@@ -7,6 +7,7 @@
  * lo publica al bus de selección para mostrar el badge y mandárselo a la IA).
  */
 import { useEffect, useState } from "react";
+import { countWords } from "@quarks/core";
 
 export interface NoteSelection {
   /** Caracteres seleccionados (incluyendo espacios — el conteo simple). */
@@ -15,12 +16,6 @@ export interface NoteSelection {
   words: number;
   /** Texto crudo. Lo consume Quarky vía el bus. */
   text: string;
-}
-
-function countWords(s: string): number {
-  const t = s.trim();
-  if (!t) return 0;
-  return t.split(/\s+/).length;
 }
 
 export function useNoteSelection(): NoteSelection | null {

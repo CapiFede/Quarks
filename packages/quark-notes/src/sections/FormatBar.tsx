@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Icon, IconButton } from "@quarks/core";
+import type { ReactNode } from "react";
+import { Icon, IconButton, useMenu } from "@quarks/core";
 import { useEditorState, type Editor } from "@tiptap/react";
 import { NOTE_COLORS } from "../util";
 
@@ -97,30 +97,6 @@ function FormatDivider() {
   return <span className="q-notes-format-divider" />;
 }
 
-/** Popover local con cierre por click afuera / Escape (patrón de ColorPill). */
-function usePopover() {
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLSpanElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  return { open, setOpen, wrapRef };
-}
-
 /** Grilla de swatches de la paleta de notas (sin "neutral"). */
 function ColorGrid({
   current,
@@ -154,7 +130,7 @@ function ColorGrid({
 // ── Color de texto ────────────────────────────────────────────────────────────
 
 function TextColorMenu({ editor, current }: { editor: Editor | null; current: string | null }) {
-  const { open, setOpen, wrapRef } = usePopover();
+  const { open, setOpen, ref: wrapRef } = useMenu<HTMLSpanElement>();
   return (
     <span ref={wrapRef} style={{ position: "relative", display: "inline-flex" }}>
       <IconButton
@@ -196,12 +172,7 @@ function TextColorMenu({ editor, current }: { editor: Editor | null; current: st
 // ── Tabla ─────────────────────────────────────────────────────────────────────
 
 function TableMenu({ editor, inTable }: { editor: Editor | null; inTable: boolean }) {
-  const { open, setOpen, wrapRef } = usePopover();
-
-  const run = (fn: () => void) => () => {
-    fn();
-    setOpen(false);
-  };
+  const { open, setOpen, ref: wrapRef, run } = useMenu<HTMLSpanElement>();
   const chain = () => editor?.chain().focus();
 
   return (

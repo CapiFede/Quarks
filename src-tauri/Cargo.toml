@@ -1,10 +1,8 @@
 [package]
 name = "quarks"
 version = "0.4.8"
-description = "A Tauri App"
-authors = ["you"]
-license = ""
-repository = ""
+description = "Suite de micro-apps minimalistas"
+authors = ["Federico"]
 edition = "2021"
 rust-version = "1.77.2"
 
@@ -32,11 +30,6 @@ tauri-plugin-dialog = "2"
 # (Linux) el evento `paste` del WebView no expone imágenes, así que el frontend
 # cae a `readImage()` de este plugin como fallback.
 tauri-plugin-clipboard-manager = "2"
-# Deep links — receptor de URLs externas (custom URI schemes + App Links).
-# En Android es el path para terminar el OAuth: Google redirige a un scheme
-# registrado por la app y `onOpenUrl()` del plugin nos entrega la URL con el
-# `code`. En desktop también funciona (single-instance + Custom Tab schemes).
-tauri-plugin-deep-link = "2"
 
 # Music quark — IO de archivos (siempre disponible, incluido Android):
 #   walkdir: escaneo recursivo de la carpeta de canciones.
@@ -72,8 +65,9 @@ tauri-plugin-process = "2"
 # HTMLAudioElement en el frontend (ver packages/quark-music/services/android*).
 rodio = { version = "0.20", default-features = false, features = ["symphonia-all"] }
 
-# Descarga de música (yt-dlp + ffmpeg): cliente HTTP blocking (rustls, sin
-# OpenSSL del sistema) + unzip del paquete de ffmpeg de BtbN.
+# Descarga de música (yt-dlp + ffmpeg) y de miniaturas de YouTube como portada:
+# cliente HTTP blocking (rustls, sin OpenSSL del sistema) + unzip del paquete de
+# ffmpeg de BtbN.
 ureq = { version = "2", features = ["tls"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
@@ -97,6 +91,17 @@ souvlaki = { version = "0.8", default-features = false, features = ["use_zbus"] 
 # sistema, así no rompe el AppImage) y `tar` desempaqueta el tarball.
 lzma-rs = "0.3"
 tar = "0.4"
+# Selector de imagen de portada (`music_pick_image`): el diálogo GTK lo armamos a
+# mano para hacerlo transitorio y modal sobre la ventana. Misma versión que usa
+# Tauri por dentro (`gtk_window()` devuelve tipos de este crate).
+gtk = "0.18"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }
+
+# Deep links — receptor de URLs externas. Es el path para terminar el OAuth en
+# Android: Google redirige a un scheme registrado por la app y `onOpenUrl()` del
+# plugin nos entrega la URL con el `code`. Desktop usa el loopback HTTP de
+# tauri-plugin-oauth, así que acá no hace falta.
+[target.'cfg(target_os = "android")'.dependencies]
+tauri-plugin-deep-link = "2"

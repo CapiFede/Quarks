@@ -61,9 +61,6 @@ export interface AccountProvider {
 export interface DriveFileRef {
   id: string;
   name: string;
-  /** ISO-8601 de última modificación reportada por el provider. */
-  modifiedTime: string;
-  size?: number;
   /** SHA-256 hex del contenido, guardado por la app en `appProperties`. */
   sha256?: string | null;
   /** `true` si es una carpeta (el engine recorre el árbol con esto). */

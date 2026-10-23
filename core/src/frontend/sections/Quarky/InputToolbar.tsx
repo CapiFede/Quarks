@@ -8,11 +8,13 @@
  * con texto multilinea, los controles no se muevan. Comparte la misma `border-top`
  * que el input para leerse como una unidad.
  */
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useQuarky } from "../../../quarky/hooks/useQuarky";
 import { useActiveSelection } from "../../../quarky/hooks/useActiveSelection";
 import { Icon } from "../../components/Icon";
 import { IconButton } from "../../components/IconButton";
+import { countWords } from "../../../services/util";
+import { MenuHint, MenuPanel, useMenu } from "../../components/Menu";
 
 export function InputToolbar() {
   return (
@@ -54,7 +56,7 @@ function SelectionBadge() {
   const sel = useActiveSelection();
   if (!sel) return null;
   const chars = sel.text.length;
-  const words = countWordsSimple(sel.text);
+  const words = countWords(sel.text);
   return (
     <span
       title={sel.label ? `${sel.label} — la IA lo va a recibir como contexto` : undefined}
@@ -85,12 +87,6 @@ function SelectionBadge() {
       </span>
     </span>
   );
-}
-
-function countWordsSimple(s: string): number {
-  const t = s.trim();
-  if (!t) return 0;
-  return t.split(/\s+/).length;
 }
 
 // ── Toggle del contexto del quark (p. ej. capítulo abierto) ───────────────────
@@ -219,20 +215,9 @@ function ModeChip({
 
 function QuickModelPicker() {
   const { config, active, setModel, openSettings } = useQuarky();
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
+  const { open, setOpen, ref } = useMenu<HTMLDivElement>();
   // Modelo efectivo: el de la conversación activa (por-chat) o el default global.
   const effectiveModel = active?.model ?? config.model;
-
-  // Cerrar al clickear afuera. Mismo patrón que ConversationList.
-  useEffect(() => {
-    if (!open) return;
-    const onClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    window.addEventListener("mousedown", onClick);
-    return () => window.removeEventListener("mousedown", onClick);
-  }, [open]);
 
   const favorites = config.favoriteModels;
   // Mostramos solo el id en el chip (compacto). El nombre humano se ve en Settings.
@@ -272,32 +257,9 @@ function QuickModelPicker() {
       </div>
 
       {open && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: 26,
-            left: 0,
-            minWidth: 220,
-            maxWidth: 320,
-            background: "var(--q-surface)",
-            border: "1px solid var(--q-border-dark)",
-            borderRadius: 8,
-            boxShadow: "0 8px 24px rgba(0,0,0,.28)",
-            padding: 4,
-            zIndex: 5,
-          }}
-        >
+        <MenuPanel up minWidth={220} maxWidth={320}>
           {favorites.length === 0 ? (
-            <div
-              style={{
-                padding: "8px 10px",
-                fontSize: "var(--q-fs-11)",
-                color: "var(--q-text-light)",
-                lineHeight: 1.4,
-              }}
-            >
-              No tenés favoritos. Marcalos con la estrella desde Settings.
-            </div>
+            <MenuHint>No tenés favoritos. Marcalos con la estrella desde Settings.</MenuHint>
           ) : (
             favorites.map((id) => (
               <FavRow
@@ -332,7 +294,7 @@ function QuickModelPicker() {
             <Icon name="tune" size={12} />
             Gestionar modelos en Settings…
           </div>
-        </div>
+        </MenuPanel>
       )}
     </div>
   );

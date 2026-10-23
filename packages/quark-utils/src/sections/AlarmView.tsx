@@ -18,18 +18,20 @@ interface Draft {
   sound: boolean;
 }
 
-const EMPTY_DRAFT: Draft = {
-  kind: "once",
-  timeOfDay: defaultTime(),
-  intervalMin: 30,
-  label: "",
-  sound: true,
-};
-
 function defaultTime(): string {
   const d = new Date();
   d.setMinutes(d.getMinutes() + 5);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/**
+ * Draft limpio para el form "Nueva". Es una función y no una constante: la hora
+ * sugerida se calcula al momento de usarla. Como constante de módulo quedaba
+ * congelada al cargar y, una hora después, el form proponía una hora ya pasada
+ * (que `nextOnce` mandaba a mañana).
+ */
+function freshDraft(): Draft {
+  return { kind: "once", timeOfDay: defaultTime(), intervalMin: 30, label: "", sound: true };
 }
 
 function describe(a: Alarm): string {
@@ -54,7 +56,7 @@ function fmtRemaining(ms: number): string {
 
 export function AlarmView({ store, state }: AlarmViewProps) {
   const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
+  const [draft, setDraft] = useState<Draft>(() => freshDraft());
   // Reloj local solo para refrescar los countdowns; tick cada 5s (cuando la
   // vista está montada). El store no necesita meter `now` en su state.
   const [now, setNow] = useState(() => Date.now());
@@ -78,7 +80,7 @@ export function AlarmView({ store, state }: AlarmViewProps) {
         intervalMs: Math.max(1, draft.intervalMin) * 60_000,
       });
     }
-    setDraft(EMPTY_DRAFT);
+    setDraft(freshDraft());
     setAdding(false);
   };
 
@@ -87,7 +89,14 @@ export function AlarmView({ store, state }: AlarmViewProps) {
       <div className="q-utils-section-title">
         <h2 className="q-utils-title" style={{ margin: 0 }}>Alarmas</h2>
         {!adding && (
-          <Button icon="add" variant="filled" onClick={() => setAdding(true)}>
+          <Button
+            icon="add"
+            variant="filled"
+            onClick={() => {
+              setDraft(freshDraft());
+              setAdding(true);
+            }}
+          >
             Nueva
           </Button>
         )}
@@ -145,7 +154,7 @@ export function AlarmView({ store, state }: AlarmViewProps) {
             <Button
               variant="text"
               onClick={() => {
-                setDraft(EMPTY_DRAFT);
+                setDraft(freshDraft());
                 setAdding(false);
               }}
             >

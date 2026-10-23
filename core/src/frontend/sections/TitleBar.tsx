@@ -10,7 +10,6 @@ import {
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Icon } from "../components/Icon";
 import { isAndroid } from "../../services/platform";
-import type { Space } from "../../services/spaces";
 
 export interface TabDescriptor {
   id: string;
@@ -28,12 +27,9 @@ export interface TitleBarProps {
   onReorderTab: (draggedId: string, targetId: string) => void;
   /** ids de tabs que NO pueden cerrarse (no muestran el × en su pill). */
   pinnedTabs?: string[];
-  /** Spaces definidos y el activo, para mostrar el chip teñido del activo. */
-  spaces: Space[];
-  activeSpaceId: string;
-  /** Click en el chip = abrir Settings (el selector de spaces ahora vive ahí). */
+  /** Click en la tuerca = abrir Settings. */
   onOpenSettings: () => void;
-  /** Si hay update lista, el chip lleva un punto y el click salta a "Acerca de". */
+  /** Si hay update lista, la tuerca lleva un punto y el click salta a "Acerca de". */
   updateAvailable?: boolean;
   onClickUpdate?: () => void;
 }
@@ -48,10 +44,6 @@ const OVERFLOW_RESERVE = 44;
 /**
  * Titlebar con tabs de ancho dinámico, colapso a "+N" en overflow y popover de
  * tabs ocultos. Un solo activo visual: 'home' o uno de los tabs abiertos.
- *
- * El chip del space (teñido con el color del space activo) ya NO abre un
- * dropdown para cambiar de space — abre directamente Settings, donde el header
- * muestra los chips de spaces para cambio rápido. Por eso lleva ícono de tuerca.
  */
 export function TitleBar({
   active,
@@ -60,8 +52,6 @@ export function TitleBar({
   onCloseTab,
   onReorderTab,
   pinnedTabs,
-  spaces,
-  activeSpaceId,
   onOpenSettings,
   updateAvailable,
   onClickUpdate,
@@ -79,8 +69,6 @@ export function TitleBar({
   // Drag de reordenamiento: id del tab que se arrastra y sobre cuál está.
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
-
-  const activeSpace = spaces.find((s) => s.id === activeSpaceId) ?? spaces[0];
 
   // Mide los anchos naturales (row oculto) y calcula cuántos tabs entran.
   useLayoutEffect(() => {
@@ -238,8 +226,7 @@ export function TitleBar({
         </div>
       </div>
 
-      <SpaceChip
-        space={activeSpace}
+      <SettingsButton
         onClick={updateAvailable && onClickUpdate ? onClickUpdate : onOpenSettings}
         updateBadge={!!updateAvailable}
       />
@@ -586,30 +573,15 @@ function ChromeButton({ icon, iconSize = 14, isClose, onClick }: ChromeButtonPro
   );
 }
 
-// ── Space chip (acceso a Settings; el selector vive en el header de Settings) ─
-
-/** Aplica alpha a un color hex de 6 dígitos; si no lo es, lo deja tal cual. */
-function tint(color: string, alphaHex: string): string {
-  return color.startsWith("#") && color.length === 7 ? `${color}${alphaHex}` : color;
-}
-
-interface SpaceChipProps {
-  space: Space | undefined;
-  onClick: () => void;
-  /** Si hay update lista, dibuja un punto sobre el ícono de tuerca. */
-  updateBadge?: boolean;
-}
+// ── Botón de Settings ─────────────────────────────────────────────────────────
 
 /**
- * Chip teñido con el color del space activo. Sirve doble función: indicador
- * del space activo y acceso rápido a Settings (de ahí el ícono de tuerca).
- *
- * El `updateBadge` aparece como un punto sobre la tuerca: notifica updates sin
- * meter otro elemento en la chrome.
+ * Tuerca de Configuración, junto a los controles de ventana. El `updateBadge`
+ * es un punto sobre la tuerca: notifica updates sin meter otro elemento en la
+ * chrome.
  */
-function SpaceChip({ space, onClick, updateBadge }: SpaceChipProps) {
+function SettingsButton({ onClick, updateBadge }: { onClick: () => void; updateBadge?: boolean }) {
   const [hover, setHover] = useState(false);
-  const color = space?.color ?? "var(--q-primary)";
   return (
     <div
       onMouseEnter={() => setHover(true)}
@@ -617,39 +589,18 @@ function SpaceChip({ space, onClick, updateBadge }: SpaceChipProps) {
       onClick={onClick}
       title={updateBadge ? "Hay una actualización disponible" : "Configuración"}
       style={{
-        flex: "0 0 auto",
-        alignSelf: "center",
+        width: 36,
         display: "flex",
         alignItems: "center",
-        gap: 6,
-        height: 22,
-        padding: "0 8px",
-        margin: "0 4px",
-        borderRadius: 9999,
-        background: tint(color, hover ? "33" : "1f"),
-        border: `1px solid ${tint(color, "59")}`,
-        color: "var(--q-chrome-text)",
-        fontSize: 12,
-        fontWeight: 600,
+        justifyContent: "center",
+        flex: "0 0 auto",
+        background: hover ? "var(--q-chrome-hover)" : "transparent",
+        color: hover ? "var(--q-chrome-text)" : "var(--q-chrome-idle)",
         cursor: "default",
-        whiteSpace: "nowrap",
-        maxWidth: 180,
       }}
     >
-      <span
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: 9999,
-          background: color,
-          flex: "0 0 auto",
-        }}
-      />
-      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-        {space?.name ?? "Espacio"}
-      </span>
       <span style={{ position: "relative", display: "inline-flex" }}>
-        <Icon name="settings" size={15} color="var(--q-chrome-idle)" />
+        <Icon name="settings" size={16} />
         {updateBadge && (
           <span
             style={{

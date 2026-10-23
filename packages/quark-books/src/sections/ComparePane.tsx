@@ -1,10 +1,9 @@
 import { useMemo, useState } from "react";
-import { Icon, IconButton } from "@quarks/core";
+import { Icon, IconButton, ConfirmDialog } from "@quarks/core";
 import type { BooksStore } from "../store";
 import type { CompareState } from "../types";
 import { markdownToHtml } from "../util/markdown";
 import { countWords } from "../util/metrics";
-import { ConfirmDialog } from "./ConfirmDialog";
 
 export interface ComparePaneProps {
   store: BooksStore;

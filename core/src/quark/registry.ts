@@ -29,7 +29,7 @@ export const QUARK_STUBS: QuarkStub[] = [
   { id: "music", name: "Música", icon: "music_note", dirs: ["songs", "playlists"] },
   { id: "notes", name: "Notas", icon: "edit_note" },
   { id: "books", name: "Libros", icon: "menu_book" },
-  { id: "utils", name: "Utilidades", icon: "widgets", dirs: ["system", "system/backups"] },
+  { id: "utils", name: "Utilidades", icon: "widgets" },
 ];
 
 /** Instancias reales, indexadas por id. El id debe coincidir con un stub. */
@@ -47,4 +47,9 @@ export function getQuark(id: string): QuarkStub | undefined {
 /** La implementación real del quark, o `undefined` si todavía no existe. */
 export function getQuarkInstance(id: string): Quark | undefined {
   return INSTANCES[id];
+}
+
+/** Todas las implementaciones reales (para tareas del arranque, como migraciones). */
+export function allQuarkInstances(): Quark[] {
+  return Object.values(INSTANCES);
 }

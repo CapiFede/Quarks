@@ -4,32 +4,28 @@ import { appDataDir } from "@tauri-apps/api/path";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { Icon } from "../components/Icon";
 import { IconButton } from "../components/IconButton";
-import { TextInput } from "../components/TextInput";
 import { Toggle } from "../components/Toggle";
 import { Button } from "../components/Button";
 import { QuarkySettings } from "./QuarkySettings";
-import { type Space, SPACE_COLORS } from "../../services/spaces";
 import { isAutostartEnabled, setAutostart } from "../../services/autostart";
 import { isAndroid } from "../../services/platform";
 import { hasGoogleCredentials } from "../../services/account/config";
-import { useSync, type SyncOp } from "../hooks/useSync";
-import { useBackup } from "../hooks/useBackup";
+import type { SyncController, SyncOp } from "../hooks/useSync";
 import { isClean, type SyncDelta, type SyncProgress } from "../../services/account/sync";
-import { BACKUP_FOLDER, type BackupProgress } from "../../services/account/backup";
 import type { UpdaterController } from "../hooks/useUpdater";
 import type {
   AccountInfo,
   AccountStatus,
   ProviderId,
 } from "../../services/account/types";
+import { ProgressBar } from "../components/ProgressBar";
 
 const APP_VERSION = __APP_VERSION__;
 
-export type SectionId = "general" | "spaces" | "quarky" | "account";
+export type SectionId = "general" | "quarky" | "account";
 
 const NAV: { id: SectionId; label: string; icon: string }[] = [
   { id: "general", label: "General", icon: "tune" },
-  { id: "spaces", label: "Espacios", icon: "workspaces" },
   { id: "quarky", label: "Quarky", icon: "smart_toy" },
   { id: "account", label: "Cuenta", icon: "account_circle" },
 ];
@@ -39,20 +35,14 @@ export interface SettingsProps {
   onClose: () => void;
   /** Si se pasa, al abrir salta directo a esa sección. */
   initialSection?: SectionId;
-  /** Spaces y acciones de gestión (la lista vive en settings; ver useSpaces). */
-  spaces: Space[];
-  activeSpaceId: string;
-  /** Cambia el space activo (los chips del header lo invocan). */
-  onSelectSpace: (id: string) => void;
-  onCreateSpace: (name: string, color: string) => void;
-  onRenameSpace: (id: string, patch: { name?: string; color?: string }) => void;
-  onDeleteSpace: (id: string) => void;
   account: AccountInfo | null;
   status: AccountStatus;
   error: string | null;
   onConnect: (providerId?: ProviderId) => void;
   onDisconnect: () => void;
   updater: UpdaterController;
+  /** Vive en el Shell para que una operación larga sobreviva a cerrar el popup. */
+  sync: SyncController;
 }
 
 /** Popup de configuración: nav lateral + secciones. Escape o click afuera cierra. */
@@ -60,18 +50,13 @@ export function Settings({
   open,
   onClose,
   initialSection,
-  spaces,
-  activeSpaceId,
-  onSelectSpace,
-  onCreateSpace,
-  onRenameSpace,
-  onDeleteSpace,
   account,
   status,
   error,
   onConnect,
   onDisconnect,
   updater,
+  sync,
 }: SettingsProps) {
   const [section, setSection] = useState<SectionId>("general");
 
@@ -142,32 +127,11 @@ export function Settings({
               fontSize: 15,
               fontWeight: 600,
               color: "var(--q-text-primary)",
-              flex: "0 0 auto",
+              flex: 1,
             }}
           >
             Configuración
           </span>
-          {/* Selector rápido de space: chips inline (antes vivía como dropdown
-              en la titlebar). Click cambia el activo sin cerrar Settings. */}
-          <div
-            style={{
-              flex: 1,
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              minWidth: 0,
-              overflowX: "auto",
-            }}
-          >
-            {spaces.map((s) => (
-              <HeaderSpaceChip
-                key={s.id}
-                space={s}
-                active={s.id === activeSpaceId}
-                onClick={() => onSelectSpace(s.id)}
-              />
-            ))}
-          </div>
           <IconButton name="close" tooltip="Cerrar" onClick={onClose} />
         </header>
 
@@ -231,15 +195,6 @@ export function Settings({
             }}
           >
             {section === "general" && <GeneralSection updater={updater} />}
-            {section === "spaces" && (
-              <SpacesSection
-                spaces={spaces}
-                activeSpaceId={activeSpaceId}
-                onCreate={onCreateSpace}
-                onRename={onRenameSpace}
-                onDelete={onDeleteSpace}
-              />
-            )}
             {section === "quarky" && <QuarkySettings />}
             {section === "account" && (
               <AccountSection
@@ -248,6 +203,7 @@ export function Settings({
                 error={error}
                 onConnect={onConnect}
                 onDisconnect={onDisconnect}
+                sync={sync}
               />
             )}
           </div>
@@ -391,7 +347,7 @@ function GeneralSection({ updater }: { updater: UpdaterController }) {
       {!isAndroid && (
         <Row
           label="Carpeta de datos"
-          hint="Ahí viven settings, spaces y el contenido de cada quark."
+          hint="Ahí viven la configuración y el contenido de cada quark."
         >
           <Button
             variant="outlined"
@@ -447,12 +403,14 @@ function AccountSection({
   error,
   onConnect,
   onDisconnect,
+  sync,
 }: {
   account: AccountInfo | null;
   status: AccountStatus;
   error: string | null;
   onConnect: (providerId?: ProviderId) => void;
   onDisconnect: () => void;
+  sync: SyncController;
 }) {
   const canConnect = hasGoogleCredentials();
   const connecting = status === "connecting";
@@ -514,14 +472,21 @@ function AccountSection({
         <div style={{ fontSize: 12, color: "var(--q-error)" }}>{error}</div>
       )}
 
-      {account && <SyncPanel />}
-      {account && <BackupPanel />}
+      {account && <SyncPanel sync={sync} />}
     </SectionBody>
   );
 }
 
-function SyncPanel() {
-  const { preview, status, error, progress, push, pull, cancel } = useSync();
+function SyncPanel({ sync }: { sync: SyncController }) {
+  const { preview, status, error, progress, check, push, pull, cancel } = sync;
+  // Check automático al abrir el panel. Si ya hay una operación corriendo, el
+  // guard `busy` del hook lo saltea y el panel muestra el progreso de esa. NO
+  // abortamos en el cleanup: en dev StrictMode monta/desmonta/monta, y abortar
+  // acá cancelaba este primer check (el segundo queda bloqueado por `busy`),
+  // dejándolo colgado en "Revisando…".
+  useEffect(() => {
+    void check();
+  }, [check]);
   const [confirm, setConfirm] = useState<"push" | "pull" | null>(null);
   const busy = status !== "idle" && status !== "error";
 
@@ -621,179 +586,6 @@ function SyncPanel() {
   );
 }
 
-/**
- * Backup manual a Drive: comprime una carpeta cualquiera del disco en un zip y
- * lo sube a una carpeta aparte del Drive, reemplazando al backup anterior.
- *
- * Deliberadamente separado del sync: el sync espeja el árbol de la app de forma
- * incremental y seguido; esto es un volcado completo y pesado, a mano, para
- * migraciones o formateos. Ver `services/account/backup.ts`.
- */
-function BackupPanel() {
-  const {
-    path,
-    setPath,
-    commitPath,
-    browse,
-    estimate,
-    status,
-    progress,
-    error,
-    notice,
-    lastName,
-    run,
-    cancel,
-  } = useBackup();
-
-  const running = status === "running";
-  // Sin estimado no hay carpeta legible: no tiene sentido habilitar el botón.
-  const canRun = !running && path.trim().length > 0 && !!estimate && estimate.files > 0;
-
-  return (
-    <div
-      style={{
-        borderTop: "1px solid var(--q-border)",
-        paddingTop: 16,
-        display: "flex",
-        flexDirection: "column",
-        gap: 10,
-      }}
-    >
-      <div>
-        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--q-text-primary)" }}>
-          Backup
-        </div>
-        <div style={{ fontSize: 11, color: "var(--q-text-light)", marginTop: 2 }}>
-          Comprime una carpeta y la sube a <span className="q-mono">{BACKUP_FOLDER}</span> en
-          tu Drive. Reemplaza al backup anterior.
-        </div>
-      </div>
-
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <TextInput
-          value={path}
-          onChange={setPath}
-          onBlur={commitPath}
-          placeholder="/mnt/Other/Backup"
-          icon="folder"
-          style={{ flex: 1 }}
-        />
-        <IconButton
-          name="folder_open"
-          tooltip="Elegir carpeta…"
-          onClick={() => void browse()}
-        />
-      </div>
-
-      {!running && estimate && (
-        <div style={{ fontSize: 11, color: "var(--q-text-light)" }}>
-          {estimate.files.toLocaleString("es")}{" "}
-          {estimate.files === 1 ? "archivo" : "archivos"} · {formatBytes(estimate.bytes)} sin
-          comprimir
-        </div>
-      )}
-
-      {running && <BackupProgressBar progress={progress} />}
-
-      <div style={{ display: "flex", gap: 8 }}>
-        {running ? (
-          <Button variant="destructive" icon="close" onClick={cancel}>
-            Cancelar
-          </Button>
-        ) : (
-          <Button variant="outlined" icon="backup" disabled={!canRun} onClick={() => void run()}>
-            Hacer backup
-          </Button>
-        )}
-      </div>
-
-      {!running && status === "done" && lastName && (
-        <div style={{ fontSize: 11, color: "var(--q-text-light)" }}>
-          Subido como <span className="q-mono">{lastName}</span>.
-        </div>
-      )}
-      {!running && notice && (
-        <div style={{ fontSize: 11, color: "var(--q-text-light)" }}>{notice}</div>
-      )}
-      {error && <div style={{ fontSize: 12, color: "var(--q-error)" }}>{error}</div>}
-    </div>
-  );
-}
-
-/**
- * Barra de progreso del backup. Las dos fases largas (comprimir y subir) tienen
- * cada una su propio total, así que la barra se reinicia al pasar de una a otra
- * en lugar de intentar un porcentaje global — el peso del zip no se conoce hasta
- * que termina de comprimirse.
- */
-function BackupProgressBar({ progress }: { progress: BackupProgress | null }) {
-  let label = "Preparando";
-  let detail = "";
-  let done = 0;
-  let total = 0;
-
-  if (progress?.phase === "scanning") {
-    label = "Revisando la carpeta";
-  } else if (progress?.phase === "zipping") {
-    label = "Comprimiendo";
-    detail = progress.file;
-    done = progress.done;
-    total = progress.total;
-  } else if (progress?.phase === "zipped") {
-    label = `Comprimido (${formatBytes(progress.bytes)}) — subiendo`;
-  } else if (progress?.phase === "uploading") {
-    label = "Subiendo a Drive";
-    detail = `${formatBytes(progress.sent)} / ${formatBytes(progress.total)}`;
-    done = progress.sent;
-    total = progress.total;
-  }
-
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-  const indeterminate = total === 0;
-  const count = progress?.phase === "zipping" && total > 0 ? ` ${done} / ${total}` : "";
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 11 }}>
-        <span style={{ color: "var(--q-text-secondary)", fontWeight: 500, flex: "0 0 auto" }}>
-          {label}
-          {count}
-        </span>
-        {detail && (
-          <span
-            style={{
-              color: "var(--q-text-light)",
-              minWidth: 0,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {detail}
-          </span>
-        )}
-      </div>
-      <div
-        style={{
-          height: 6,
-          borderRadius: 9999,
-          background: "var(--q-surface-alt)",
-          overflow: "hidden",
-        }}
-      >
-        <div
-          style={{
-            height: "100%",
-            width: indeterminate ? "100%" : `${pct}%`,
-            background: "var(--q-primary)",
-            opacity: indeterminate ? 0.4 : 1,
-            transition: "width var(--q-dur-fast) var(--q-ease)",
-          }}
-        />
-      </div>
-    </div>
-  );
-}
 
 /** Glifo + color por tipo de cambio (perspectiva local, estilo `git status`). */
 const DIFF_GLYPH: Record<keyof SyncDelta, { ch: string; color: string }> = {
@@ -907,45 +699,12 @@ function SyncProgressBar({
   const indeterminate = !progress || progress.total === 0;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 11 }}>
-        <span style={{ color: "var(--q-text-secondary)", fontWeight: 500 }}>
-          {verb}
-          {count}
-        </span>
-        {progress?.current && (
-          <span
-            style={{
-              color: "var(--q-text-light)",
-              minWidth: 0,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {progress.current}
-          </span>
-        )}
-      </div>
-      <div
-        style={{
-          height: 6,
-          borderRadius: 9999,
-          background: "var(--q-surface-alt)",
-          overflow: "hidden",
-        }}
-      >
-        <div
-          style={{
-            height: "100%",
-            width: indeterminate ? "100%" : `${pct}%`,
-            background: "var(--q-primary)",
-            opacity: indeterminate ? 0.4 : 1,
-            transition: "width var(--q-dur-fast) var(--q-ease)",
-          }}
-        />
-      </div>
-    </div>
+    <ProgressBar
+      value={pct / 100}
+      indeterminate={indeterminate}
+      label={`${verb}${count}`}
+      detail={progress?.current}
+    />
   );
 }
 
@@ -1113,39 +872,21 @@ function DownloadBar({
   const totalHuman = progress?.total ? ` / ${formatBytes(progress.total)}` : "";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
-        <span style={{ color: "var(--q-text-secondary)", fontWeight: 500 }}>
-          Descargando{indeterminate ? "" : ` ${pct}%`}
-        </span>
-        <span style={{ color: "var(--q-text-light)" }} className="q-mono">
+    <ProgressBar
+      value={pct / 100}
+      indeterminate={indeterminate}
+      label={`Descargando${indeterminate ? "" : ` ${pct}%`}`}
+      detail={
+        <span className="q-mono">
           {human}
           {totalHuman}
         </span>
-      </div>
-      <div
-        style={{
-          height: 6,
-          borderRadius: 9999,
-          background: "var(--q-surface-alt)",
-          overflow: "hidden",
-        }}
-      >
-        <div
-          style={{
-            height: "100%",
-            width: indeterminate ? "100%" : `${pct}%`,
-            background: "var(--q-primary)",
-            opacity: indeterminate ? 0.4 : 1,
-            transition: "width var(--q-dur-fast) var(--q-ease)",
-          }}
-        />
-      </div>
-    </div>
+      }
+    />
   );
 }
 
-/** Bytes → texto legible. Llega hasta TB: un backup puede pesar decenas de GB. */
+/** Bytes → texto legible (hasta TB). */
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   const units = ["KB", "MB", "GB", "TB"];
@@ -1158,260 +899,12 @@ function formatBytes(n: number): string {
   return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-// ── Espacios ─────────────────────────────────────────────────────────────────
-
-function SpacesSection({
-  spaces,
-  activeSpaceId,
-  onCreate,
-  onRename,
-  onDelete,
-}: {
-  spaces: Space[];
-  activeSpaceId: string;
-  onCreate: (name: string, color: string) => void;
-  onRename: (id: string, patch: { name?: string; color?: string }) => void;
-  onDelete: (id: string) => void;
-}) {
-  const [newName, setNewName] = useState("");
-  const [newColor, setNewColor] = useState(SPACE_COLORS[0]);
-  const [confirmId, setConfirmId] = useState<string | null>(null);
-
-  const add = () => {
-    const name = newName.trim();
-    if (!name) return;
-    onCreate(name, newColor);
-    setNewName("");
-    setNewColor(SPACE_COLORS[0]);
-  };
-
-  return (
-    <SectionBody>
-      <p style={{ fontSize: 13, color: "var(--q-text-secondary)", lineHeight: 1.5, margin: 0 }}>
-        Los espacios separan tus datos por contexto (Personal, Trabajo…). El espacio
-        activo se elige desde el chip de la barra de título.
-      </p>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {spaces.map((s) => (
-          <SpaceEditRow
-            key={s.id}
-            space={s}
-            isActive={s.id === activeSpaceId}
-            canDelete={spaces.length > 1}
-            confirming={confirmId === s.id}
-            onName={(name) => onRename(s.id, { name })}
-            onColor={(color) => onRename(s.id, { color })}
-            onAskDelete={() => setConfirmId(s.id)}
-            onCancelDelete={() => setConfirmId(null)}
-            onConfirmDelete={() => {
-              onDelete(s.id);
-              setConfirmId(null);
-            }}
-          />
-        ))}
-      </div>
-
-      <div
-        style={{
-          borderTop: "1px solid var(--q-border)",
-          paddingTop: 16,
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
-        }}
-      >
-        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--q-text-primary)" }}>
-          Nuevo espacio
-        </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <TextInput
-            value={newName}
-            onChange={setNewName}
-            placeholder="Nombre del espacio"
-            style={{ flex: 1 }}
-          />
-          <Button variant="filled" icon="add" disabled={!newName.trim()} onClick={add}>
-            Agregar
-          </Button>
-        </div>
-        <Swatches value={newColor} onChange={setNewColor} />
-      </div>
-    </SectionBody>
-  );
-}
-
-function SpaceEditRow({
-  space,
-  isActive,
-  canDelete,
-  confirming,
-  onName,
-  onColor,
-  onAskDelete,
-  onCancelDelete,
-  onConfirmDelete,
-}: {
-  space: Space;
-  isActive: boolean;
-  canDelete: boolean;
-  confirming: boolean;
-  onName: (name: string) => void;
-  onColor: (color: string) => void;
-  onAskDelete: () => void;
-  onCancelDelete: () => void;
-  onConfirmDelete: () => void;
-}) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 10,
-        padding: 10,
-        borderRadius: 6,
-        background: "var(--q-surface-alt)",
-        border: "1px solid var(--q-border)",
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <TextInput
-          value={space.name}
-          onChange={onName}
-          placeholder="Nombre"
-          style={{ flex: 1 }}
-        />
-        {isActive && (
-          <span style={{ fontSize: 11, color: "var(--q-text-light)", flex: "0 0 auto" }}>
-            activo
-          </span>
-        )}
-        {confirming ? (
-          <div style={{ display: "flex", gap: 6, flex: "0 0 auto" }}>
-            <Button variant="text" onClick={onCancelDelete}>
-              Cancelar
-            </Button>
-            <Button variant="destructive" onClick={onConfirmDelete}>
-              Borrar
-            </Button>
-          </div>
-        ) : (
-          canDelete && (
-            <IconButton name="delete" tooltip="Borrar espacio" onClick={onAskDelete} />
-          )
-        )}
-      </div>
-      <Swatches value={space.color} onChange={onColor} />
-    </div>
-  );
-}
-
-/** Fila de swatches de `SPACE_COLORS`; el seleccionado lleva anillo. */
-function Swatches({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (color: string) => void;
-}) {
-  return (
-    <div style={{ display: "flex", gap: 8 }}>
-      {SPACE_COLORS.map((c) => {
-        const selected = c === value;
-        return (
-          <span
-            key={c}
-            onClick={() => onChange(c)}
-            title={c}
-            style={{
-              width: 20,
-              height: 20,
-              borderRadius: 9999,
-              background: c,
-              cursor: "default",
-              boxShadow: selected
-                ? "0 0 0 2px var(--q-surface-alt), 0 0 0 4px var(--q-text-primary)"
-                : "none",
-            }}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
 // ── Helpers de layout ────────────────────────────────────────────────────────
 
 function SectionBody({ children }: { children: ReactNode }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       {children}
-    </div>
-  );
-}
-
-/** Aplica alpha hex a un color hex de 6 dígitos; si no lo es, lo deja tal cual. */
-function tint(color: string, alphaHex: string): string {
-  return color.startsWith("#") && color.length === 7 ? `${color}${alphaHex}` : color;
-}
-
-/**
- * Chip de space en el header de Settings: selector rápido del activo. El
- * activo lleva fondo lleno con el color del space; los demás van sutiles y
- * se realzan al hover. Click cambia el activo sin cerrar Settings.
- */
-function HeaderSpaceChip({
-  space,
-  active,
-  onClick,
-}: {
-  space: Space;
-  active: boolean;
-  onClick: () => void;
-}) {
-  const [hover, setHover] = useState(false);
-  const bg = active
-    ? tint(space.color, "33")
-    : hover
-      ? tint(space.color, "1f")
-      : "transparent";
-  const border = active ? tint(space.color, "70") : tint(space.color, "40");
-  return (
-    <div
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      onClick={onClick}
-      title={space.name}
-      style={{
-        flex: "0 0 auto",
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        height: 24,
-        padding: "0 10px",
-        borderRadius: 9999,
-        background: bg,
-        border: `1px solid ${border}`,
-        color: active ? "var(--q-text-primary)" : "var(--q-text-secondary)",
-        fontSize: 12,
-        fontWeight: active ? 600 : 500,
-        cursor: "default",
-        whiteSpace: "nowrap",
-        transition: "background var(--q-dur-fast) var(--q-ease)",
-      }}
-    >
-      <span
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: 9999,
-          background: space.color,
-          flex: "0 0 auto",
-        }}
-      />
-      <span style={{ overflow: "hidden", textOverflow: "ellipsis", maxWidth: 140 }}>
-        {space.name}
-      </span>
     </div>
   );
 }

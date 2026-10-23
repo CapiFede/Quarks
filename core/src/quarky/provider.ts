@@ -1,7 +1,7 @@
 /**
  * Cliente HTTP del provider de Quarky.
  *
- * Único provider en M1: **OpenRouter** (`https://openrouter.ai/api/v1`). Es
+ * Único provider: **OpenRouter** (`https://openrouter.ai/api/v1`). Es
  * OpenAI-compatible, así que reusamos el mismo wire format (chat completions con
  * `messages[]`, `tool_calls`, `tool_call_id`).
  *
@@ -9,11 +9,11 @@
  * fetch del WebView dispara CORS contra openrouter.ai. La importación es lazy
  * para no inflar el bundle cuando Quarky no se usa.
  *
- * M1: chat completion **no-streaming**. El streaming llega en M2 (mismo endpoint,
- * `stream: true` + SSE parser aparte).
+ * Chat completion **no-streaming**: la respuesta llega entera y recién ahí se
+ * pinta. Alcanza para el uso actual y evita un parser de SSE.
  */
 import { getSecret } from "../services/secrets";
-import type { Conversation, Message, ModelInfo, TokenUsage, ToolCall } from "./types";
+import type { Conversation, ModelInfo, TokenUsage, ToolCall } from "./types";
 import type { ToolSchema } from "./tools/types";
 
 const BASE_URL = "https://openrouter.ai/api/v1";
@@ -184,7 +184,7 @@ export async function getModelContextLength(modelId: string): Promise<number> {
   return m?.contextLength ?? 32_000;
 }
 
-// ── Chat completion (no-streaming, M1) ───────────────────────────────────────
+// ── Chat completion (no-streaming) ───────────────────────────────────────────
 
 interface ChatCompletionResponse {
   choices?: Array<{
@@ -193,7 +193,6 @@ interface ChatCompletionResponse {
       content?: string | null;
       tool_calls?: ToolCall[];
     };
-    finish_reason?: string;
   }>;
   usage?: {
     prompt_tokens?: number;
@@ -222,7 +221,6 @@ export async function chatCompletion(
 ): Promise<{
   content: string;
   toolCalls?: ToolCall[];
-  finishReason?: string;
   usage?: TokenUsage;
 }> {
   const fetch = await http();
@@ -254,24 +252,6 @@ export async function chatCompletion(
   return {
     content: choice.message.content ?? "",
     toolCalls: choice.message.tool_calls,
-    finishReason: choice.finish_reason,
     usage,
-  };
-}
-
-/** Helper para llamar y devolver directamente el `Message` apendable al histórico. */
-export async function completeAsMessage(opts: ChatCompletionOptions): Promise<{
-  message: Pick<Message, "role" | "content" | "toolCalls" | "usage">;
-  finishReason?: string;
-}> {
-  const r = await chatCompletion(opts);
-  return {
-    message: {
-      role: "assistant",
-      content: r.content,
-      toolCalls: r.toolCalls,
-      usage: r.usage,
-    },
-    finishReason: r.finishReason,
   };
 }

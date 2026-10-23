@@ -23,7 +23,7 @@ export async function generateTitle(args: {
 }): Promise<string | null> {
   // Conversación sintética con los dos turnos. Reusa el shape de Conversation
   // para no duplicar la serialización del wire format.
-  const stub = newConversation("__autoRename__", "ask");
+  const stub = newConversation("ask");
   stub.messages = [
     {
       id: "u",

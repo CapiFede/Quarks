@@ -4,7 +4,7 @@
  * en la instancia del quark y sobrevive a cambios de tab (los tickers siguen
  * corriendo aunque la página no esté montada).
  *
- * Persistencia: global (no por-space) en `packages/utils/preferences.json`.
+ * Persistencia: global en `packages/utils/preferences.json`.
  * Lo runtime (contadores en curso, próxima ocurrencia de alarmas) NO se persiste.
  *
  * Autosave: 400ms de debounce sobre las preferencias. Se hace flush en `dispose()`.
@@ -20,7 +20,7 @@ import type {
   UtilsPreferences,
   UtilsState,
 } from "./types";
-import { requestOpenQuark } from "@quarks/core";
+import { requestOpenQuark, ExternalStore, newId } from "@quarks/core";
 import { readPrefs, writePrefs } from "./services/persistence";
 import { bringToFront } from "./services/windowFocus";
 import notificationSoundUrl from "./assets/notification.wav";
@@ -61,10 +61,6 @@ const INITIAL: UtilsState = {
   timerPresets: [],
 };
 
-function newId(): string {
-  return crypto.randomUUID();
-}
-
 /**
  * Próxima ocurrencia (epoch ms) de una alarma `once` con `timeOfDay` "HH:MM"
  * relativa a `from`. Si la hora ya pasó hoy, devuelve mañana misma hora.
@@ -83,12 +79,26 @@ function nextInterval(intervalMs: number, from: number): number {
   return from + Math.max(1000, intervalMs);
 }
 
-/** Recompone `alarmNext` para todas las alarmas activas, con `now` como base. */
-function recomputeAlarmNext(alarms: Alarm[], now: number): AlarmRuntimeMap {
+/**
+ * Recompone `alarmNext` para las alarmas habilitadas. Solo recalcula desde
+ * `now` la alarma tocada (`touchedId`) y las que no tenían próxima ocurrencia
+ * en `prev` (recién habilitadas); el resto conserva la suya. Sin esto, cualquier
+ * alta/edición/borrado reiniciaba la cuenta de TODAS las de intervalo
+ * (`now + intervalo`). Las deshabilitadas salen del mapa. Para la carga
+ * inicial se pasa `{}` y `null`: recalcula todo.
+ */
+function recomputeAlarmNext(
+  alarms: Alarm[],
+  now: number,
+  prev: AlarmRuntimeMap,
+  touchedId: string | null,
+): AlarmRuntimeMap {
   const map: AlarmRuntimeMap = {};
   for (const a of alarms) {
     if (!a.enabled) continue;
-    if (a.kind === "once" && a.timeOfDay) {
+    if (a.id !== touchedId && prev[a.id] !== undefined) {
+      map[a.id] = prev[a.id];
+    } else if (a.kind === "once" && a.timeOfDay) {
       map[a.id] = nextOnce(a.timeOfDay, now);
     } else if (a.kind === "interval" && a.intervalMs && a.intervalMs > 0) {
       map[a.id] = nextInterval(a.intervalMs, now);
@@ -97,9 +107,10 @@ function recomputeAlarmNext(alarms: Alarm[], now: number): AlarmRuntimeMap {
   return map;
 }
 
-export class UtilsStore {
-  private state: UtilsState = INITIAL;
-  private listeners = new Set<() => void>();
+export class UtilsStore extends ExternalStore<UtilsState> {
+  constructor() {
+    super(INITIAL);
+  }
 
   // Runtime sin re-render.
   private tickTimer: ReturnType<typeof setInterval> | null = null;
@@ -122,20 +133,6 @@ export class UtilsStore {
   private beepBuffer: AudioBuffer | null = null;
   private beepLoading: Promise<void> | null = null;
 
-  // ── Suscripción (useSyncExternalStore) ──
-  subscribe = (cb: () => void): (() => void) => {
-    this.listeners.add(cb);
-    return () => {
-      this.listeners.delete(cb);
-    };
-  };
-  getSnapshot = (): UtilsState => this.state;
-
-  private set(patch: Partial<UtilsState>): void {
-    this.state = { ...this.state, ...patch };
-    for (const l of this.listeners) l();
-  }
-
   // ── Ciclo de vida ──
   async init(): Promise<void> {
     const prefs = await readPrefs();
@@ -147,7 +144,7 @@ export class UtilsStore {
       // cae a "clocks".
       activeTool: prefs.activeTool === "random" ? "random" : "clocks",
       alarms: prefs.alarms.items,
-      alarmNext: recomputeAlarmNext(prefs.alarms.items, now),
+      alarmNext: recomputeAlarmNext(prefs.alarms.items, now, {}, null),
       randomMin: prefs.random.min,
       randomMax: prefs.random.max,
       timerPresets: prefs.timer.presets,
@@ -325,13 +322,19 @@ export class UtilsStore {
   addAlarm(input: Omit<Alarm, "id">): void {
     const alarm: Alarm = { ...input, id: `a-${newId()}` };
     const alarms = [...this.state.alarms, alarm];
-    this.set({ alarms, alarmNext: recomputeAlarmNext(alarms, Date.now()) });
+    this.set({
+      alarms,
+      alarmNext: recomputeAlarmNext(alarms, Date.now(), this.state.alarmNext, alarm.id),
+    });
     this.schedulePrefsSave();
   }
 
   updateAlarm(id: string, patch: Partial<Omit<Alarm, "id">>): void {
     const alarms = this.state.alarms.map((a) => (a.id === id ? { ...a, ...patch } : a));
-    this.set({ alarms, alarmNext: recomputeAlarmNext(alarms, Date.now()) });
+    this.set({
+      alarms,
+      alarmNext: recomputeAlarmNext(alarms, Date.now(), this.state.alarmNext, id),
+    });
     this.schedulePrefsSave();
   }
 
@@ -343,7 +346,10 @@ export class UtilsStore {
 
   removeAlarm(id: string): void {
     const alarms = this.state.alarms.filter((a) => a.id !== id);
-    this.set({ alarms, alarmNext: recomputeAlarmNext(alarms, Date.now()) });
+    this.set({
+      alarms,
+      alarmNext: recomputeAlarmNext(alarms, Date.now(), this.state.alarmNext, id),
+    });
     this.schedulePrefsSave();
   }
 
@@ -402,9 +408,11 @@ export class UtilsStore {
       // Las puntuales se apagan tras disparar (no queremos que vuelvan mañana automático).
       alarms = alarms.map((a) => (a.id === fire.alarmId ? { ...a, enabled: false } : a));
     }
+    // Solo la que sonó se re-arma desde ahora; las demás conservan su próxima
+    // ocurrencia (si cayeron en el mismo tick, se redisparan tras el dismiss).
     this.set({
       alarms,
-      alarmNext: recomputeAlarmNext(alarms, Date.now()),
+      alarmNext: recomputeAlarmNext(alarms, Date.now(), this.state.alarmNext, fire.alarmId),
       firing: null,
     });
     this.schedulePrefsSave();

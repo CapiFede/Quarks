@@ -9,6 +9,7 @@ import type {
   AccountStatus,
   ProviderId,
 } from "../../services/account/types";
+import { messageOf } from "../../services/util";
 
 export interface AccountController {
   account: AccountInfo | null;
@@ -42,7 +43,7 @@ export function useAccount(initial: AccountInfo | null): AccountController {
       setStatus("connected");
     } catch (e) {
       report("account.connect", e);
-      setError(e instanceof Error ? e.message : String(e));
+      setError(messageOf(e));
       setStatus("error");
     } finally {
       busy.current = false;
@@ -59,7 +60,7 @@ export function useAccount(initial: AccountInfo | null): AccountController {
       setStatus("disconnected");
     } catch (e) {
       report("account.disconnect", e);
-      setError(e instanceof Error ? e.message : String(e));
+      setError(messageOf(e));
       setStatus("error");
     } finally {
       busy.current = false;

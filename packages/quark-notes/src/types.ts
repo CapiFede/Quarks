@@ -1,9 +1,8 @@
 /** Modelos de datos del notes quark. */
 
 /**
- * Referencia liviana de una nota dentro del space.
- * Vive en `spaces/<spaceId>.json` bajo la clave `"notes"`. El cuerpo va aparte
- * en `packages/notes/<noteId>.md` para no engordar el archivo del space.
+ * Referencia liviana de una nota. Vive en `packages/notes/index.json`; el
+ * cuerpo va aparte en `packages/notes/<noteId>.md` para no engordar el índice.
  */
 export type NoteMode = "text" | "json";
 
@@ -32,9 +31,6 @@ export interface NotesState {
   status: NotesStatus;
   error: string | null;
 
-  /** Space activo. Las notas ya están particionadas por space; no hay otra
-   *  subdivisión adentro del quark. */
-  spaceId: string | null;
   notes: NoteIndex[];
 
   /** Nota abierta en el editor (id + cuerpo). */

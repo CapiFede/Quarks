@@ -6,6 +6,7 @@ import { loadSettings, type AppSettings } from "./services/settings";
 import { loadAccount } from "./services/account/account";
 import type { AccountInfo } from "./services/account/types";
 import { ensureLayout } from "./services/bootstrap";
+import { migrateSpacesIfNeeded } from "./services/legacySpaces";
 import { report, withScope } from "./services/log";
 
 interface Boot {
@@ -22,10 +23,11 @@ export function App() {
   useEffect(() => {
     let alive = true;
     void withScope("bootstrap", async () => {
-      // Settings primero: define los spaces que `ensureLayout` necesita para crear
-      // la estructura en disco (carpetas + un archivo por space) antes de leer el resto.
+      // La migración desde los Spaces va antes que todo: reescribe settings.json
+      // y arma la data que después leen los quarks (ver `legacySpaces.ts`).
+      await migrateSpacesIfNeeded();
       const settings = await loadSettings();
-      await ensureLayout(settings.spaces);
+      await ensureLayout();
       const [appState, account] = await Promise.all([loadAppState(), loadAccount()]);
       if (alive) setBoot({ appState, settings, account });
     }).catch((e: unknown) => {

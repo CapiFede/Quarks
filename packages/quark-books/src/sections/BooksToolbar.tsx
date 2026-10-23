@@ -1,7 +1,16 @@
-import { useEffect, useRef, useState } from "react";
-import { Icon, IconButton, QuarkToolbar, TextInput } from "@quarks/core";
+import { useEffect, useState } from "react";
+import {
+  Icon,
+  IconButton,
+  QuarkToolbar,
+  TextInput,
+  useStoreState,
+  MenuDivider,
+  MenuHint,
+  MenuPanel,
+  useMenu,
+} from "@quarks/core";
 import type { BooksStore } from "../store";
-import { useBooksState } from "../hooks/useBooksStore";
 import type { BookIndex } from "../types";
 import { exportBookToPdf } from "../util/exportPdf";
 
@@ -14,7 +23,7 @@ export interface BooksToolbarProps {
  * mockup: ícono `menu_book` + título + `arrow_drop_down`). Sin slot derecho.
  */
 export function BooksToolbar({ store }: BooksToolbarProps) {
-  const { books, activeBookId, activeBook } = useBooksState(store);
+  const { books, activeBookId, activeBook } = useStoreState(store);
   const canExport = !!activeBook && activeBook.chapters.length > 0;
 
   const onExport = async (): Promise<void> => {
@@ -56,31 +65,13 @@ interface BookSelectorProps {
 }
 
 function BookSelector({ books, activeBookId, onSelect, onCreate }: BookSelectorProps) {
-  const [open, setOpen] = useState(false);
+  const { open, setOpen, ref } = useMenu<HTMLSpanElement>();
   const [creating, setCreating] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
-  const ref = useRef<HTMLSpanElement>(null);
 
+  // Al cerrarse el menú (click afuera, Escape) se descarta el alta a medias.
   useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-        setCreating(false);
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setOpen(false);
-        setCreating(false);
-      }
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
+    if (!open) setCreating(false);
   }, [open]);
 
   const active = books.find((b) => b.id === activeBookId);
@@ -134,33 +125,10 @@ function BookSelector({ books, activeBookId, onSelect, onCreate }: BookSelectorP
       </span>
 
       {open && (
-        <div
-          style={{
-            position: "absolute",
-            top: "calc(100% + 6px)",
-            left: 0,
-            zIndex: 1000,
-            minWidth: 240,
-            padding: 4,
-            background: "var(--q-surface)",
-            border: "1px solid var(--q-border-dark)",
-            borderRadius: 8,
-            boxShadow: "0 8px 24px rgba(0,0,0,.28)",
-          }}
-        >
+        <MenuPanel minWidth={240}>
           {!creating && (
             <>
-              {books.length === 0 && (
-                <div
-                  style={{
-                    padding: "8px 10px",
-                    fontSize: 11,
-                    color: "var(--q-text-light)",
-                  }}
-                >
-                  Todavía no hay libros en este espacio.
-                </div>
-              )}
+              {books.length === 0 && <MenuHint>Todavía no hay libros.</MenuHint>}
               {books.map((b) => (
                 <BookOption
                   key={b.id}
@@ -172,7 +140,7 @@ function BookSelector({ books, activeBookId, onSelect, onCreate }: BookSelectorP
                   }}
                 />
               ))}
-              <div style={{ height: 1, background: "var(--q-border)", margin: "4px 6px" }} />
+              <MenuDivider />
               <BookOption
                 book={{ id: "__new__", title: "Nuevo libro…", author: "" }}
                 active={false}
@@ -207,7 +175,7 @@ function BookSelector({ books, activeBookId, onSelect, onCreate }: BookSelectorP
               />
             </div>
           )}
-        </div>
+        </MenuPanel>
       )}
     </span>
   );

@@ -1,17 +1,21 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import type { BooksStore } from "../store";
-import type { SearchState } from "../types";
-import { buildExtensions, BOOK_PAGE, SEARCH_RESULT_CLASS } from "./editorExtensions";
+import type { SearchState, TrimSize } from "../types";
+import { buildExtensions, SEARCH_RESULT_CLASS } from "./editorExtensions";
 import type { PageBreak } from "./pageBreaksExtension";
+import { pageGeometry } from "../util/pageGeometry";
+import { countWords, formatWords } from "../util/metrics";
+import { clamp } from "@quarks/core";
 
 /**
  * Editor WYSIWYG de capítulo sobre TipTap v3 (ProseMirror). Es una sola hoja de
  * papel CONTINUA (layout de bloque normal): selección, caret y click funcionan
  * como en cualquier editor. Las divisiones de página se dibujan como GUÍAS
- * visuales decorativas (líneas + "página N") sobre la hoja, calculadas a partir
- * del alto del contenido — NO se insertan en el documento, así no rompen nada.
- * El corte real de páginas lo hace el export a PDF.
+ * visuales decorativas (líneas + "página N" + folio con las palabras de cada
+ * página) sobre la hoja, calculadas a partir del alto del contenido — NO se
+ * insertan en el documento, así no rompen nada. El corte real de páginas lo
+ * hace el export a PDF.
  *
  * El markdown es la fuente de verdad en disco: lo serializa `@tiptap/markdown`
  * (`editor.getMarkdown()`) en cada cambio y lo parsea al cargar. El undo/redo es
@@ -27,7 +31,9 @@ export interface RichEditorProps {
   search: SearchState;
   /** Scroll persistido del capítulo, restaurado al montar. */
   chapterScrollTop: number;
-  /** Firma de la tipografía: al cambiar, recomputamos las guías de página. */
+  /** Formato físico de la hoja (define ancho, márgenes y alto de página). */
+  trim: TrimSize;
+  /** Firma de la tipografía + formato: al cambiar, recomputamos las guías. */
   typographyKey: string;
   /** Expone la instancia de TipTap al padre (toolbar, contador, búsqueda). */
   onEditorReady: (editor: Editor | null) => void;
@@ -47,10 +53,6 @@ const EDITOR_PROPS = {
 /** Escapa una cadena para usarla como regex literal. */
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function clamp(n: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, n));
 }
 
 interface LineBox {
@@ -90,22 +92,34 @@ export function RichEditor({
   content,
   search,
   chapterScrollTop,
+  trim,
   typographyKey,
   onEditorReady,
 }: RichEditorProps) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const paperRef = useRef<HTMLDivElement | null>(null);
+  /** Relleno al pie de la hoja que completa la última página (ver CSS). */
+  const fillRef = useRef<HTMLDivElement | null>(null);
   /** Último markdown que EMITIMOS: distingue ediciones propias de cambios externos. */
   const lastEmittedRef = useRef<string>(" ");
   /** Índice del match activo ya scrolleado (para no re-scrollear en cada tecla). */
   const lastSearchIdxRef = useRef<number>(-1);
-  /** Últimos cortes aplicados (para no re-despachar si no cambian). */
-  const lastBreaksRef = useRef<PageBreak[]>([]);
   /** Total de páginas vigente (cortes + 1), para el contador del footer. */
   const totalPagesRef = useRef<number>(1);
   /** rAF que difiere el recálculo (evita el loop del ResizeObserver). */
   const relayoutRaf = useRef<number | null>(null);
-  /** Firma alto×ancho del último cálculo: si no cambió, no recalculamos. */
+  /** Si el próximo recálculo es forzado (cambió el documento) o solo por resize. */
+  const forceRecomputeRef = useRef<boolean>(false);
+  /** Firma alto×ancho×página del último cálculo: si no cambió, no recalculamos. */
   const lastSigRef = useRef<string>("");
+  /** Palabras de la última página de la hoja (su folio lo dibuja React). */
+  const [lastPageWords, setLastPageWords] = useState<number | null>(null);
+
+  // Geometría de la hoja en px (derivada del formato). En un ref para que los
+  // callbacks (ResizeObserver, scroll, onUpdate) siempre lean la vigente.
+  const page = useMemo(() => pageGeometry(trim), [trim]);
+  const pageRef = useRef(page);
+  pageRef.current = page;
 
   // Reflejar el estado de la búsqueda de la extensión en el store + scrollear al
   // match activo.
@@ -152,7 +166,9 @@ export function RichEditor({
       if (md === lastEmittedRef.current) return;
       lastEmittedRef.current = md;
       store.updateContent(md);
-      scheduleRecompute(editor);
+      // Cambió el documento: recalcular siempre (las palabras por página cambian
+      // aunque el alto no).
+      scheduleRecompute(editor, true);
     },
     onTransaction: ({ editor }) => {
       if (store.getSnapshot().search.open) mirrorSearch(editor);
@@ -169,11 +185,12 @@ export function RichEditor({
   // ResizeObserver capta cualquier cambio que afecte el alto (tipeo, formato,
   // TIPOGRAFÍA, ancho). El recálculo se difiere con rAF para NO mutar el layout
   // dentro del callback del observer (eso dispara el error "ResizeObserver loop").
+  // Un cambio de tipografía/formato fuerza el recálculo aunque el alto coincida.
   useEffect(() => {
     if (!editor) return;
-    const ro = new ResizeObserver(() => scheduleRecompute(editor));
+    const ro = new ResizeObserver(() => scheduleRecompute(editor, false));
     ro.observe(editor.view.dom);
-    scheduleRecompute(editor);
+    scheduleRecompute(editor, true);
     return () => {
       ro.disconnect();
       if (relayoutRaf.current !== null) cancelAnimationFrame(relayoutRaf.current);
@@ -188,6 +205,7 @@ export function RichEditor({
     if (content === lastEmittedRef.current) return;
     lastEmittedRef.current = content;
     editor.commands.setContent(content, { emitUpdate: false, contentType: "markdown" });
+    scheduleRecompute(editor, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, content]);
 
@@ -226,17 +244,21 @@ export function RichEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, store]);
 
-  function scheduleRecompute(ed: Editor): void {
+  function scheduleRecompute(ed: Editor, force: boolean): void {
+    forceRecomputeRef.current = forceRecomputeRef.current || force;
     if (relayoutRaf.current !== null) cancelAnimationFrame(relayoutRaf.current);
     relayoutRaf.current = requestAnimationFrame(() => {
       relayoutRaf.current = null;
-      recomputeBreaks(ed);
+      const f = forceRecomputeRef.current;
+      forceRecomputeRef.current = false;
+      recomputeBreaks(ed, f);
     });
   }
 
   /**
    * Decide dónde cae cada corte de página, A NIVEL DE LÍNEA (un párrafo se parte y
-   * sigue en la página siguiente, como un libro real).
+   * sigue en la página siguiente, como un libro real), y cuenta las palabras de
+   * cada página.
    *
    * Para medir con precisión sin que los separadores actuales contaminen las
    * coordenadas, los QUITAMOS (sincrónico, sin repintar), medimos las líneas en
@@ -245,29 +267,39 @@ export function RichEditor({
    * JUSTO en el inicio de esa línea (su posición en el documento). El separador
    * rellena lo que sobra de la página + los márgenes, así su línea queda fija en
    * la grilla. El documento NO se toca: el párrafo sigue entero en el markdown.
+   *
+   * Las palabras de cada página salen del texto del documento entre corte y
+   * corte. Al final se estira la hoja para que la última página mida lo mismo
+   * que las demás.
    */
-  function recomputeBreaks(ed: Editor): void {
+  function recomputeBreaks(ed: Editor, force: boolean): void {
     if (ed.isDestroyed) return;
     const view = ed.view;
     const dom = view.dom;
+    const g = pageRef.current;
 
-    // Si ni el alto ni el ancho cambiaron desde el último cálculo, no hay nada
-    // que recalcular (evita trabajo y loops del ResizeObserver).
-    const sig = `${dom.scrollHeight}x${dom.clientWidth}`;
-    if (sig === lastSigRef.current) return;
+    // Sin cambios en el documento y con el mismo alto/ancho/página que el último
+    // cálculo no hay nada que recalcular (evita trabajo y loops del ResizeObserver).
+    const sigOf = () => `${dom.scrollHeight}x${dom.clientWidth}x${g.contentHeight}`;
+    if (!force && sigOf() === lastSigRef.current) return;
 
     // Medir SIN separadores (sincrónico): coordenadas limpias e independientes de
     // dónde estaban los cortes → editar una página no descoloca las demás.
     ed.commands.setPageBreaks([]);
 
+    const doc = view.state.doc;
     const originY = dom.getBoundingClientRect().top;
-    const contentH = BOOK_PAGE.contentHeight;
+    const contentH = g.contentHeight;
     const breaks: PageBreak[] = [];
     let pageStart = 0;
+    let pageStartPos = 0;
     let prevBottom = 0;
     let hasLine = false;
 
-    view.state.doc.forEach((_node, offset) => {
+    const wordsBetween = (from: number, to: number): number =>
+      countWords(doc.textBetween(from, Math.max(from, to), "\n", "\n"));
+
+    doc.forEach((_node, offset) => {
       const blockDom = view.nodeDOM(offset);
       if (!(blockDom instanceof HTMLElement)) return;
       for (const line of lineBoxesOf(blockDom)) {
@@ -284,10 +316,13 @@ export function RichEditor({
             const fill = Math.max(0, contentH - used);
             breaks.push({
               pos: at.pos,
-              gapHeight: fill + 2 * BOOK_PAGE.marginY,
-              lineOffset: fill + BOOK_PAGE.marginY,
+              gapHeight: fill + 2 * g.marginY,
+              lineOffset: fill + g.marginY,
+              folioOffset: fill + g.marginY / 2,
+              words: wordsBetween(pageStartPos, at.pos),
             });
             pageStart = top;
+            pageStartPos = Math.max(pageStartPos, at.pos);
           }
         }
         prevBottom = bottom;
@@ -295,22 +330,37 @@ export function RichEditor({
       }
     });
 
-    totalPagesRef.current = breaks.length + 1;
-    lastBreaksRef.current = breaks;
+    const total = breaks.length + 1;
+    totalPagesRef.current = total;
     ed.commands.setPageBreaks(breaks);
-    lastSigRef.current = `${dom.scrollHeight}x${dom.clientWidth}`;
+    setLastPageWords(wordsBetween(pageStartPos, doc.content.size));
+
+    // Completar la última página: la hoja mide páginas enteras.
+    const fullHeight = total * contentH + (total - 1) * 2 * g.marginY;
+    const fill = fillRef.current;
+    if (fill) fill.style.height = `${Math.max(0, fullHeight - dom.offsetHeight)}px`;
+
+    lastSigRef.current = sigOf();
     reportPagination();
   }
 
+  /** Página que cae en el centro del viewport (1-based) + total, al footer. */
   function reportPagination(): void {
     const total = totalPagesRef.current;
     const body = scrollerRef.current;
+    const paper = paperRef.current;
+    if (!body || !paper) {
+      store.setPagination(1, total);
+      return;
+    }
+    const g = pageRef.current;
     // Alto en pantalla de una página = contenido + separador (2 márgenes).
-    const stride = BOOK_PAGE.contentHeight + 2 * BOOK_PAGE.marginY;
-    const current = body
-      ? clamp(Math.floor(body.scrollTop / stride) + 1, 1, total)
-      : 1;
-    store.setPagination(current, total);
+    const stride = g.contentHeight + 2 * g.marginY;
+    // Borde superior de la hoja, en coordenadas de scroll del body.
+    const paperTop =
+      paper.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop;
+    const center = body.scrollTop + body.clientHeight / 2 - paperTop;
+    store.setPagination(clamp(Math.floor(center / stride) + 1, 1, total), total);
   }
 
   const onScroll = (): void => {
@@ -321,17 +371,21 @@ export function RichEditor({
   };
 
   const paperStyle = {
-    "--q-books-page-w": `${BOOK_PAGE.width}px`,
-    "--q-books-page-mx": `${BOOK_PAGE.marginX}px`,
-    "--q-books-page-my": `${BOOK_PAGE.marginY}px`,
-    "--q-books-content-h": `${BOOK_PAGE.contentHeight}px`,
+    "--q-books-page-w": `${page.width}px`,
+    "--q-books-page-mx": `${page.marginX}px`,
+    "--q-books-page-my": `${page.marginY}px`,
+    "--q-books-content-h": `${page.contentHeight}px`,
   } as CSSProperties;
 
   return (
     <div ref={scrollerRef} className="q-books-body" onScroll={onScroll}>
       <div className="q-books-page-stack">
-        <div className="q-books-paper" style={paperStyle}>
+        <div ref={paperRef} className="q-books-paper" style={paperStyle}>
           <EditorContent editor={editor} />
+          <div ref={fillRef} className="q-books-paper-fill" />
+          {lastPageWords !== null && (
+            <div className="q-books-paper-folio">{formatWords(lastPageWords)}</div>
+          )}
         </div>
       </div>
     </div>

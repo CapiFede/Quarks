@@ -5,31 +5,32 @@
  * instancia del quark y sobrevive a los cambios de tab; toolbar y página se
  * suscriben y quedan en sync sin un provider común.
  *
- * Reparto por Space: el ÍNDICE de playlists (id+nombre) vive en la sección
- * `music` del archivo del space (`spaces/<spaceId>.json`) vía `readSpaceSection`/
- * `writeSpaceSection`. El CONTENIDO de cada playlist (sus trackPaths) vive en
- * `packages/music/playlists/<id>.json`, y los audios en `packages/music/songs/`
- * (globales a todos los spaces). El escaneo y la reproducción son comandos Rust
+ * Persistencia: el ÍNDICE de playlists (id+nombre+categoría) y las categorías
+ * viven en `packages/music/index.json`; el CONTENIDO de cada playlist (sus
+ * trackPaths) en `packages/music/playlists/<id>.json`; las reproducciones de
+ * cada canción en `packages/music/plays.json`, su puntaje en
+ * `packages/music/ratings.json`, y los audios en `packages/music/songs/`. El escaneo y la reproducción son comandos Rust
  * (rodio); la posición se trackea acá con un timer.
  */
 import {
   readJson,
   writeJson,
   deleteJson,
-  readSpaceSection,
-  writeSpaceSection,
-  requestActivateSpace,
   isAndroid,
-  type Space,
+  type LegacySpace,
+  ExternalStore,
+  messageOf,
+  newId,
 } from "@quarks/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
-import type { Track, Playlist, PlaylistView } from "./types";
+import type { Track, Playlist, Category, PlaylistView, PlayOrder, TrackSort } from "./types";
 import * as library from "./services/library";
 import * as mediaSession from "./services/mediaSession";
 import * as downloader from "./services/download";
 import type { ProbeResult } from "./services/download";
 import * as trim from "./services/trim";
 import type { WavePeaks } from "./services/trim";
+import { RATING_MAX } from "./util";
 
 export type MusicStatus = "idle" | "loading" | "scanning" | "ready" | "error";
 
@@ -59,7 +60,6 @@ export interface DownloadState {
   open: boolean;
   step: DownloadStep;
   url: string;
-  toolsReady: boolean;
   /**
    * Qué falta instalar, para que el paso `needsSetup` diga la verdad. En Linux
    * es normal tener ffmpeg del sistema y que solo falte yt-dlp.
@@ -69,7 +69,7 @@ export interface DownloadState {
   probe: ProbeResult | null;
   customName: string;
   embedThumbnail: boolean;
-  /** Playlists destino (de cualquier space; los ids son únicos globalmente). */
+  /** Playlists destino. */
   targetPlaylistIds: string[];
   progress: {
     pct: number;
@@ -134,29 +134,29 @@ export interface TrimState {
   error: string | null;
 }
 
-/** Playlists de un space, con la metadata del space para agrupar en la UI. */
-export interface SpacePlaylists {
-  spaceId: string;
-  spaceName: string;
-  /** Color de acento del space (señal visual en headers de grupo). */
-  color: string;
-  playlists: Playlist[];
-}
-
 export interface MusicState {
   status: MusicStatus;
   error: string | null;
   /** Todos los tracks escaneados, ordenados por artista/título. */
   tracks: Track[];
+  /** Veces que se escuchó cada track (por `Track.path`; ausente = 0). */
+  plays: Record<string, number>;
+  /** Puntaje de cada track, de 1 a `RATING_MAX` (por `Track.path`; ausente = sin puntaje). */
+  ratings: Record<string, number>;
 
-  /** Space activo (segmento de partición de las playlists). */
-  spaceId: string | null;
-  /** Playlists del space activo. */
   playlists: Playlist[];
-  /** Playlists de los DEMÁS spaces (trackpanel agrupado + Manejar playlists). */
-  otherSpaces: SpacePlaylists[];
+  /** Categorías, en orden. */
+  categories: Category[];
+  /**
+   * Categoría elegida en la toolbar; `null` = la biblioteca (playlists sueltas
+   * + las pseudo-vistas). Invariante: si `view` es una playlist, esta es su
+   * `categoryId` (el dropdown de playlists solo lista las de la categoría).
+   */
+  category: string | null;
   /** Vista seleccionada: "all" | "unassigned" | id de playlist. */
   view: PlaylistView;
+  /** Orden de la lista y de la cola (ver `TrackSort`). Vale para todas las vistas. */
+  sort: TrackSort;
 
   searchOpen: boolean;
   search: string;
@@ -170,7 +170,8 @@ export interface MusicState {
   durationSec: number;
   /** 0..1 */
   volume: number;
-  shuffle: boolean;
+  /** Cómo elige el "siguiente" (ver `pickNext`). */
+  order: PlayOrder;
   loop: boolean;
 
   download: DownloadState;
@@ -198,7 +199,6 @@ const INITIAL_DOWNLOAD: DownloadState = {
   open: false,
   step: "idle",
   url: "",
-  toolsReady: false,
   toolsMissing: { ytDlp: false, ffmpeg: false },
   setup: null,
   probe: null,
@@ -214,10 +214,13 @@ const INITIAL: MusicState = {
   status: "idle",
   error: null,
   tracks: [],
-  spaceId: null,
+  plays: {},
+  ratings: {},
   playlists: [],
-  otherSpaces: [],
+  categories: [],
+  category: null,
   view: "all",
+  sort: "list",
   searchOpen: false,
   search: "",
   manageOpen: false,
@@ -226,7 +229,7 @@ const INITIAL: MusicState = {
   positionSec: 0,
   durationSec: 0,
   volume: 0.8,
-  shuffle: false,
+  order: "normal",
   loop: false,
   download: INITIAL_DOWNLOAD,
   trim: INITIAL_TRIM,
@@ -237,14 +240,45 @@ const TICK_MS = 250;
 const PREV_RESTART_SEC = 3;
 /** Largo mínimo del rango a conservar en el recorte (segundos). */
 const MIN_TRIM_LEN = 0.1;
+/**
+ * Una escucha cuenta al pasar la mitad del track o los 4 minutos, lo que pase
+ * primero (la regla de Last.fm): saltear una canción a los 10 s no la suma.
+ */
+const PLAY_COUNT_FRACTION = 0.5;
+const PLAY_COUNT_MAX_SEC = 240;
 
-/** Id del quark: clave de su sección dentro del archivo del space. */
+/** Id del quark: clave de su sección en los archivos de la época de los Spaces. */
 const QUARK_ID = "music";
-/** Datos de una playlist: solo trackPaths, sin metadata del space. */
+/** Índice de playlists y categorías. */
+const INDEX_KEY = "packages/music/index";
+/** Reproducciones por canción. */
+const PLAYS_KEY = "packages/music/plays";
+/** Puntaje por canción. */
+const RATINGS_KEY = "packages/music/ratings";
+/** Datos de una playlist: solo trackPaths. */
 const playlistKey = (playlistId: string) => `packages/music/playlists/${playlistId}`;
 
-interface SpaceFile {
-  playlists: Array<{ id: string; name: string }>;
+/** Entrada del índice de playlists. */
+interface PlaylistRef {
+  id: string;
+  name: string;
+  /** Ausente (o null) = playlist suelta. */
+  categoryId?: string | null;
+}
+
+interface IndexFile {
+  playlists: PlaylistRef[];
+  categories: Category[];
+}
+
+interface PlaysFile {
+  /** `Track.path` → veces escuchada. */
+  counts: Record<string, number>;
+}
+
+interface RatingsFile {
+  /** `Track.path` → puntaje (1 a `RATING_MAX`). */
+  scores: Record<string, number>;
 }
 
 interface PlaylistFile {
@@ -265,28 +299,54 @@ function dedupeByPath<T extends { path: string }>(items: T[]): T[] {
   return out;
 }
 
-/** Resuelve la "cola" de la vista activa, en orden. No aplica el buscador. */
-export function resolveQueue(state: MusicState): Track[] {
-  const { view, tracks, playlists } = state;
-  if (view === "all") return tracks;
-  if (view === "unassigned") {
-    const assigned = new Set(playlists.flatMap((p) => p.trackPaths));
-    return tracks.filter((t) => !assigned.has(t.path));
-  }
-  const pl = playlists.find((p) => p.id === view);
-  if (!pl) return tracks;
-  // Una playlist nunca muestra el mismo track dos veces, aunque su archivo
-  // tenga `trackPaths` repetidos (data vieja / sync): dedup por ruta.
+/**
+ * Los tracks de `paths`, en ese orden. Nunca repite un track aunque la lista
+ * tenga rutas repetidas (data vieja / sync, o el mismo track en dos playlists
+ * de una categoría): dedup por ruta. Saltea las rutas que ya no existen.
+ */
+function tracksAt(paths: string[], tracks: Track[]): Track[] {
   const byPath = new Map(tracks.map((t) => [t.path, t]));
   const seen = new Set<string>();
   const out: Track[] = [];
-  for (const p of pl.trackPaths) {
+  for (const p of paths) {
     if (seen.has(p)) continue;
     seen.add(p);
     const t = byPath.get(p);
     if (t) out.push(t);
   }
   return out;
+}
+
+/** Los tracks de la vista activa, en su orden propio. */
+function viewTracks(state: MusicState): Track[] {
+  const { view, tracks, playlists, category } = state;
+  if (view === "all") {
+    if (!category) return tracks;
+    // La categoría como una playlist grande: sus playlists una atrás de otra.
+    const inCategory = playlists.filter((p) => p.categoryId === category);
+    return tracksAt(inCategory.flatMap((p) => p.trackPaths), tracks);
+  }
+  if (view === "unassigned") {
+    const assigned = new Set(playlists.flatMap((p) => p.trackPaths));
+    return tracks.filter((t) => !assigned.has(t.path));
+  }
+  const pl = playlists.find((p) => p.id === view);
+  if (!pl) return tracks;
+  return tracksAt(pl.trackPaths, tracks);
+}
+
+/** Resuelve la "cola" de la vista activa, en el orden elegido. No aplica el buscador. */
+export function resolveQueue(state: MusicState): Track[] {
+  return sortView(viewTracks(state), state.sort, state.ratings);
+}
+
+/**
+ * Cuántos tracks tiene `view` dentro de `category`: lo mismo que mostraría
+ * abrirla (una categoría cuenta cada track una vez aunque esté en varias de
+ * sus playlists, y no cuenta rutas que ya no existen).
+ */
+export function viewSize(state: MusicState, category: string | null, view: PlaylistView): number {
+  return viewTracks({ ...state, category, view }).length;
 }
 
 /** Filtra por título/artista (case-insensitive). */
@@ -297,6 +357,22 @@ export function filterTracks(tracks: Track[], search: string): Track[] {
     (t) =>
       t.title.toLowerCase().includes(q) || t.artist.toLowerCase().includes(q),
   );
+}
+
+const byName = (a: Track, b: Track) =>
+  a.title.localeCompare(b.title, "es", { sensitivity: "base", numeric: true });
+
+/** Reordena una vista según `sort`; `list` la deja como está. */
+function sortView(tracks: Track[], sort: TrackSort, ratings: Record<string, number>): Track[] {
+  if (sort === "list") return tracks;
+  if (sort === "name") return [...tracks].sort(byName);
+  if (sort === "rating") {
+    // Sin puntaje cuenta como 0: queda después de cualquier puntaje (mínimo 1).
+    const score = (t: Track) => ratings[t.path] ?? 0;
+    return [...tracks].sort((a, b) => score(b) - score(a) || byName(a, b));
+  }
+  const dir = sort === "newest" ? -1 : 1;
+  return [...tracks].sort((a, b) => dir * (a.createdMs - b.createdMs) || byName(a, b));
 }
 
 function sortTracks(tracks: Track[]): Track[] {
@@ -317,15 +393,146 @@ function isValidRef(r: unknown): r is { id: string; name: string } {
   );
 }
 
-function messageOf(e: unknown): string {
-  return e instanceof Error ? e.message : typeof e === "string" ? e : String(e);
+/**
+ * Índice leído de disco (sin validar) → refs y categorías con forma válida. Una
+ * playlist cuya categoría no existe queda suelta.
+ */
+function parseIndex(raw: unknown): IndexFile {
+  const r = (typeof raw === "object" && raw !== null ? raw : {}) as Partial<IndexFile>;
+  const categories = (Array.isArray(r.categories) ? r.categories : [])
+    .filter(isValidRef)
+    .map(({ id, name }) => ({ id, name }));
+  const catIds = new Set(categories.map((c) => c.id));
+  const playlists = (Array.isArray(r.playlists) ? r.playlists : [])
+    .filter(isValidRef)
+    .map((p: PlaylistRef) => ({
+      id: p.id,
+      name: p.name,
+      categoryId: typeof p.categoryId === "string" && catIds.has(p.categoryId) ? p.categoryId : null,
+    }));
+  return { playlists, categories };
+}
+
+/** Conteos leídos de disco (sin validar): solo números positivos. */
+function parsePlays(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (typeof raw !== "object" || raw === null) return out;
+  for (const [path, n] of Object.entries(raw)) {
+    if (typeof n === "number" && n > 0) out[path] = Math.floor(n);
+  }
+  return out;
+}
+
+/** Puntajes leídos de disco (sin validar): solo enteros de 1 a `RATING_MAX`. */
+function parseRatings(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (typeof raw !== "object" || raw === null) return out;
+  for (const [path, n] of Object.entries(raw)) {
+    if (isRating(n)) out[path] = n;
+  }
+  return out;
+}
+
+function isRating(n: unknown): n is number {
+  return typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= RATING_MAX;
+}
+
+/** `map` sin la clave `from`; si se pasa `to`, su valor queda bajo `to`. */
+function moveKey(
+  map: Record<string, number>,
+  from: string,
+  to?: string,
+): Record<string, number> {
+  const { [from]: value, ...rest } = map;
+  return to === undefined ? rest : { ...rest, [to]: value };
+}
+
+/**
+ * Migración única desde los Spaces (ver `Quark.migrateSpaces`): suma las
+ * playlists de todos los spaces al índice, con una categoría por space (con
+ * su nombre; reusa una existente que se llame igual) para no perder la
+ * agrupación. Si había un solo space no hace falta agrupar y quedan como
+ * estaban. Lo que ya estaba en el índice, por id, no se toca. Los trackPaths
+ * ya vivían aparte, por id, así que no se mueven.
+ */
+export async function migrateMusicFromSpaces(spaces: LegacySpace[]): Promise<void> {
+  const current = parseIndex(await readJson<IndexFile>(INDEX_KEY, { playlists: [], categories: [] }));
+  const grouped = spaces.length > 1;
+  const playlists: PlaylistRef[] = [...current.playlists];
+  const categories: Category[] = [...current.categories];
+  const seen = new Set(playlists.map((p) => p.id));
+  for (const s of spaces) {
+    const index = parseIndex(s.sections[QUARK_ID]);
+    for (const c of index.categories) {
+      if (!categories.some((x) => x.id === c.id)) categories.push(c);
+    }
+    const loose = index.playlists.filter((p) => !p.categoryId && !seen.has(p.id));
+    let spaceCat: Category | null = null;
+    if (grouped && loose.length > 0) {
+      spaceCat = categories.find((c) => c.name === s.name) ?? newCategory(s.name);
+      if (!categories.includes(spaceCat)) categories.push(spaceCat);
+    }
+    for (const p of index.playlists) {
+      if (seen.has(p.id)) continue;
+      seen.add(p.id);
+      const categoryId = p.categoryId ?? spaceCat?.id ?? null;
+      playlists.push(categoryId ? { id: p.id, name: p.name, categoryId } : { id: p.id, name: p.name });
+    }
+  }
+  await writeJson<IndexFile>(INDEX_KEY, { playlists, categories });
+}
+
+/** Grupo de playlists para listar en la UI: las sueltas (`category: null`) o una categoría. */
+export interface PlaylistGroup {
+  category: Category | null;
+  playlists: Playlist[];
+}
+
+/** Playlists agrupadas: primero las sueltas, después cada categoría (las vacías no). */
+export function groupPlaylists(playlists: Playlist[], categories: Category[]): PlaylistGroup[] {
+  const groups: PlaylistGroup[] = [
+    { category: null, playlists: playlists.filter((p) => p.categoryId === null) },
+    ...categories.map((c) => ({
+      category: c,
+      playlists: playlists.filter((p) => p.categoryId === c.id),
+    })),
+  ];
+  return groups.filter((g) => g.playlists.length > 0);
+}
+
+/** Entrada del índice para una playlist (sin `categoryId` si está suelta). */
+function toRef({ id, name, categoryId }: Playlist): PlaylistRef {
+  return categoryId ? { id, name, categoryId } : { id, name };
+}
+
+function newCategory(name: string): Category {
+  return { id: newId(), name: name.trim() || "Nueva categoría" };
+}
+
+/** Mueve la playlist `playlistId` a `categoryId` (sirve para refs y playlists). */
+function moveTo<T extends { id: string; categoryId?: string | null }>(
+  items: T[],
+  playlistId: string,
+  categoryId: string | null,
+): T[] {
+  return items.map((p) => (p.id === playlistId ? { ...p, categoryId } : p));
+}
+
+/** Deja sueltas las playlists de la categoría `id` (al borrarla). */
+function release<T extends { categoryId?: string | null }>(items: T[], id: string): T[] {
+  return items.map((p) => (p.categoryId === id ? { ...p, categoryId: null } : p));
+}
+
+function renamed<T extends { id: string; name: string }>(items: T[], id: string, name: string): T[] {
+  return items.map((x) => (x.id === id ? { ...x, name } : x));
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────────
 
-export class MusicStore {
-  private state: MusicState = INITIAL;
-  private listeners = new Set<() => void>();
+export class MusicStore extends ExternalStore<MusicState> {
+  constructor() {
+    super(INITIAL);
+  }
 
   // Estado que no requiere re-render (vive fuera del snapshot).
   private tickTimer: ReturnType<typeof setInterval> | null = null;
@@ -334,32 +541,20 @@ export class MusicStore {
   private history: string[] = [];
   private playedBag = new Set<string>();
   private scanSeq = 0;
-  private spaceSeq = 0;
   /** Invalida cargas de recorte en curso (cerrar/abrir otro track en el medio). */
   private trimSeq = 0;
-  /** Playlist a seleccionar cuando termine de cargar el space pedido (ver
-   *  `openPlaylist`: abrir una playlist de otro space desde "Manejar playlists"). */
-  private pendingOpen: { spaceId: string; view: string } | null = null;
+  /** Invalida la descarga en curso (cancelada desde `closeDownload`). */
+  private downloadSeq = 0;
+  /** El índice ya se leyó de disco. Antes de eso no se escribe (lo pisaría vacío). */
+  private loaded = false;
+  /** La reproducción en curso ya sumó su escucha (ver `maybeCountPlay`). */
+  private counted = false;
   // Suscripción a las teclas/controles de media del SO (MPRIS, Linux-only).
   private mediaKeysUnlisten: UnlistenFn | null = null;
 
-  // ── Suscripción (useSyncExternalStore) ──
-  subscribe = (cb: () => void): (() => void) => {
-    this.listeners.add(cb);
-    return () => {
-      this.listeners.delete(cb);
-    };
-  };
-  getSnapshot = (): MusicState => this.state;
-
-  private set(patch: Partial<MusicState>): void {
-    this.state = { ...this.state, ...patch };
-    for (const l of this.listeners) l();
-  }
-
   // ── Ciclo de vida (lo llama el Shell) ──
   async init(): Promise<void> {
-    await this.scan();
+    await Promise.all([this.scan(), this.loaded ? null : this.loadLibrary()]);
     // Conectar las teclas/controles de media del SO al player (no-op fuera de Linux).
     this.mediaKeysUnlisten = await mediaSession.listenMediaKeys({
       toggle: () => void this.togglePlay(),
@@ -379,7 +574,9 @@ export class MusicStore {
   dispose(): void {
     this.stopTick();
     void library.stop().catch(() => {});
-    this.set({ playing: false, positionSec: 0 });
+    // Sin track activo: el backend quedó sin sink y un `resume` sobre eso es
+    // no-op, así que el próximo play tiene que cargar de nuevo.
+    this.set({ activePath: null, playing: false, positionSec: 0, durationSec: 0 });
     if (this.mediaKeysUnlisten) {
       this.mediaKeysUnlisten();
       this.mediaKeysUnlisten = null;
@@ -387,29 +584,21 @@ export class MusicStore {
     void mediaSession.setPlayback("stopped", 0);
   }
 
-  // ── Space → playlists ──
-  async setSpace(spaceId: string): Promise<void> {
-    if (this.state.spaceId === spaceId) return;
-    const seq = ++this.spaceSeq;
-    this.set({ spaceId, playlists: [], view: "all" });
-    const playlists = await this.loadSpacePlaylists(spaceId);
-    if (seq !== this.spaceSeq) return;
-    // Si el space ya tiene playlists, arrancamos en la primera (no en "Todas") —
-    // salvo que haya una apertura pendiente desde "Manejar playlists".
-    let view: PlaylistView = playlists.length > 0 ? playlists[0].id : "all";
-    if (this.pendingOpen?.spaceId === spaceId) {
-      if (playlists.some((p) => p.id === this.pendingOpen?.view)) view = this.pendingOpen.view;
-      this.pendingOpen = null;
-    }
-    this.set({ playlists, view });
-    void this.refreshOtherSpaces();
-  }
+  // ── Índice (playlists + categorías) y reproducciones ──
 
-  /** Lee el índice de playlists de un space + los trackPaths de cada una. */
-  private async loadSpacePlaylists(spaceId: string): Promise<Playlist[]> {
-    const section = await readSpaceSection<SpaceFile>(spaceId, QUARK_ID, { playlists: [] });
-    const refs = section.playlists.filter(isValidRef);
-    return Promise.all(
+  /**
+   * Lee de disco el índice, los trackPaths de cada playlist, las
+   * reproducciones y los puntajes. Una sola vez: después el estado en memoria es la verdad (un
+   * pull de Drive recarga la app entera).
+   */
+  private async loadLibrary(): Promise<void> {
+    const [index, plays, ratings] = await Promise.all([
+      readJson<IndexFile>(INDEX_KEY, { playlists: [], categories: [] }),
+      readJson<PlaysFile>(PLAYS_KEY, { counts: {} }),
+      readJson<RatingsFile>(RATINGS_KEY, { scores: {} }),
+    ]);
+    const { playlists: refs, categories } = parseIndex(index);
+    const playlists = await Promise.all(
       refs.map(async (ref) => {
         const file = await readJson<PlaylistFile>(playlistKey(ref.id), { trackPaths: [] });
         const raw = Array.isArray(file.trackPaths)
@@ -421,29 +610,21 @@ export class MusicStore {
         if (trackPaths.length !== raw.length) {
           void writeJson<PlaylistFile>(playlistKey(ref.id), { trackPaths }).catch(() => {});
         }
-        return { id: ref.id, name: ref.name, trackPaths };
+        return { id: ref.id, name: ref.name, categoryId: ref.categoryId ?? null, trackPaths };
       }),
     );
-  }
-
-  /**
-   * Recarga las playlists de los demás spaces (los que no son el activo). Las
-   * consumen el trackpanel (membresía agrupada por space) y "Manejar playlists".
-   */
-  async refreshOtherSpaces(): Promise<void> {
-    const activeId = this.state.spaceId;
-    const { spaces } = await readJson<{ spaces: Space[] }>("settings", { spaces: [] });
-    const others = (Array.isArray(spaces) ? spaces : []).filter((s) => s.id !== activeId);
-    const loaded = await Promise.all(
-      others.map(async (s) => ({
-        spaceId: s.id,
-        spaceName: s.name,
-        color: s.color,
-        playlists: await this.loadSpacePlaylists(s.id),
-      })),
-    );
-    if (this.state.spaceId !== activeId) return; // cambió el space mientras cargaba
-    this.set({ otherSpaces: loaded });
+    this.loaded = true;
+    // Si ya hay playlists, arrancamos en la primera (no en "Todas"), dentro de
+    // su categoría.
+    const first = playlists[0];
+    this.set({
+      playlists,
+      categories,
+      plays: parsePlays(plays.counts),
+      ratings: parseRatings(ratings.scores),
+      category: first?.categoryId ?? null,
+      view: first ? first.id : "all",
+    });
   }
 
   // ── Carpeta / escaneo ──
@@ -454,6 +635,12 @@ export class MusicStore {
 
   async rescan(): Promise<void> {
     await this.scan();
+  }
+
+  /** Cierra la línea de error de la página (vuelve a `ready`). */
+  dismissError(): void {
+    if (this.state.status !== "error") return;
+    this.set({ status: "ready", error: null });
   }
 
   private async scan(): Promise<void> {
@@ -475,6 +662,29 @@ export class MusicStore {
     this.playedBag.clear();
     this.set({ view });
   }
+
+  /**
+   * Cambia la categoría de la toolbar (`null` = biblioteca). Arranca siempre en
+   * su "Todas": en una categoría es la unión de sus playlists, lista para
+   * reproducir como una playlist grande.
+   */
+  selectCategory(category: string | null): void {
+    if (category === this.state.category) return;
+    this.show(category, "all");
+  }
+
+  /** Cambia el orden de la lista (menú de la toolbar). */
+  setSort(sort: TrackSort): void {
+    if (sort === this.state.sort) return;
+    this.set({ sort });
+  }
+
+  /** Selecciona categoría + vista de una (respeta el invariante de `category`). */
+  private show(category: string | null, view: PlaylistView): void {
+    if (category === this.state.category && view === this.state.view) return;
+    this.playedBag.clear();
+    this.set({ category, view });
+  }
   toggleSearch(): void {
     const open = !this.state.searchOpen;
     this.set({ searchOpen: open, search: open ? this.state.search : "" });
@@ -486,20 +696,19 @@ export class MusicStore {
   // ── Manejar playlists (diálogo) ──
   openManage(): void {
     this.set({ manageOpen: true });
-    // Refrescar por si otro space cambió desde la última carga (sync, etc.).
-    void this.refreshOtherSpaces();
   }
   closeManage(): void {
     this.set({ manageOpen: false });
   }
 
-  // ── Playlists (CRUD, persistido por space + archivo individual) ──
+  // ── Playlists (CRUD: índice + archivo individual) ──
 
-  /** Escribe el índice del space (sección `music`): solo id+nombre de cada playlist. */
-  private async persistSpaceIndex(): Promise<void> {
-    if (!this.state.spaceId) return;
-    await writeSpaceSection<SpaceFile>(this.state.spaceId, QUARK_ID, {
-      playlists: this.state.playlists.map(({ id, name }) => ({ id, name })),
+  /** Escribe el índice: categorías + id/nombre/categoría de cada playlist, sin sus tracks. */
+  private async persistIndex(): Promise<void> {
+    if (!this.loaded) return;
+    await writeJson<IndexFile>(INDEX_KEY, {
+      playlists: this.state.playlists.map(toRef),
+      categories: this.state.categories,
     });
   }
 
@@ -508,87 +717,82 @@ export class MusicStore {
     await writeJson<PlaylistFile>(playlistKey(pl.id), { trackPaths: pl.trackPaths });
   }
 
-  async createPlaylist(name: string): Promise<void> {
-    if (!this.state.spaceId) return;
+  /**
+   * Crea una playlist en `categoryId` (`null` = suelta). Con `open` además la
+   * abre: lo hace la toolbar; "Manejar playlists" no cambia la vista.
+   */
+  async createPlaylist(name: string, categoryId: string | null, open: boolean): Promise<void> {
+    if (!this.loaded) return;
     const pl: Playlist = {
-      id: crypto.randomUUID(),
+      id: newId(),
       name: name.trim() || "Nueva playlist",
+      categoryId,
       trackPaths: [],
     };
-    this.set({ playlists: [...this.state.playlists, pl], view: pl.id });
+    this.set({ playlists: [...this.state.playlists, pl] });
+    if (open) this.show(categoryId, pl.id);
     await this.persistPlaylist(pl);
-    await this.persistSpaceIndex();
+    await this.persistIndex();
   }
 
-  /** Renombra una playlist de CUALQUIER space (toolbar y "Manejar playlists"). */
-  async renamePlaylist(spaceId: string, id: string, name: string): Promise<void> {
+  async renamePlaylist(id: string, name: string): Promise<void> {
     const trimmed = name.trim();
     if (!trimmed) return;
-    if (spaceId === this.state.spaceId) {
-      this.set({
-        playlists: this.state.playlists.map((p) => (p.id === id ? { ...p, name: trimmed } : p)),
-      });
-      await this.persistSpaceIndex();
-    } else {
-      const section = await readSpaceSection<SpaceFile>(spaceId, QUARK_ID, { playlists: [] });
-      await writeSpaceSection<SpaceFile>(spaceId, QUARK_ID, {
-        playlists: section.playlists.map((r) =>
-          isValidRef(r) && r.id === id ? { ...r, name: trimmed } : r,
-        ),
-      });
-      this.set({
-        otherSpaces: this.state.otherSpaces.map((g) =>
-          g.spaceId === spaceId
-            ? {
-                ...g,
-                playlists: g.playlists.map((p) => (p.id === id ? { ...p, name: trimmed } : p)),
-              }
-            : g,
-        ),
-      });
-    }
+    this.set({ playlists: renamed(this.state.playlists, id, trimmed) });
+    await this.persistIndex();
   }
 
-  /**
-   * Crea una playlist en CUALQUIER space sin cambiar la vista actual (la usa
-   * "Manejar playlists"; el dropdown usa `createPlaylist`, que sí la abre).
-   */
-  async createPlaylistInSpace(spaceId: string, name: string): Promise<void> {
-    const pl: Playlist = {
-      id: crypto.randomUUID(),
-      name: name.trim() || "Nueva playlist",
-      trackPaths: [],
-    };
-    await this.persistPlaylist(pl);
-    if (spaceId === this.state.spaceId) {
-      this.set({ playlists: [...this.state.playlists, pl] });
-      await this.persistSpaceIndex();
-    } else {
-      const section = await readSpaceSection<SpaceFile>(spaceId, QUARK_ID, { playlists: [] });
-      await writeSpaceSection<SpaceFile>(spaceId, QUARK_ID, {
-        playlists: [...section.playlists, { id: pl.id, name: pl.name }],
-      });
-      this.set({
-        otherSpaces: this.state.otherSpaces.map((g) =>
-          g.spaceId === spaceId ? { ...g, playlists: [...g.playlists, pl] } : g,
-        ),
-      });
-    }
-  }
-
-  /**
-   * Abre una playlist desde "Manejar playlists", aunque sea de otro space: si es
-   * del activo la selecciona directo; si no, deja la selección pendiente (la
-   * aplica `setSpace` al terminar de cargar) y le pide al Shell activar el space.
-   */
-  openPlaylist(spaceId: string, playlistId: string): void {
+  /** Abre una playlist desde "Manejar playlists", dentro de su categoría. */
+  openPlaylist(playlistId: string): void {
     this.set({ manageOpen: false });
-    if (spaceId === this.state.spaceId) {
-      this.selectView(playlistId);
-      return;
-    }
-    this.pendingOpen = { spaceId, view: playlistId };
-    requestActivateSpace(spaceId);
+    const pl = this.state.playlists.find((p) => p.id === playlistId);
+    if (pl) this.show(pl.categoryId, pl.id);
+  }
+
+  /** Como `openPlaylist`, pero entra a una categoría (en su vista "Todas"). */
+  openCategory(categoryId: string): void {
+    this.set({ manageOpen: false });
+    this.selectCategory(categoryId);
+  }
+
+  // ── Categorías (agrupan playlists) ──
+
+  /** Crea una categoría. Con `open` además entra a ella (dropdown de la toolbar). */
+  async createCategory(name: string, open: boolean): Promise<void> {
+    if (!this.loaded) return;
+    const cat = newCategory(name);
+    this.set({ categories: [...this.state.categories, cat] });
+    if (open) this.show(cat.id, "all");
+    await this.persistIndex();
+  }
+
+  async renameCategory(id: string, name: string): Promise<void> {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    this.set({ categories: renamed(this.state.categories, id, trimmed) });
+    await this.persistIndex();
+  }
+
+  /**
+   * Borra una categoría. Sus playlists NO se borran: quedan sueltas. Si era la
+   * categoría abierta, la toolbar vuelve a la biblioteca (la playlist abierta,
+   * ahora suelta, sigue abierta).
+   */
+  async deleteCategory(id: string): Promise<void> {
+    this.set({
+      categories: this.state.categories.filter((c) => c.id !== id),
+      playlists: release(this.state.playlists, id),
+    });
+    if (this.state.category === id) this.show(null, this.state.view);
+    await this.persistIndex();
+  }
+
+  /** Mete una playlist en una categoría (`null` = suelta). */
+  async setPlaylistCategory(playlistId: string, categoryId: string | null): Promise<void> {
+    this.set({ playlists: moveTo(this.state.playlists, playlistId, categoryId) });
+    // Si es la playlist abierta, la toolbar la sigue a su nueva categoría.
+    if (this.state.view === playlistId) this.show(categoryId, playlistId);
+    await this.persistIndex();
   }
 
   // ── Recorte (trim): diálogo del botón "Editar" del trackpanel ──
@@ -716,30 +920,14 @@ export class MusicStore {
     }
   }
 
-  /**
-   * Borra una playlist de CUALQUIER space: la saca del índice de su space y
-   * borra su archivo de contenido. Única vía de borrado ("Manejar playlists").
-   */
-  async deletePlaylist(spaceId: string, id: string): Promise<void> {
-    if (spaceId === this.state.spaceId) {
-      this.set({
-        playlists: this.state.playlists.filter((p) => p.id !== id),
-        view: this.state.view === id ? "all" : this.state.view,
-      });
-      await this.persistSpaceIndex();
-    } else {
-      const section = await readSpaceSection<SpaceFile>(spaceId, QUARK_ID, { playlists: [] });
-      await writeSpaceSection<SpaceFile>(spaceId, QUARK_ID, {
-        playlists: section.playlists.filter((r) => !isValidRef(r) || r.id !== id),
-      });
-      this.set({
-        otherSpaces: this.state.otherSpaces.map((g) =>
-          g.spaceId === spaceId
-            ? { ...g, playlists: g.playlists.filter((p) => p.id !== id) }
-            : g,
-        ),
-      });
-    }
+  /** Borra una playlist: la saca del índice y borra su archivo de contenido.
+   *  Única vía de borrado ("Manejar playlists"). */
+  async deletePlaylist(id: string): Promise<void> {
+    this.set({
+      playlists: this.state.playlists.filter((p) => p.id !== id),
+      view: this.state.view === id ? "all" : this.state.view,
+    });
+    await this.persistIndex();
     await deleteJson(playlistKey(id));
   }
 
@@ -768,42 +956,10 @@ export class MusicStore {
     if (updated) await this.persistPlaylist(updated);
   }
 
-  /**
-   * Agrega/quita un track en una playlist de CUALQUIER space (trackpanel).
-   * Para el space activo delega en add/removeFromPlaylist; para otros escribe
-   * el archivo de la playlist (global, keyed por id) y refleja en `otherSpaces`.
-   */
-  async toggleInPlaylist(
-    spaceId: string,
-    playlistId: string,
-    path: string,
-    isIn: boolean,
-  ): Promise<void> {
-    if (spaceId === this.state.spaceId) {
-      if (isIn) await this.removeFromPlaylist(playlistId, [path]);
-      else await this.addToPlaylist(playlistId, [path]);
-      return;
-    }
-    let updated: Playlist | undefined;
-    this.set({
-      otherSpaces: this.state.otherSpaces.map((g) => {
-        if (g.spaceId !== spaceId) return g;
-        return {
-          ...g,
-          playlists: g.playlists.map((p) => {
-            if (p.id !== playlistId) return p;
-            updated = {
-              ...p,
-              trackPaths: isIn
-                ? p.trackPaths.filter((x) => x !== path)
-                : [...new Set([...p.trackPaths, path])],
-            };
-            return updated;
-          }),
-        };
-      }),
-    });
-    if (updated) await this.persistPlaylist(updated);
+  /** Agrega/quita un track en una playlist (chips del trackpanel). */
+  async toggleInPlaylist(playlistId: string, path: string, isIn: boolean): Promise<void> {
+    if (isIn) await this.removeFromPlaylist(playlistId, [path]);
+    else await this.addToPlaylist(playlistId, [path]);
   }
 
   // ── Sync con los controles de media del SO (MPRIS) ──
@@ -827,11 +983,16 @@ export class MusicStore {
     void mediaSession.setPlayback(s.playing ? "playing" : "paused", s.positionSec);
   }
 
-  /** Para la reproducción y la refleja como "stopped" en el SO (evento Stop). */
+  /**
+   * Para la reproducción y la refleja como "stopped" en el SO (evento Stop).
+   * Suelta también el track activo: `stop` descarta el sink (en Android, el
+   * elemento), y un `resume` después de eso es no-op — el player quedaría en
+   * "playing" sobre silencio. Sin track activo, el próximo play carga de nuevo.
+   */
   private async stopPlayback(): Promise<void> {
     await library.stop().catch(() => {});
     this.stopTick();
-    this.set({ playing: false, positionSec: 0 });
+    this.set({ activePath: null, playing: false, positionSec: 0, durationSec: 0 });
     void mediaSession.setPlayback("stopped", 0);
   }
 
@@ -850,14 +1011,26 @@ export class MusicStore {
     try {
       await library.play(path, this.state.volume);
     } catch (e) {
-      this.set({ playing: false, status: "error", error: messageOf(e) });
-      void mediaSession.setPlayback("paused", this.state.positionSec);
+      // Que UI y backend coincidan: en desktop el sink anterior sigue sonando
+      // si falló armar el nuevo, así que lo paramos; y sin track activo el
+      // play no cae en un `resume` sobre nada.
+      await library.stop().catch(() => {});
+      this.set({
+        activePath: null,
+        playing: false,
+        positionSec: 0,
+        durationSec: 0,
+        status: "error",
+        error: messageOf(e),
+      });
+      void mediaSession.setPlayback("stopped", 0);
       return;
     }
     if (pushHistory && this.state.activePath && this.state.activePath !== path) {
       this.history.push(this.state.activePath);
     }
     this.playedBag.add(path);
+    this.counted = false;
     this.set({
       activePath: path,
       playing: true,
@@ -872,9 +1045,9 @@ export class MusicStore {
 
   async togglePlay(): Promise<void> {
     if (!this.state.activePath) {
-      // Sin track activo: arranca el primero de la cola visible.
+      // Sin track activo: arranca la cola visible (según el orden elegido).
       const q = resolveQueue(this.state);
-      if (q.length > 0) await this.play(q[0].path);
+      if (q.length > 0) await this.play(this.pickNext(q, null));
       return;
     }
     if (this.state.playing) {
@@ -892,21 +1065,41 @@ export class MusicStore {
   async next(): Promise<void> {
     const q = resolveQueue(this.state);
     if (q.length === 0) return;
-    const cur = this.state.activePath;
-    let nextPath: string;
-    if (this.state.shuffle) {
-      let pool = q.filter((t) => t.path !== cur && !this.playedBag.has(t.path));
-      if (pool.length === 0) {
-        this.playedBag.clear();
-        pool = q.filter((t) => t.path !== cur);
-      }
-      if (pool.length === 0) pool = q;
-      nextPath = pool[Math.floor(Math.random() * pool.length)].path;
-    } else {
-      const idx = q.findIndex((t) => t.path === cur);
-      nextPath = q[(idx + 1) % q.length].path;
+    await this.play(this.pickNext(q, this.state.activePath));
+  }
+
+  /**
+   * Elige qué suena después de `cur` (o con qué arrancar, si es `null`) según
+   * `order`. Salvo en orden normal, no repite un track hasta pasar por toda la
+   * cola (`playedBag`). En los modos por reproducciones gana el de menos/más
+   * escuchas; como los conteos suben al escuchar, la cola se va recorriendo
+   * de a "niveles". En `topRated` gana el de más puntaje entre los que faltan,
+   * así que baja de a un puntaje por vez. Los empates se sortean.
+   */
+  private pickNext(q: Track[], cur: string | null): string {
+    const { order, plays, ratings } = this.state;
+    if (order === "normal") {
+      const idx = cur ? q.findIndex((t) => t.path === cur) : -1;
+      return q[(idx + 1) % q.length].path;
     }
-    await this.play(nextPath);
+    let pool = q.filter((t) => t.path !== cur && !this.playedBag.has(t.path));
+    if (pool.length === 0) {
+      this.playedBag.clear();
+      pool = q.filter((t) => t.path !== cur);
+    }
+    if (pool.length === 0) pool = q;
+    if (order !== "shuffle") {
+      // Gana el puntaje más alto de `score` (sin puntaje / sin escuchas = 0).
+      const score = (t: Track) =>
+        order === "topRated"
+          ? (ratings[t.path] ?? 0)
+          : order === "leastPlayed"
+            ? -(plays[t.path] ?? 0)
+            : (plays[t.path] ?? 0);
+      const best = Math.max(...pool.map(score));
+      pool = pool.filter((t) => score(t) === best);
+    }
+    return pool[Math.floor(Math.random() * pool.length)].path;
   }
 
   async prev(): Promise<void> {
@@ -940,25 +1133,62 @@ export class MusicStore {
     await library.setVolume(clamped);
   }
 
-  toggleShuffle(): void {
+  /** Cambia cómo se elige el "siguiente" (botón de orden del player). */
+  setOrder(order: PlayOrder): void {
+    if (order === this.state.order) return;
     this.playedBag.clear();
-    this.set({ shuffle: !this.state.shuffle });
+    this.set({ order });
   }
 
   /**
-   * Acceso rápido del ícono de randomizar: activa shuffle (lo deja seleccionado),
-   * cambia a la vista dada y arranca a reproducir un track al azar de esa cola.
-   * El "siguiente" automático ya usa la lógica de shuffle existente.
+   * Acceso rápido de la toolbar: deja elegido el orden y arranca a reproducir
+   * la vista actual desde el track que ese orden elige primero.
    */
-  async startShuffle(view: PlaylistView): Promise<void> {
-    const patch: Partial<MusicState> = {};
-    if (view !== this.state.view) patch.view = view;
-    if (!this.state.shuffle) patch.shuffle = true;
-    if (Object.keys(patch).length > 0) this.set(patch);
+  async playViewIn(order: PlayOrder): Promise<void> {
+    this.setOrder(order);
     this.playedBag.clear();
     const q = resolveQueue(this.state);
     if (q.length === 0) return;
-    await this.play(q[Math.floor(Math.random() * q.length)].path);
+    await this.play(this.pickNext(q, null));
+  }
+
+  // ── Reproducciones ──
+
+  /**
+   * Suma una escucha al track que suena cuando su posición pasa el umbral
+   * (`PLAY_COUNT_*`). Una vez por reproducción: `counted` se resetea al
+   * arrancar un track y al volver a empezar por el repeat.
+   */
+  private maybeCountPlay(positionSec: number): void {
+    const path = this.state.activePath;
+    if (this.counted || !path) return;
+    const dur = this.state.durationSec;
+    const threshold =
+      dur > 0 ? Math.min(dur * PLAY_COUNT_FRACTION, PLAY_COUNT_MAX_SEC) : PLAY_COUNT_MAX_SEC;
+    if (positionSec < threshold) return;
+    this.counted = true;
+    this.setPlays({ ...this.state.plays, [path]: (this.state.plays[path] ?? 0) + 1 });
+  }
+
+  private setPlays(plays: Record<string, number>): void {
+    this.set({ plays });
+    if (this.loaded) void writeJson<PlaysFile>(PLAYS_KEY, { counts: plays }).catch(() => {});
+  }
+
+  // ── Puntaje ──
+
+  /** Pone el puntaje (1 a `RATING_MAX`) de un track; `null` se lo saca. */
+  setRating(path: string, score: number | null): void {
+    if (score === null) {
+      if (path in this.state.ratings) this.setRatings(moveKey(this.state.ratings, path));
+    } else if (isRating(score) && this.state.ratings[path] !== score) {
+      this.setRatings({ ...this.state.ratings, [path]: score });
+    }
+  }
+
+  private setRatings(ratings: Record<string, number>): void {
+    this.set({ ratings });
+    if (this.loaded) void writeJson<RatingsFile>(RATINGS_KEY, { scores: ratings }).catch(() => {});
   }
   toggleLoop(): void {
     this.set({ loop: !this.state.loop });
@@ -969,8 +1199,8 @@ export class MusicStore {
   /**
    * Borra el archivo del track del disco. Rust actualiza también todos los
    * `playlists/*.json` que lo referencian; acá actualizamos el estado en
-   * memoria (tracks + playlists del space activo) y limpiamos el player si
-   * el track activo era el borrado.
+   * memoria (tracks, playlists, reproducciones y puntaje) y limpiamos el player si el
+   * track activo era el borrado.
    */
   async deleteTrack(path: string): Promise<void> {
     try {
@@ -988,6 +1218,8 @@ export class MusicStore {
     }
     this.history = this.history.filter((p) => p !== path);
     this.playedBag.delete(path);
+    if (path in this.state.plays) this.setPlays(moveKey(this.state.plays, path));
+    if (path in this.state.ratings) this.setRatings(moveKey(this.state.ratings, path));
     this.set({
       tracks: this.state.tracks.filter((t) => t.path !== path),
       playlists: this.state.playlists.map((p) =>
@@ -1002,7 +1234,8 @@ export class MusicStore {
    * Renombra el archivo del track manteniendo su extensión y subcarpeta. Rust
    * actualiza los `playlists/*.json` y devuelve la nueva ruta relativa.
    * Reescaneamos para que `tracks` refleje el nuevo nombre + tags, y mapeamos
-   * el path viejo → nuevo en las playlists del space activo y en el player.
+   * el path viejo → nuevo en las playlists, las reproducciones, el puntaje y
+   * el player.
    */
   async renameTrack(path: string, newName: string): Promise<void> {
     let newPath: string;
@@ -1018,6 +1251,10 @@ export class MusicStore {
     }
     this.history = this.history.map((p) => (p === path ? newPath : p));
     if (this.playedBag.delete(path)) this.playedBag.add(newPath);
+    if (path in this.state.plays) this.setPlays(moveKey(this.state.plays, path, newPath));
+    if (path in this.state.ratings) {
+      this.setRatings(moveKey(this.state.ratings, path, newPath));
+    }
     this.set({
       playlists: this.state.playlists.map((p) =>
         p.trackPaths.includes(path)
@@ -1048,12 +1285,9 @@ export class MusicStore {
       completedCount: null,
       error: null,
     });
-    // Refrescar las playlists de los demás spaces (selector de destinos).
-    void this.refreshOtherSpaces();
     try {
       const status = await downloader.toolsStatus();
       this.setDownload({
-        toolsReady: status.ready,
         toolsMissing: { ytDlp: !status.ytDlp, ffmpeg: !status.ffmpeg },
         step: status.ready ? "input" : "needsSetup",
       });
@@ -1088,8 +1322,13 @@ export class MusicStore {
   }
 
   closeDownload(): void {
-    // No cancela una descarga en curso (v1): el proceso yt-dlp sigue en background
-    // hasta terminar; las canciones igual quedan agregadas al hacer el próximo scan.
+    // Cerrar con una descarga en curso la cancela: el backend mata yt-dlp y la
+    // promesa de `runDownload` rechaza. El bump de `downloadSeq` hace que ese
+    // rechazo se ignore en vez de mostrarse como error.
+    if (this.state.download.step === "downloading") {
+      ++this.downloadSeq;
+      void downloader.cancelDownload().catch(() => {});
+    }
     this.setDownload({
       open: false,
       step: "idle",
@@ -1132,7 +1371,6 @@ export class MusicStore {
       });
       const status = await downloader.toolsStatus();
       this.setDownload({
-        toolsReady: status.ready,
         step: status.ready ? "input" : "error",
         error: status.ready ? null : "No se pudieron instalar los binarios.",
         setup: null,
@@ -1162,34 +1400,11 @@ export class MusicStore {
     }
   }
 
-  /**
-   * Agrega paths a una playlist de CUALQUIER space (destinos de la descarga).
-   * Para el space activo delega en `addToPlaylist`; para otros escribe el
-   * archivo de la playlist y refleja el cambio en `otherSpaces`.
-   */
-  private async addToPlaylistAnywhere(id: string, paths: string[]): Promise<void> {
-    if (this.state.playlists.some((p) => p.id === id)) {
-      await this.addToPlaylist(id, paths);
-      return;
-    }
-    let updated: Playlist | undefined;
-    this.set({
-      otherSpaces: this.state.otherSpaces.map((g) => ({
-        ...g,
-        playlists: g.playlists.map((p) => {
-          if (p.id !== id) return p;
-          updated = { ...p, trackPaths: [...new Set([...p.trackPaths, ...paths])] };
-          return updated;
-        }),
-      })),
-    });
-    if (updated) await this.persistPlaylist(updated);
-  }
-
   async runDownload(): Promise<void> {
     const { url, customName, embedThumbnail, probe, targetPlaylistIds, step } =
       this.state.download;
     if (!probe || !url.trim() || step !== "preview") return;
+    const seq = ++this.downloadSeq;
     this.setDownload({
       step: "downloading",
       progress: {
@@ -1213,6 +1428,8 @@ export class MusicStore {
           embedThumbnail,
         },
         (p) => {
+          // Progreso rezagado de una descarga cancelada: no pisa a la siguiente.
+          if (seq !== this.downloadSeq) return;
           const cur = this.state.download.progress;
           if (!cur) return;
           if (p.phase === "item") {
@@ -1258,10 +1475,13 @@ export class MusicStore {
       );
       // Reescaneo para que los nuevos MP3 entren a `tracks` con metadata.
       await this.scan();
-      // Auto-agregar a las playlists elegidas, del space que sean (deduplica).
+      // Auto-agregar a las playlists elegidas (deduplica).
       for (const id of targetPlaylistIds) {
-        await this.addToPlaylistAnywhere(id, relPaths);
+        await this.addToPlaylist(id, relPaths);
       }
+      // Si el diálogo se cerró justo cuando terminaba, no hay form que limpiar
+      // (los archivos ya están: por eso el scan y las playlists van igual).
+      if (seq !== this.downloadSeq) return;
       // Volver al form limpio con el banner de éxito: listo para otro link.
       this.setDownload({
         step: "input",
@@ -1273,6 +1493,8 @@ export class MusicStore {
         completedCount: relPaths.length,
       });
     } catch (e) {
+      // Cancelada desde `closeDownload`: el rechazo es el esperado, no un error.
+      if (seq !== this.downloadSeq) return;
       // El preview queda intacto para poder reintentar con "Descargar".
       this.setDownload({ step: "preview", error: messageOf(e), progress: null });
     }
@@ -1311,6 +1533,7 @@ export class MusicStore {
       void this.next();
       return;
     }
+    this.maybeCountPlay(pos);
     this.set({ positionSec: pos });
   }
 
@@ -1341,6 +1564,7 @@ export class MusicStore {
       void this.next();
       return;
     }
+    this.maybeCountPlay(st.positionSec);
     const patch: Partial<MusicState> = { positionSec: st.positionSec };
     // La duración decodificada le gana a la de los tags para la barra de seek.
     if (st.durationSec > 0 && Math.abs(st.durationSec - this.state.durationSec) > 1) {
@@ -1355,6 +1579,8 @@ export class MusicStore {
    * `seek` solo dejaría el track quieto en el segundo 0.
    */
   private async seekAndResume(sec: number): Promise<void> {
+    // Volver a empezar por el repeat es otra escucha.
+    this.counted = false;
     await this.seek(sec);
     if (!this.state.playing) return;
     await library.resume().catch(() => {});

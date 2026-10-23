@@ -18,6 +18,11 @@
 //! parsear el output humano `[ExtractAudio] Destination:` que cambia entre
 //! versiones.
 //!
+//! Intermedios (`.part`, `.webm`, audio sin convertir) van a `<AppData>/tmp/`
+//! vía `-P temp:`; a `songs/` solo llega el `.mp3` final (ver `tmp_dir`).
+//! Cancelación: el `Child` de yt-dlp vive en `DOWNLOAD_CHILD` mientras corre y
+//! `music_download_cancel` lo mata desde otro comando.
+//!
 //! **Cross-platform (Windows / Linux / macOS).** Resolución de binarios
 //! asimétrica a propósito:
 //!  - **ffmpeg/ffprobe**: primero el `PATH` del sistema (lo normal en
@@ -39,13 +44,16 @@
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
+
+use crate::paths::{bin_dir, sanitize_filename, songs_dir, tmp_dir};
+use crate::tools::{prepare_child, resolve_own, resolve_tool, FFMPEG_BIN, FFPROBE_BIN, YTDLP_BIN};
 
 // ── Constantes de plataforma ──────────────────────────────────────────────────
 //
@@ -54,20 +62,6 @@ use tauri::{AppHandle, Manager};
 //   - yt-dlp: binario único por plataforma (Releases de yt-dlp/yt-dlp).
 //   - ffmpeg: Windows = zip de BtbN; Linux = tar.xz estático de John Van
 //     Sickle; macOS = zips por binario de evermeet.cx.
-
-#[cfg(windows)]
-const YTDLP_BIN: &str = "yt-dlp.exe";
-#[cfg(windows)]
-const FFMPEG_BIN: &str = "ffmpeg.exe";
-#[cfg(windows)]
-const FFPROBE_BIN: &str = "ffprobe.exe";
-
-#[cfg(not(windows))]
-const YTDLP_BIN: &str = "yt-dlp";
-#[cfg(not(windows))]
-const FFMPEG_BIN: &str = "ffmpeg";
-#[cfg(not(windows))]
-const FFPROBE_BIN: &str = "ffprobe";
 
 #[cfg(windows)]
 const YTDLP_URL: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
@@ -99,47 +93,7 @@ const YTDLP_LATEST_URL: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest
 /// semanas. De todas formas el auto-reintento cubre el hueco entre chequeos.
 const CHECK_INTERVAL_SECS: u64 = 7 * 24 * 60 * 60;
 
-// ── Helpers de rutas ──────────────────────────────────────────────────────────
-
-/// `<AppData>/Quarks/bin/`. Device-local (no sincroniza con Drive: el motor
-/// solo espeja `settings.json` + `spaces/` + `packages/`).
-fn bin_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("bin");
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir)
-}
-
-/// Mini-`which`: busca `name` en el `PATH` del sistema. Solo lo usamos para
-/// ffmpeg (ver el porqué de la asimetría en el doc del módulo).
-fn which_in_path(name: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path) {
-        let candidate = dir.join(name);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-    }
-    None
-}
-
-/// Resuelve un binario de música: primero en el `PATH` del sistema, luego en
-/// `<AppData>/Quarks/bin/` (donde lo deja el auto-download). `None` = no está.
-fn resolve_tool(app: &AppHandle, bin_name: &str) -> Option<PathBuf> {
-    if let Some(p) = which_in_path(bin_name) {
-        return Some(p);
-    }
-    resolve_own(app, bin_name)
-}
-
-/// Resuelve SOLO en el bin propio, sin mirar el `PATH`.
-fn resolve_own(app: &AppHandle, bin_name: &str) -> Option<PathBuf> {
-    let local = bin_dir(app).ok()?.join(bin_name);
-    local.exists().then_some(local)
-}
+// ── Resolución de binarios ────────────────────────────────────────────────────
 
 /// yt-dlp sale siempre del bin propio: es el único binario que podemos (y
 /// necesitamos) mantener actualizado. Ver doc del módulo.
@@ -149,72 +103,6 @@ fn resolve_ytdlp(app: &AppHandle) -> Option<PathBuf> {
 
 fn resolve_ffmpeg(app: &AppHandle) -> Option<PathBuf> {
     resolve_tool(app, FFMPEG_BIN)
-}
-
-/// Carpeta fija de canciones (espejo de `music::songs_dir`, copiada acá para
-/// evitar exponer un helper crate-internal). Vive en el árbol gestionado del
-/// core, así que sincroniza.
-fn songs_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("packages")
-        .join("music")
-        .join("songs");
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir)
-}
-
-/// Esconde la ventana de consola al spawnear procesos hijos en Windows.
-#[cfg(windows)]
-fn hide_console(cmd: &mut Command) {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    cmd.creation_flags(CREATE_NO_WINDOW);
-}
-#[cfg(not(windows))]
-fn hide_console(_: &mut Command) {}
-
-/// Limpia del entorno del proceso hijo las variables que inyecta el `AppRun` de
-/// la AppImage (`PYTHONHOME`, `PYTHONPATH`, `LD_LIBRARY_PATH`, etc.), que apuntan
-/// al mount `/tmp/.mount_…`. Sin esto, al spawnear `/usr/bin/yt-dlp` (un script
-/// `#!/usr/bin/python`) el Python del sistema hereda un `PYTHONHOME` inválido, no
-/// encuentra su stdlib y crashea con `<no Python frame>`. yt-dlp y ffmpeg deben
-/// correr con el entorno del sistema, no con el de la AppImage. No-op fuera de la
-/// AppImage (las vars no existen).
-fn clean_child_env(cmd: &mut Command) {
-    const APPIMAGE_VARS: &[&str] = &[
-        "PYTHONHOME",
-        "PYTHONPATH",
-        "LD_LIBRARY_PATH",
-        "LD_PRELOAD",
-        "GTK_PATH",
-        "GST_PLUGIN_SYSTEM_PATH",
-        "GST_PLUGIN_PATH",
-        "QT_PLUGIN_PATH",
-        "GDK_PIXBUF_MODULE_FILE",
-        "GDK_PIXBUF_MODULEDIR",
-        "GI_TYPELIB_PATH",
-        "GSETTINGS_SCHEMA_DIR",
-        "PERLLIB",
-    ];
-    for var in APPIMAGE_VARS {
-        cmd.env_remove(var);
-    }
-}
-
-/// Sanitiza un nombre de archivo (solo el stem, sin extensión). Quita los
-/// caracteres prohibidos por Windows y trims de espacios/puntos al final.
-fn sanitize_filename(name: &str) -> String {
-    let cleaned: String = name
-        .chars()
-        .map(|c| match c {
-            '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-            _ => c,
-        })
-        .collect();
-    cleaned.trim().trim_end_matches('.').to_string()
 }
 
 // ── HTTP: descarga a archivo con progreso ──────────────────────────────────────
@@ -492,8 +380,7 @@ fn now_secs() -> u64 {
 fn local_ytdlp_version(yt: &Path) -> Option<String> {
     let mut cmd = Command::new(yt);
     cmd.arg("--version");
-    hide_console(&mut cmd);
-    clean_child_env(&mut cmd);
+    prepare_child(&mut cmd);
     let out = cmd.output().ok()?;
     if !out.status.success() {
         return None;
@@ -552,11 +439,7 @@ pub enum UpdateProgress {
 /// Nunca falla por red: sin conexión devuelve `UpToDate` sin guardar timestamp,
 /// para reintentar en la próxima apertura.
 #[tauri::command(async)]
-pub fn music_tools_check_update(
-    app: AppHandle,
-    force: bool,
-    on: Channel<UpdateProgress>,
-) -> Result<(), String> {
+pub fn music_tools_check_update(app: AppHandle, on: Channel<UpdateProgress>) -> Result<(), String> {
     let bin = bin_dir(&app)?;
     let yt = bin.join(YTDLP_BIN);
     if !yt.exists() {
@@ -567,12 +450,10 @@ pub fn music_tools_check_update(
 
     let mut meta = read_meta(&bin);
     let now = now_secs();
-    if !force {
-        if let Some(last) = meta.last_check_secs {
-            if now.saturating_sub(last) < CHECK_INTERVAL_SECS {
-                let _ = on.send(UpdateProgress::UpToDate);
-                return Ok(());
-            }
+    if let Some(last) = meta.last_check_secs {
+        if now.saturating_sub(last) < CHECK_INTERVAL_SECS {
+            let _ = on.send(UpdateProgress::UpToDate);
+            return Ok(());
         }
     }
 
@@ -683,8 +564,7 @@ pub fn music_probe_url(app: AppHandle, url: String) -> Result<ProbeResult, Strin
         "--no-call-home",
         url,
     ]);
-    hide_console(&mut cmd);
-    clean_child_env(&mut cmd);
+    prepare_child(&mut cmd);
 
     let output = cmd.output().map_err(|e| e.to_string())?;
     if !output.status.success() {
@@ -764,6 +644,37 @@ fn pick_thumbnail(v: &serde_json::Value) -> Option<String> {
 }
 
 // ── Download ───────────────────────────────────────────────────────────────────
+
+/// Proceso yt-dlp en curso, para que `music_download_cancel` pueda matarlo.
+/// Un `static` y no estado de Tauri: hay a lo sumo UNA descarga a la vez (el
+/// diálogo bloquea la UI mientras baja) y ffmpeg lo spawnea yt-dlp, no
+/// nosotros, así que un único slot alcanza. `None` = no hay descarga.
+static DOWNLOAD_CHILD: Mutex<Option<Child>> = Mutex::new(None);
+
+/// Mensaje con el que termina `music_download` cuando lo cortó
+/// `music_download_cancel`. El frontend lo compara para mostrarlo como aviso.
+const CANCELLED: &str = "Descarga cancelada.";
+
+/// Acceso al slot del proceso. Si un thread paniqueó con el lock tomado, el
+/// `Option` adentro sigue siendo válido: lo recuperamos en vez de propagar.
+fn download_child() -> std::sync::MutexGuard<'static, Option<Child>> {
+    DOWNLOAD_CHILD.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Corta la descarga en curso: saca el yt-dlp del slot, lo mata y lo espera.
+/// No-op si no hay ninguna. `music_download` termina entonces con
+/// `Err(CANCELLED)`. Los intermedios quedan en `tmp/`, nada entra a `songs/`.
+/// Si ffmpeg estaba convirtiendo (hijo de yt-dlp) queda huérfano hasta cerrar
+/// su archivo — también en `tmp/`, así que no molesta.
+#[tauri::command(async)]
+pub fn music_download_cancel() -> Result<(), String> {
+    if let Some(mut child) = download_child().take() {
+        // `kill` falla si el proceso ya terminó solo: no es error.
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    Ok(())
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -845,11 +756,15 @@ pub fn music_download(
         .map(Path::to_path_buf)
         .unwrap_or_else(|| bin_dir(&app).unwrap_or_default());
     let songs = songs_dir(&app)?;
+    let tmp = tmp_dir(&app)?;
     if opts.url.trim().is_empty() {
         return Err("URL vacía.".into());
     }
 
-    // Plantilla de salida: archivo directo en songs_dir.
+    // Plantilla de salida RELATIVA (solo el nombre): la carpeta destino va por
+    // `-P home:` y los intermedios por `-P temp:` (ver `run_ytdlp_download`).
+    // Tiene que ser relativa: si `-o` es absoluto, yt-dlp ignora `--paths` y
+    // los intermedios volverían a caer en `songs/`.
     // Para video único con nombre custom, fijamos el stem; si no, %(title)s.
     let output_template = if !opts.is_playlist {
         let stem = opts
@@ -859,16 +774,17 @@ pub fn music_download(
             .filter(|s| !s.is_empty())
             .map(sanitize_filename);
         match stem {
-            Some(s) if !s.is_empty() => format!("{}/{}.%(ext)s", songs.to_string_lossy(), s),
-            _ => format!("{}/%(title)s.%(ext)s", songs.to_string_lossy()),
+            Some(s) if !s.is_empty() => format!("{s}.%(ext)s"),
+            _ => "%(title)s.%(ext)s".to_string(),
         }
     } else {
-        format!("{}/%(title)s.%(ext)s", songs.to_string_lossy())
+        "%(title)s.%(ext)s".to_string()
     };
 
     // Primer intento. Si falla por binario viejo, actualizamos y reintentamos
     // una sola vez — ver `is_stale_binary_failure`.
-    let mut outcome = run_ytdlp_download(&yt, &ffmpeg_dir, &songs, &output_template, &opts, &on)?;
+    let mut outcome =
+        run_ytdlp_download(&yt, &ffmpeg_dir, &songs, &tmp, &output_template, &opts, &on)?;
 
     if !outcome.success && outcome.rel_paths.is_empty() && is_stale_binary_failure(&outcome.stderr) {
         let on_clone = on.clone();
@@ -881,8 +797,15 @@ pub fn music_download(
             // sigue siendo válida. Si el reintento vuelve a fallar, cae al
             // manejo de error de abajo con el stderr NUEVO (más informativo:
             // ya no es "estás viejo").
-            outcome =
-                run_ytdlp_download(&yt, &ffmpeg_dir, &songs, &output_template, &opts, &on)?;
+            outcome = run_ytdlp_download(
+                &yt,
+                &ffmpeg_dir,
+                &songs,
+                &tmp,
+                &output_template,
+                &opts,
+                &on,
+            )?;
         }
         // Si no pudimos actualizar (sin red, disco lleno), seguimos con el
         // `outcome` original y reportamos el error de descarga real.
@@ -907,11 +830,13 @@ pub fn music_download(
 
 /// Corre yt-dlp una vez y parsea su salida en vivo hacia el `Channel`. No
 /// interpreta el fallo: devuelve el crudo en `RunOutcome` para que el llamador
-/// decida si reintenta. `Err` acá es solo "no pudimos ni spawnear el proceso".
+/// decida si reintenta. `Err` acá es "no pudimos ni spawnear el proceso" o
+/// "lo mató `music_download_cancel`" (`CANCELLED`).
 fn run_ytdlp_download(
     yt: &Path,
     ffmpeg_dir: &Path,
     songs: &Path,
+    tmp: &Path,
     output_template: &str,
     opts: &DownloadOpts,
     on: &Channel<DownloadProgress>,
@@ -926,6 +851,11 @@ fn run_ytdlp_download(
         "--ffmpeg-location",
     ])
     .arg(ffmpeg_dir)
+    // `home` = destino final; `temp` = intermedios (`.part`, `.webm`, audio sin
+    // convertir, thumbnail). yt-dlp baja y postprocesa todo en `temp` y recién
+    // mueve el `.mp3` terminado a `home`; `after_move` dispara después de eso.
+    .args(["-P", &format!("home:{}", songs.to_string_lossy())])
+    .args(["-P", &format!("temp:{}", tmp.to_string_lossy())])
     .args(["-o", output_template])
     .args([
         "--newline",
@@ -988,8 +918,7 @@ fn run_ytdlp_download(
 
     cmd.arg(&opts.url);
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-    hide_console(&mut cmd);
-    clean_child_env(&mut cmd);
+    prepare_child(&mut cmd);
 
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
     let stdout = child
@@ -1000,6 +929,9 @@ fn run_ytdlp_download(
         .stderr
         .take()
         .ok_or_else(|| "no se pudo capturar stderr".to_string())?;
+    // Publicamos el child para que `music_download_cancel` pueda matarlo. Los
+    // pipes ya los tomamos, así que seguimos leyéndolos aunque lo saquen de acá.
+    *download_child() = Some(child);
 
     // Drena stderr en un thread para no bloquear el pipe.
     let stderr_buf: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
@@ -1060,8 +992,15 @@ fn run_ytdlp_download(
         }
     }
 
-    let status = child.wait().map_err(|e| e.to_string())?;
+    // Sacamos el child del slot para esperarlo. Si ya no está, fue
+    // `music_download_cancel` quien lo mató (y lo esperó): cortamos con el
+    // mensaje de cancelación en vez de reportar el exit code de un kill.
+    let child = download_child().take();
     let _ = stderr_thread.join();
+    let Some(mut child) = child else {
+        return Err(CANCELLED.to_string());
+    };
+    let status = child.wait().map_err(|e| e.to_string())?;
 
     Ok(RunOutcome {
         rel_paths,

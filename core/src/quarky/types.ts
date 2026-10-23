@@ -3,8 +3,8 @@
  *
  * Formato de mensajes y tool calls = formato OpenAI chat completions. OpenRouter
  * es OpenAI-compatible al 100 %, así que reusamos el mismo shape para no traducir
- * en el wire. Cada conversación pertenece a un Space (§5) y vive en
- * `quarky/chats/<spaceId>/<id>.json`. Ver `.claude/knowledge/StorageLayout.md`.
+ * en el wire. Cada conversación vive en `quarky/chats/<id>.json`. Ver
+ * `.claude/knowledge/StorageLayout.md`.
  */
 
 /** Roles del wire format OpenAI. `tool` carga el resultado de una tool_call previa. */
@@ -61,6 +61,8 @@ export interface Message {
   toolCallId?: string;
   /** Solo en role:tool: nombre de la tool que se ejecutó. */
   name?: string;
+  /** Solo en role:tool: la tool falló o no se ejecutó. Para la UI; no se manda al modelo. */
+  isError?: boolean;
   /** Solo en role:assistant si el provider reportó usage en la respuesta. */
   usage?: TokenUsage;
   /** Epoch ms; útil para UI y ordenamiento, no se manda al modelo. */
@@ -70,10 +72,8 @@ export interface Message {
 /** Conversación: encabezado + histórico. Se persiste íntegra cada vez que cambia. */
 export interface Conversation {
   id: string;
-  /** Título corto para la lista; auto-renombrado tras la primera respuesta (M6). */
+  /** Título corto para la lista; auto-renombrado tras la primera respuesta. */
   title: string;
-  /** Space al que pertenece. La conversación vive en `quarky/chats/<spaceId>/`. */
-  spaceId: string;
   /** Modo activo. Default viene de QuarkyConfig.modeDefault al crearse. */
   mode: Mode;
   /**
@@ -119,7 +119,7 @@ export interface QuarkyConfig {
    * (solo data de quarks). `undefined` = usar el default.
    */
   workspaceRoot?: string;
-  /** Tope de hops en el agent loop (M3+). */
+  /** Tope de hops en el agent loop. */
   maxHops: number;
   /** Modo con el que arrancan las conversaciones nuevas. */
   modeDefault: Mode;
@@ -140,7 +140,7 @@ export interface QuarkyConfig {
    */
   autoExtractMemory: boolean;
   /**
-   * Modelo de OpenRouter usado para auto-extracción y consolidación (M3/M4).
+   * Modelo de OpenRouter usado para la auto-extracción de memoria.
    * Debe ser barato/gratis — los `:free` de OpenRouter funcionan bien para esta
    * tarea (extraer JSON desde diálogo es liviano). El modelo principal de chat
    * (`model`) es independiente de este.
@@ -155,8 +155,8 @@ export const DEFAULT_CONFIG: QuarkyConfig = {
   maxHops: 8,
   modeDefault: "ask",
   autoRename: true,
-  // Opt-in: si está apagado, no se carga el modelo de embeddings y la memoria
-  // se comporta exactamente como en M1 (todo inyectado siempre).
+  // Opt-in: si está apagado, no se carga el modelo de embeddings y se inyecta
+  // toda la memoria en cada turno.
   ragEnabled: false,
   // Opt-in también. Cuando se active, requiere `extractorModel` configurado.
   autoExtractMemory: false,

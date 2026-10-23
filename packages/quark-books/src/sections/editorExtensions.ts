@@ -8,10 +8,12 @@
  *
  * La paginación NO es una extensión: el editor es una hoja continua y las
  * divisiones de página se dibujan como guías visuales decorativas (ver
- * `RichEditor`), sin meterse en el documento. El corte real de páginas lo hace
- * el export a PDF.
+ * `RichEditor` y `util/pageGeometry`), sin meterse en el documento. El corte
+ * real de páginas lo hace el export a PDF.
  */
 import { Extension } from "@tiptap/core";
+import { Slice } from "@tiptap/pm/model";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "@tiptap/markdown";
 import SearchAndReplace from "@sereneinserenade/tiptap-search-and-replace";
@@ -19,25 +21,6 @@ import { PageBreaks } from "./pageBreaksExtension";
 
 /** Clase CSS de los matches de búsqueda (el match activo agrega `-current`). */
 export const SEARCH_RESULT_CLASS = "q-books-search";
-
-/**
- * Geometría de la hoja tipo libro de novela (trade paperback 6×9" a 96dpi). La
- * usa `RichEditor` para las guías de página y el contador, y se inyecta como CSS
- * vars en la hoja. Una sola fuente de verdad.
- */
-export const BOOK_PAGE = {
-  /** Ancho de la hoja (px). */
-  width: 576,
-  /** Margen lateral (px). */
-  marginX: 64,
-  /** Margen superior/inferior (px). */
-  marginY: 64,
-  /** Alto de TEXTO por página (px). Calibrado para ~270 palabras por página con la
-   *  tipografía por defecto (≈ libro real 6×9"): el área de texto anterior
-   *  (432×704) daba ~239 palabras; ésta (448×780) da ~275. Es la base de los
-   *  cortes y del contador de páginas. */
-  contentHeight: 780,
-} as const;
 
 /**
  * Atajos del editor: Alt+Q → negrita, Alt+E → cursiva. Binding cross-platform
@@ -51,6 +34,54 @@ const BookShortcuts = Extension.create({
       "Alt-q": () => this.editor.commands.toggleBold(),
       "Alt-e": () => this.editor.commands.toggleItalic(),
     };
+  },
+});
+
+/**
+ * Pegado como MARKDOWN. Tomamos siempre el texto plano del portapapeles y lo
+ * parseamos con el mismo parser que lee los `.md` del disco, ignorando el HTML
+ * que agregan otras apps. Dos motivos:
+ *   - VS Code (y otros editores de texto) copian cada línea como un `<div>` y
+ *     cada línea vacía como un `<br>`; ProseMirror convertía cada `<br>` suelto
+ *     en un párrafo vacío, y pegar un capítulo dejaba un "doble enter" entre
+ *     todos los párrafos.
+ *   - El markdown es la fuente de verdad: pegar `***`, `**negrita**` o `# Título`
+ *     tiene que dar lo mismo que abrir ese texto desde el archivo.
+ * Excepciones, que van por el pegado nativo: copiar/pegar DENTRO del editor
+ * (ProseMirror marca su HTML con `data-pm-slice` y conserva el formato exacto) y
+ * pegar dentro de un bloque de código (texto literal).
+ */
+const MarkdownPaste = Extension.create({
+  name: "markdownPaste",
+  addProseMirrorPlugins() {
+    const { editor } = this;
+    return [
+      new Plugin({
+        key: new PluginKey("markdownPaste"),
+        props: {
+          handlePaste(view, event) {
+            const data = event.clipboardData;
+            if (!data) return false;
+            const text = data.getData("text/plain");
+            if (!text.trim()) return false;
+            if (data.getData("text/html").includes("data-pm-slice")) return false;
+            if (view.state.selection.$from.parent.type.spec.code) return false;
+            const markdown = editor.markdown;
+            if (!markdown) return false;
+
+            const doc = view.state.schema.nodeFromJSON(markdown.parse(text));
+            // Slice abierto por ambos lados, como el pegado nativo de HTML: el
+            // primer párrafo se funde con el párrafo donde está el cursor y el
+            // último con lo que sigue. Pegar en una hoja vacía no deja párrafos
+            // vacíos de más.
+            const slice = Slice.maxOpen(doc.content);
+            const tr = view.state.tr.replaceSelection(slice).scrollIntoView();
+            view.dispatch(tr.setMeta("paste", true).setMeta("uiEvent", "paste"));
+            return true;
+          },
+        },
+      }),
+    ];
   },
 });
 
@@ -69,6 +100,7 @@ export function buildExtensions() {
       disableRegex: false,
     }),
     PageBreaks,
+    MarkdownPaste,
     BookShortcuts,
   ];
 }

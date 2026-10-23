@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { Icon, TextInput } from "@quarks/core";
+import { Icon, TextInput, useStoreState, UNTITLED, ConfirmDialog } from "@quarks/core";
 import type { NotesStore } from "../store";
-import { useNotesState } from "../hooks/useNotesStore";
 import type { NoteIndex } from "../types";
 import { colorAccent, colorTint, formatRelativeDate } from "../util";
 
@@ -15,12 +14,12 @@ export interface NotesSidebarProps {
 }
 
 /**
- * Sidebar de Notas: barra de búsqueda (cuando está activa) + lista de notas
- * del space activo. Las notas ya están particionadas por space, no hay otra
- * subdivisión interna.
+ * Sidebar de Notas: barra de búsqueda (cuando está activa) + lista de notas.
  */
 export function NotesSidebar({ store, visibleNotes }: NotesSidebarProps) {
-  const { notes, activeNoteId, searchOpen, search } = useNotesState(store);
+  const { notes, activeNoteId, searchOpen, search } = useStoreState(store);
+  // Nota pendiente de confirmar borrado (diálogo in-app, reemplaza `window.confirm`).
+  const [pendingDelete, setPendingDelete] = useState<NoteIndex | null>(null);
 
   return (
     <div className="q-notes-sidebar">
@@ -53,13 +52,24 @@ export function NotesSidebar({ store, visibleNotes }: NotesSidebarProps) {
               note={n}
               active={n.id === activeNoteId}
               onSelect={() => void store.selectNote(n.id)}
-              onDelete={() => {
-                if (confirm(`¿Borrar "${n.title}"?`)) void store.deleteNote(n.id);
-              }}
+              onDelete={() => setPendingDelete(n)}
             />
           ))
         )}
       </div>
+      {pendingDelete && (
+        <ConfirmDialog
+          title="Borrar nota"
+          message={`¿Borrar "${pendingDelete.title}"? Esta acción no se puede deshacer.`}
+          confirmLabel="Borrar"
+          destructive
+          onConfirm={() => {
+            void store.deleteNote(pendingDelete.id);
+            setPendingDelete(null);
+          }}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
     </div>
   );
 }
@@ -152,7 +162,7 @@ function NoteListItem({ note, active, onSelect, onDelete }: NoteListItemProps) {
       <div className="q-notes-list-item-body">
         <div className="q-notes-list-item-head">
           <span className="q-notes-list-item-title">
-            {note.title || "Sin título"}
+            {note.title || UNTITLED}
           </span>
           <span className="q-notes-list-item-date">
             {formatRelativeDate(note.updatedAt)}

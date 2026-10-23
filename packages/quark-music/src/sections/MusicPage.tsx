@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { TextInput, Button, Icon, useActiveSpace, isAndroid } from "@quarks/core";
-import type { MusicStore, SpacePlaylists } from "../store";
-import { resolveQueue, filterTracks } from "../store";
-import { useMusicState } from "../hooks/useMusicStore";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { TextInput, Button, Icon, IconButton, isAndroid, useStoreState } from "@quarks/core";
+import type { Track } from "../types";
+import type { MusicStore } from "../store";
+import { resolveQueue, filterTracks, groupPlaylists } from "../store";
 import { TrackList } from "./TrackList";
 import { TrackPanel } from "./TrackPanel";
 import { Player } from "./Player";
@@ -16,17 +16,20 @@ export interface MusicPageProps {
 
 /** Pantalla única del music quark: search drawer + lista + panel + player. */
 export function MusicPage({ store }: MusicPageProps) {
-  const state = useMusicState(store);
-  const space = useActiveSpace();
+  const state = useStoreState(store);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
 
-  // El space activo (core) particiona las playlists: cargalas al montar y al
-  // cambiar de space. Tracks/carpeta son globales y los carga `initialize()`.
+  // El panel sigue al track que empieza a sonar (auto-avance, siguiente/anterior),
+  // igual que la lista scrollea hasta él. Si se detiene (`activePath` en null)
+  // queda la selección que había.
   useEffect(() => {
-    void store.setSpace(space.id);
-  }, [store, space.id]);
+    if (state.activePath) setSelectedPath(state.activePath);
+  }, [state.activePath]);
 
-  const queue = useMemo(() => resolveQueue(state), [state.view, state.tracks, state.playlists]);
+  const queue = useMemo(
+    () => resolveQueue(state),
+    [state.view, state.category, state.tracks, state.playlists, state.sort, state.ratings],
+  );
   const visible = useMemo(() => filterTracks(queue, state.search), [queue, state.search]);
 
   const activeTrack = useMemo(
@@ -38,14 +41,47 @@ export function MusicPage({ store }: MusicPageProps) {
     [state.tracks, selectedPath, activeTrack],
   );
 
-  // Playlists de TODOS los spaces para el trackpanel: el activo primero (desde
-  // el estado vivo del store), después el resto (cargado por refreshOtherSpaces).
-  const spaceGroups = useMemo<SpacePlaylists[]>(
-    () => [
-      { spaceId: space.id, spaceName: space.name, color: space.color, playlists: state.playlists },
-      ...state.otherSpaces,
-    ],
-    [space.id, space.name, space.color, state.playlists, state.otherSpaces],
+  // Playlists agrupadas por categoría, para los chips del trackpanel y de la descarga.
+  const groups = useMemo(
+    () => groupPlaylists(state.playlists, state.categories),
+    [state.playlists, state.categories],
+  );
+
+  // Callbacks estables para que el `memo` de TrackList/TrackPanel corte los
+  // re-renders del tick (la página se renderiza cada 250 ms mientras suena).
+  // `store` y `setSelectedPath` son estables; los que usan el track
+  // seleccionado cambian solo con él (y el panel se re-renderiza igual ahí).
+  const onPlay = useCallback((p: string) => void store.play(p), [store]);
+  const onEdit = useCallback((t: Track) => void store.openTrim(t), [store]);
+  const onRate = useCallback(
+    (score: number | null) => {
+      if (selectedTrack) store.setRating(selectedTrack.path, score);
+    },
+    [store, selectedTrack],
+  );
+  const onToggleInPlaylist = useCallback(
+    (id: string, isIn: boolean) => {
+      if (!selectedTrack) return;
+      void store.toggleInPlaylist(id, selectedTrack.path, isIn);
+    },
+    [store, selectedTrack],
+  );
+  const onRename = useCallback(
+    async (path: string, name: string) => {
+      await store.renameTrack(path, name);
+      // El path puede haber cambiado: limpiar selección para que el panel
+      // muestre el track renombrado (lo encuentra por activePath o por
+      // la nueva selección del usuario).
+      setSelectedPath(null);
+    },
+    [store],
+  );
+  const onDelete = useCallback(
+    async (path: string) => {
+      await store.deleteTrack(path);
+      setSelectedPath(null);
+    },
+    [store],
   );
 
   // ── Biblioteca vacía / escaneando: estado a pantalla completa ──
@@ -54,7 +90,7 @@ export function MusicPage({ store }: MusicPageProps) {
     if (state.status === "scanning") {
       return (
         <>
-          <DownloadDialog store={store} spaceGroups={spaceGroups} />
+          <DownloadDialog store={store} groups={groups} />
           <ManagePlaylists store={store} />
           <Centered>
             <Icon name="sync" size={40} color="var(--q-text-light)" />
@@ -67,7 +103,7 @@ export function MusicPage({ store }: MusicPageProps) {
     }
     return (
       <>
-        <DownloadDialog store={store} spaceGroups={spaceGroups} />
+        <DownloadDialog store={store} groups={groups} />
         <ManagePlaylists store={store} />
         <Centered>
           <Icon name="folder_open" size={48} color="var(--q-text-light)" />
@@ -109,7 +145,7 @@ export function MusicPage({ store }: MusicPageProps) {
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100%", minHeight: 0, background: "var(--q-background)" }}>
-      <DownloadDialog store={store} spaceGroups={spaceGroups} />
+      <DownloadDialog store={store} groups={groups} />
       <ManagePlaylists store={store} />
       <TrimDialog store={store} />
       {state.searchOpen && (
@@ -127,10 +163,12 @@ export function MusicPage({ store }: MusicPageProps) {
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
         <TrackList
           tracks={visible}
+          ratings={state.ratings}
+          plays={state.plays}
           activePath={state.activePath}
           playing={state.playing}
           selectedPath={selectedPath}
-          onPlay={(p) => void store.play(p)}
+          onPlay={onPlay}
           onSelect={setSelectedPath}
           empty={emptyMsg}
         />
@@ -140,27 +178,39 @@ export function MusicPage({ store }: MusicPageProps) {
         {!isAndroid && (
           <TrackPanel
             track={selectedTrack}
-            spaceGroups={spaceGroups}
-            onPlay={(p) => void store.play(p)}
-            onEdit={(t) => void store.openTrim(t)}
-            onToggleInPlaylist={(spaceId, id, isIn) => {
-              if (!selectedTrack) return;
-              void store.toggleInPlaylist(spaceId, id, selectedTrack.path, isIn);
-            }}
-            onRename={async (path, name) => {
-              await store.renameTrack(path, name);
-              // El path puede haber cambiado: limpiar selección para que el panel
-              // muestre el track renombrado (lo encuentra por activePath o por
-              // la nueva selección del usuario).
-              setSelectedPath(null);
-            }}
-            onDelete={async (path) => {
-              await store.deleteTrack(path);
-              setSelectedPath(null);
-            }}
+            plays={selectedTrack ? (state.plays[selectedTrack.path] ?? 0) : 0}
+            rating={selectedTrack ? (state.ratings[selectedTrack.path] ?? null) : null}
+            onRate={onRate}
+            groups={groups}
+            onPlay={onPlay}
+            onEdit={onEdit}
+            onToggleInPlaylist={onToggleInPlaylist}
+            onRename={onRename}
+            onDelete={onDelete}
           />
         )}
       </div>
+
+      {/* Errores de reproducción / borrar / renombrar con biblioteca cargada
+          (la rama vacía de arriba tiene el suyo). Se cierra a mano. */}
+      {state.status === "error" && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "0 6px 0 14px",
+            borderTop: "1px solid var(--q-border-light)",
+            fontSize: 11,
+            color: "var(--q-error)",
+          }}
+        >
+          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {state.error}
+          </span>
+          <IconButton name="close" tooltip="Cerrar" size={13} onClick={() => store.dismissError()} />
+        </div>
+      )}
 
       <Player
         track={activeTrack}
@@ -168,13 +218,13 @@ export function MusicPage({ store }: MusicPageProps) {
         positionSec={state.positionSec}
         durationSec={state.durationSec}
         volume={state.volume}
-        shuffle={state.shuffle}
+        order={state.order}
         loop={state.loop}
         onTogglePlay={() => void store.togglePlay()}
         onNext={() => void store.next()}
         onPrev={() => void store.prev()}
         onSeek={(s) => void store.seek(s)}
-        onToggleShuffle={() => store.toggleShuffle()}
+        onSetOrder={(o) => store.setOrder(o)}
         onToggleLoop={() => store.toggleLoop()}
         onSetVolume={(v) => void store.setVolume(v)}
       />

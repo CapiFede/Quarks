@@ -55,6 +55,7 @@ import { generateTitle } from "../autoRename";
 import { compactConversation, shouldCompact } from "../compactor";
 import { extractAndStore } from "../memory/extractor";
 import type { ApprovalDecision, ApprovalRequest } from "../tools/types";
+import { UNTITLED } from "../../services/util";
 
 export type Status = "idle" | "loading" | "sending" | "error";
 
@@ -92,6 +93,8 @@ export interface QuarkyContextValue {
   clearMessages(id: string): Promise<void>;
   renameConversation(id: string, title: string): Promise<void>;
   sendMessage(content: string, images?: string[]): Promise<void>;
+  /** Frena el turno en curso: corta la request al modelo o la tool que esté corriendo. */
+  stop(): void;
   setMode(mode: Mode): Promise<void>;
   setModel(model: string): Promise<void>;
   /** Activa/desactiva la inyección del contexto del quark (p. ej. capítulo abierto) en la conversación activa. */
@@ -115,7 +118,6 @@ export interface QuarkyContextValue {
 const Context = createContext<QuarkyContextValue | null>(null);
 
 export interface QuarkyProviderProps {
-  activeSpaceId: string;
   /** Id del quark activo (tab abierto), o `null` si está en Home / Settings. */
   activeQuarkId: string | null;
   /**
@@ -132,7 +134,6 @@ export interface QuarkyProviderProps {
 }
 
 export function QuarkyProvider({
-  activeSpaceId,
   activeQuarkId,
   resolveAiContext,
   onOpenSettings,
@@ -150,6 +151,8 @@ export function QuarkyProvider({
   const [pendingApproval, setPendingApproval] = useState<ApprovalRequest | null>(null);
   /** Resolver del request actual; lo dispara `respondApproval`. */
   const approvalResolverRef = useRef<((d: ApprovalDecision) => void) | null>(null);
+  /** Controller del turno en curso; `stop()` lo aborta. */
+  const abortRef = useRef<AbortController | null>(null);
 
   /** Ref a la conversación activa para que `sendMessage` no dependa de `active`. */
   const activeRef = useRef<Conversation | null>(null);
@@ -163,28 +166,21 @@ export function QuarkyProvider({
     openTabsRef.current = openTabIds;
   }, [openTabIds]);
 
-  // Space activo en un ref: lo necesitan los persistidores de tabs sin depender
-  // de la identidad del callback.
-  const spaceRef = useRef(activeSpaceId);
-  useEffect(() => {
-    spaceRef.current = activeSpaceId;
-  }, [activeSpaceId]);
-
   // Config en un ref: permite que `createNew` lea el modelo/mode default actuales
   // sin recrearse en cada cambio de config (mantiene su identity estable para
-  // poder llamarlo desde efectos sin re-disparar la carga del space).
+  // poder llamarlo desde efectos sin re-disparar la carga inicial).
   const configRef = useRef(config);
   useEffect(() => {
     configRef.current = config;
   }, [config]);
 
   // Ref a `createNew` (definido más abajo) para poder invocarlo desde el efecto
-  // de carga del space sin TDZ. Se asigna en cada render más abajo.
+  // de carga inicial sin TDZ. Se asigna en cada render más abajo.
   const createNewRef = useRef<(() => Promise<void>) | null>(null);
 
-  /** Persiste el estado de tabs (open + active) del space actual. */
+  /** Persiste el estado de tabs (open + active). */
   const persistTabs = useCallback((openIds: string[], activeId: string | null) => {
-    void writeTabs(spaceRef.current, { openIds, activeId }).catch((e) =>
+    void writeTabs({ openIds, activeId }).catch((e) =>
       report("quarky.writeTabs", e),
     );
   }, []);
@@ -217,20 +213,14 @@ export function QuarkyProvider({
     void refreshApiKey();
   }, [refreshApiKey, panelOpen]);
 
-  // Cargar lista de conversaciones + restaurar tabs cada vez que cambia el space.
+  // Cargar lista de conversaciones + restaurar tabs al montar.
   useEffect(() => {
     let alive = true;
     setStatus("loading");
     setError(null);
-    // Cambio de space: nos olvidamos de la conversación/tabs activas (son de otro space).
-    setActive(null);
-    setOpenTabIds([]);
     void (async () => {
       try {
-        const [list, tabs] = await Promise.all([
-          listConversations(activeSpaceId),
-          readTabs(activeSpaceId),
-        ]);
+        const [list, tabs] = await Promise.all([listConversations(), readTabs()]);
         if (!alive) return;
         setConversations(list);
         // Solo conservamos tabs que sigan existiendo en disco (una conversación
@@ -240,7 +230,7 @@ export function QuarkyProvider({
         setOpenTabIds(openIds);
         openTabsRef.current = openIds;
         setStatus("idle");
-        // Siempre al menos una tab: si el space no tiene ninguna abierta, abrimos
+        // Siempre al menos una tab: si no hay ninguna abierta, abrimos
         // una nueva en blanco. Así el toolbar (toggle de contexto, modelo) y la
         // barra de tabs siempre tienen una conversación donde operar.
         if (openIds.length === 0) {
@@ -253,7 +243,7 @@ export function QuarkyProvider({
         const activeId =
           tabs.activeId && openIds.includes(tabs.activeId) ? tabs.activeId : null;
         if (activeId) {
-          const conv = await readConversation(activeSpaceId, activeId);
+          const conv = await readConversation(activeId);
           if (alive && conv) setActive(conv);
         }
         // Re-sincronizamos el archivo de tabs si quedó stale (filtramos fantasmas).
@@ -265,7 +255,7 @@ export function QuarkyProvider({
         }
       } catch (e) {
         if (!alive) return;
-        report("quarky.loadSpace", e);
+        report("quarky.load", e);
         setStatus("error");
         setError("No se pudieron cargar las conversaciones.");
       }
@@ -273,7 +263,7 @@ export function QuarkyProvider({
     return () => {
       alive = false;
     };
-  }, [activeSpaceId, persistTabs]);
+  }, [persistTabs]);
 
   // ── Acciones ───────────────────────────────────────────────────────────────
 
@@ -296,7 +286,7 @@ export function QuarkyProvider({
         return;
       }
       try {
-        const conv = await readConversation(activeSpaceId, id);
+        const conv = await readConversation(id);
         setActive(conv);
         // Seleccionar = abrir como tab si todavía no lo está (reabrir desde el
         // historial). Mantenemos el orden y solo agregamos al final.
@@ -310,7 +300,7 @@ export function QuarkyProvider({
         setActive(null);
       }
     },
-    [activeSpaceId, persistTabs],
+    [persistTabs],
   );
 
   const createNew = useCallback(async () => {
@@ -318,7 +308,7 @@ export function QuarkyProvider({
     // default de config). Lee de refs para mantener identity estable.
     const cfg = configRef.current;
     const model = activeRef.current?.model ?? cfg.model;
-    const conv = newConversation(spaceRef.current, cfg.modeDefault, model);
+    const conv = newConversation(cfg.modeDefault, model);
     // Actualizamos refs de inmediato: si esto se llama desde un efecto (asegurar
     // ≥1 tab), los lectores síncronos siguientes ven el estado nuevo sin esperar
     // al re-render.
@@ -369,7 +359,7 @@ export function QuarkyProvider({
         nextActiveId = neighbor;
         if (neighbor) {
           try {
-            setActive(await readConversation(spaceRef.current, neighbor));
+            setActive(await readConversation(neighbor));
           } catch (e) {
             report("quarky.closeTab.select", e);
             setActive(null);
@@ -387,7 +377,7 @@ export function QuarkyProvider({
   const removeConversation = useCallback(
     async (id: string) => {
       try {
-        await deleteConvFile(activeSpaceId, id);
+        await deleteConvFile(id);
         setConversations((prev) => prev.filter((c) => c.id !== id));
         // Borrar también la cierra como tab.
         if (openTabsRef.current.includes(id)) await closeTab(id);
@@ -396,7 +386,7 @@ export function QuarkyProvider({
         report("quarky.deleteConversation", e);
       }
     },
-    [activeSpaceId, closeTab],
+    [closeTab],
   );
 
   /**
@@ -409,7 +399,7 @@ export function QuarkyProvider({
         const cur =
           activeRef.current?.id === id
             ? activeRef.current
-            : await readConversation(spaceRef.current, id);
+            : await readConversation(id);
         if (!cur) return;
         const next = clearMessagesObj(cur);
         if (activeRef.current?.id === id) setActive(next);
@@ -433,7 +423,7 @@ export function QuarkyProvider({
       try {
         let conv: Conversation | null = null;
         if (activeRef.current?.id === id) conv = activeRef.current;
-        else conv = await readConversation(activeSpaceId, id);
+        else conv = await readConversation(id);
         if (!conv) return;
         const next = renameConversationObj(conv, t);
         // Persistencia + update inline (no usamos `persistConv` para no crear
@@ -449,7 +439,7 @@ export function QuarkyProvider({
         report("quarky.renameConversation", e);
       }
     },
-    [activeSpaceId],
+    [],
   );
 
   /**
@@ -490,7 +480,7 @@ export function QuarkyProvider({
       // Auto-crea conversación si no había una activa (y la abre como tab).
       let base = activeRef.current;
       if (!base) {
-        base = newConversation(activeSpaceId, config.modeDefault, config.model);
+        base = newConversation(config.modeDefault, config.model);
         const nextOpen = [...openTabsRef.current, base.id];
         setOpenTabIds(nextOpen);
         persistTabs(nextOpen, base.id);
@@ -501,6 +491,8 @@ export function QuarkyProvider({
 
       setStatus("sending");
       setError(null);
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
       try {
         // Snapshot del contexto que aporta el quark activo en este turno. Lo
         // llamamos UNA vez antes de empezar el loop: si dura varios hops, todos
@@ -521,6 +513,7 @@ export function QuarkyProvider({
           aiContext,
           userMessage: text,
           ragEnabled: config.ragEnabled,
+          trackMemoryUses: true,
         });
         const workspaceRoot = config.workspaceRoot ?? "packages";
         const mode = withUser.mode;
@@ -535,6 +528,7 @@ export function QuarkyProvider({
           mode,
           maxHops: config.maxHops,
           workspaceRoot,
+          signal: ctrl.signal,
           onUpdate: (conv) => {
             // Render incremental: persistimos en cada paso (assistant message,
             // tool result) para que el usuario vea progreso aunque el modelo
@@ -555,7 +549,33 @@ export function QuarkyProvider({
         // dudas que la UI quede en sync (puede haber un race con la última
         // mutación si React no flushea inmediatamente).
         await persistConv(result.conversation);
-        setStatus("idle");
+        if (result.hitHopLimit) {
+          // El loop paró por `maxHops` con un tool_result como último mensaje:
+          // sin aviso, la UI quedaba muda y parecía que Quarky se colgó.
+          setError(
+            `Quarky se quedó sin pasos (${config.maxHops} hops). Mandá otro mensaje para que siga.`,
+          );
+          setStatus("error");
+        } else {
+          setStatus("idle");
+        }
+
+        /**
+         * La versión más nueva de esta conversación: `activeRef` puede estar un
+         * render atrás de `result.conversation` (o adelante, si el usuario ya
+         * siguió). Para las tareas en background de abajo.
+         */
+        const latest = (): Conversation => {
+          const cur = activeRef.current;
+          return cur?.id === result.conversation.id && cur.updatedAt >= result.conversation.updatedAt
+            ? cur
+            : result.conversation;
+        };
+        /** ¿La conversación cambió desde `snapshot`? (otro turno, rename, clear…) */
+        const changedSince = (snapshot: Conversation): boolean => {
+          const cur = activeRef.current;
+          return cur?.id === snapshot.id && cur.updatedAt > snapshot.updatedAt;
+        };
 
         // Compactación automática: si superamos el 85% del context window del
         // modelo, resumimos los mensajes viejos. Background — el usuario ya
@@ -567,19 +587,23 @@ export function QuarkyProvider({
           if (!lastAssistant?.usage) return;
           const ctxLen = await getModelContextLength(model);
           if (!shouldCompact(lastAssistant.usage, ctxLen)) return;
+          const snapshot = latest();
           const { conversation: compacted, compacted: ok } = await compactConversation(
-            activeRef.current?.id === result.conversation.id
-              ? activeRef.current
-              : result.conversation,
+            snapshot,
             model,
           );
-          if (ok) await persistConv(compacted);
+          if (!ok) return;
+          // La llamada al LLM tarda segundos: si mientras tanto hubo otro
+          // intercambio, no lo pisamos con el resumen del snapshot viejo. El
+          // próximo turno vuelve a intentar.
+          if (changedSince(snapshot)) return;
+          await persistConv(compacted);
         })();
 
         // Auto-rename: si la conversación arrancó este turno (título por
         // default + primera asistencia con texto), generamos un título corto en
         // background. No await: el usuario ya puede seguir escribiendo.
-        if (config.autoRename && result.conversation.title === "Sin título") {
+        if (config.autoRename && result.conversation.title === UNTITLED) {
           const firstUser = result.conversation.messages.find((m) => m.role === "user");
           const firstAssistant = result.conversation.messages.find(
             (m) => m.role === "assistant" && m.content.trim().length > 0,
@@ -592,8 +616,9 @@ export function QuarkyProvider({
                 assistantText: firstAssistant.content,
               });
               if (!title) return;
-              const cur = activeRef.current;
-              const target = cur?.id === result.conversation.id ? cur : result.conversation;
+              const target = latest();
+              // Si el usuario ya la renombró a mano mientras generábamos, gana él.
+              if (target.title !== UNTITLED) return;
               await persistConv(renameConversationObj(target, title));
             })();
           }
@@ -615,19 +640,24 @@ export function QuarkyProvider({
           })();
         }
       } catch (e) {
+        if (ctrl.signal.aborted) {
+          // Lo frenó el usuario: no es un error. El loop ya cerró con stubs las
+          // tool calls que quedaban y `onUpdate` persistió lo que alcanzó a haber.
+          setStatus("idle");
+          return;
+        }
         const msg =
-          e instanceof QuarkyConfigError
+          e instanceof QuarkyConfigError || e instanceof Error
             ? e.message
-            : e instanceof Error
-              ? e.message
-              : "Falló la respuesta de Quarky.";
+            : "Falló la respuesta de Quarky.";
         report("quarky.sendMessage", e);
         setError(msg);
         setStatus("error");
+      } finally {
+        if (abortRef.current === ctrl) abortRef.current = null;
       }
     },
     [
-      activeSpaceId,
       config.model,
       config.modeDefault,
       config.maxHops,
@@ -652,25 +682,39 @@ export function QuarkyProvider({
   );
 
   /**
+   * Parche de config: estado React + `config.json`. Las escrituras van en
+   * cadena porque el ciclo leer → fusionar → escribir no es atómico y dos
+   * parches solapados (p. ej. cambiar modelo y marcar un favorito) se pisarían
+   * en disco. Actualiza `configRef` al instante para que un segundo parche en
+   * el mismo tick vea el anterior.
+   */
+  const configChain = useRef<Promise<void>>(Promise.resolve());
+  const patchConfig = useCallback((patch: Partial<QuarkyConfig>): Promise<void> => {
+    setConfig((prev) => ({ ...prev, ...patch }));
+    configRef.current = { ...configRef.current, ...patch };
+    const next = configChain.current.then(async () => {
+      const cur = await readConfig();
+      await writeConfig({ ...cur, ...patch });
+    });
+    configChain.current = next.catch((e) => report("quarky.patchConfig", e));
+    return configChain.current;
+  }, []);
+
+  /**
    * Cambia el modelo. Si hay conversación activa, lo escribe en ESA conversación
    * (por-chat). Además lo recuerda en `config.model` como default que heredan las
    * tabs nuevas.
    */
   const setModel = useCallback(
     async (model: string) => {
-      setConfig((prev) => ({ ...prev, model }));
+      const write = patchConfig({ model });
       const cur = activeRef.current;
       if (cur) {
         await persistConv({ ...cur, model, updatedAt: Date.now() });
       }
-      try {
-        const c = await readConfig();
-        await writeConfig({ ...c, model });
-      } catch (e) {
-        report("quarky.setModel", e);
-      }
+      await write;
     },
-    [persistConv],
+    [persistConv, patchConfig],
   );
 
   const setAttachContext = useCallback(
@@ -682,34 +726,29 @@ export function QuarkyProvider({
     [persistConv],
   );
 
-  const setRagEnabled = useCallback(async (ragEnabled: boolean) => {
-    setConfig((prev) => ({ ...prev, ragEnabled }));
-    try {
-      const cur = await readConfig();
-      await writeConfig({ ...cur, ragEnabled });
-    } catch (e) {
-      report("quarky.setRagEnabled", e);
-    }
-  }, []);
+  const setRagEnabled = useCallback(
+    (ragEnabled: boolean) => patchConfig({ ragEnabled }),
+    [patchConfig],
+  );
 
-  const setAutoExtractMemory = useCallback(async (autoExtractMemory: boolean) => {
-    setConfig((prev) => ({ ...prev, autoExtractMemory }));
-    try {
-      const cur = await readConfig();
-      await writeConfig({ ...cur, autoExtractMemory });
-    } catch (e) {
-      report("quarky.setAutoExtractMemory", e);
-    }
-  }, []);
+  const setAutoExtractMemory = useCallback(
+    (autoExtractMemory: boolean) => patchConfig({ autoExtractMemory }),
+    [patchConfig],
+  );
 
-  const setExtractorModel = useCallback(async (extractorModel: string) => {
-    setConfig((prev) => ({ ...prev, extractorModel }));
-    try {
-      const cur = await readConfig();
-      await writeConfig({ ...cur, extractorModel });
-    } catch (e) {
-      report("quarky.setExtractorModel", e);
-    }
+  const setExtractorModel = useCallback(
+    (extractorModel: string) => patchConfig({ extractorModel }),
+    [patchConfig],
+  );
+
+  /**
+   * Frena el turno en curso. Aborta la request/tool activa y, si el loop estaba
+   * esperando una aprobación, la rechaza para destrabarlo: al volver, el loop ve
+   * el signal abortado, cierra el resto con stubs y termina sin error.
+   */
+  const stop = useCallback(() => {
+    abortRef.current?.abort();
+    approvalResolverRef.current?.({ kind: "reject", reason: "Cancelado por el usuario." });
   }, []);
 
   const respondApproval = useCallback((decision: ApprovalDecision) => {
@@ -718,23 +757,19 @@ export function QuarkyProvider({
     resolver(decision);
   }, []);
 
-  const toggleFavoriteModel = useCallback(async (modelId: string) => {
-    let next: QuarkyConfig | null = null;
-    setConfig((prev) => {
-      const has = prev.favoriteModels.includes(modelId);
-      const favoriteModels = has
-        ? prev.favoriteModels.filter((id) => id !== modelId)
-        : [...prev.favoriteModels, modelId];
-      next = { ...prev, favoriteModels };
-      return next;
-    });
-    if (!next) return;
-    try {
-      await writeConfig(next);
-    } catch (e) {
-      report("quarky.toggleFavoriteModel", e);
-    }
-  }, []);
+  // Lee del ref y no del updater de `setConfig`: React difiere el updater si
+  // hay un update pendiente, y calcular `next` adentro dejaba el favorito sin
+  // persistir.
+  const toggleFavoriteModel = useCallback(
+    (modelId: string) => {
+      const { favoriteModels } = configRef.current;
+      const next = favoriteModels.includes(modelId)
+        ? favoriteModels.filter((id) => id !== modelId)
+        : [...favoriteModels, modelId];
+      return patchConfig({ favoriteModels: next });
+    },
+    [patchConfig],
+  );
 
   const value = useMemo<QuarkyContextValue>(
     () => ({
@@ -761,6 +796,7 @@ export function QuarkyProvider({
       clearMessages,
       renameConversation,
       sendMessage,
+      stop,
       setMode,
       setModel,
       setAttachContext,
@@ -799,6 +835,7 @@ export function QuarkyProvider({
       clearMessages,
       renameConversation,
       sendMessage,
+      stop,
       setMode,
       setModel,
       setAttachContext,

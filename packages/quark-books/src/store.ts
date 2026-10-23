@@ -3,23 +3,26 @@
  * por toolbar y página vía `useSyncExternalStore`. Vive en la instancia del quark
  * y sobrevive a cambios de tab.
  *
- * Reparto por Space:
- *   - ÍNDICE de libros (id+title+author) → sección `books` de `spaces/<spaceId>.json`
- *     vía `readSpaceSection`/`writeSpaceSection`. Liviano: lo lee la sidebar y
- *     decide qué cargar.
+ * Persistencia:
+ *   - ÍNDICE de libros (id+title+author) → `packages/books/index.json`.
+ *     Liviano: lo lee la sidebar y decide qué cargar.
  *   - CONTENIDO completo de cada libro → `packages/books/<bookId>/book.json` +
- *     un `.md` por capítulo. El bookId es estable y NO contiene el spaceId:
- *     renombrar/mover un space NO mueve el contenido.
+ *     un `.md` por capítulo.
  *
- * Autosave: 800ms de debounce; al cambiar de capítulo, de libro, de space o al
+ * Autosave: 800ms de debounce; al cambiar de capítulo, de libro o al
  * disponerse, se hace `flushSave()` síncrono para no perder los cambios pendientes.
  */
 import {
-  readSpaceSection,
-  writeSpaceSection,
+  readJson,
+  writeJson,
   getBookProposal,
   subscribeBookProposal,
   publishBookProposal,
+  type LegacySpace,
+  ExternalStore,
+  clamp,
+  newId,
+  messageOf,
 } from "@quarks/core";
 import type {
   Book,
@@ -42,6 +45,7 @@ import {
   writeChapter,
 } from "./services/persistence";
 import { countWords } from "./util/metrics";
+import { DEFAULT_TRIM, isTrimSize } from "./util/pageGeometry";
 
 /**
  * Operaciones de búsqueda que provee el editor activo. El matcheo, la navegación
@@ -55,14 +59,15 @@ export interface SearchOps {
   replaceAll: () => void;
 }
 
-/** Id del quark: clave de su sección dentro del archivo del space. */
+/** Id del quark: clave de su sección en los archivos de la época de los Spaces. */
 const QUARK_ID = "books";
+/** Índice de libros. */
+const INDEX_KEY = "packages/books/index";
 
-/** Estructura de la sección `books` dentro de `spaces/<spaceId>.json`. */
-interface SpaceFile {
+interface IndexFile {
   /** Índice liviano: solo lo necesario para listar y abrir libros. */
   books: BookIndex[];
-  /** Último libro abierto en este space; se restaura al volver al tab. */
+  /** Último libro abierto; se restaura al volver al tab. */
   lastOpenedBookId?: string | null;
 }
 
@@ -71,18 +76,19 @@ const AUTOSAVE_MS = 800;
 /** Clave de la preferencia tipográfica en localStorage (global, por dispositivo). */
 const TYPOGRAPHY_KEY = "quark-books:typography";
 
-/** Defaults estilo novela impresa: serif, ~11pt, interlineado ajustado. */
-const DEFAULT_TYPOGRAPHY: Typography = { family: "serif", size: 16, lineHeight: 1.45 };
+/** Defaults estilo novela impresa: serif, 12pt, interlineado ajustado, hoja 6×9″. */
+const DEFAULT_TYPOGRAPHY: Typography = {
+  family: "serif",
+  size: 16,
+  lineHeight: 1.45,
+  trim: DEFAULT_TRIM,
+};
 
 /** Rangos válidos del tamaño de cuerpo y del interlineado. */
 export const SIZE_MIN = 13;
 export const SIZE_MAX = 22;
 const LINE_HEIGHT_MIN = 1.3;
 const LINE_HEIGHT_MAX = 2.1;
-
-function clamp(n: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, n));
-}
 
 /** Normaliza un valor crudo (de storage o de la UI) a una Typography válida. */
 function sanitizeTypography(raw: unknown): Typography {
@@ -97,7 +103,8 @@ function sanitizeTypography(raw: unknown): Typography {
     typeof r.lineHeight === "number" && Number.isFinite(r.lineHeight)
       ? clamp(r.lineHeight, LINE_HEIGHT_MIN, LINE_HEIGHT_MAX)
       : DEFAULT_TYPOGRAPHY.lineHeight;
-  return { family, size, lineHeight };
+  const trim = isTrimSize(r.trim) ? r.trim : DEFAULT_TYPOGRAPHY.trim;
+  return { family, size, lineHeight, trim };
 }
 
 /** Lee la preferencia tipográfica de localStorage (con fallback a defaults). */
@@ -124,7 +131,6 @@ const INITIAL_SEARCH: SearchState = {
 const INITIAL: BooksState = {
   status: "idle",
   error: null,
-  spaceId: null,
   books: [],
   activeBookId: null,
   activeBook: null,
@@ -150,9 +156,27 @@ function isValidIndex(r: unknown): r is BookIndex {
   );
 }
 
-function newId(): string {
-  // crypto.randomUUID está disponible en WebView2 / Tauri 2 y en browsers modernos.
-  return crypto.randomUUID();
+/**
+ * Migración única desde los Spaces: suma los libros de todos los spaces al
+ * índice (los que ya estaban, por id, no se tocan). Si todavía no hay último
+ * libro abierto, queda el del primer space (el activo) que tenga uno.
+ */
+export async function migrateBooksFromSpaces(spaces: LegacySpace[]): Promise<void> {
+  const current = await readJson<IndexFile>(INDEX_KEY, { books: [] });
+  const byId = new Map(
+    (Array.isArray(current.books) ? current.books.filter(isValidIndex) : []).map((b) => [b.id, b]),
+  );
+  let lastOpenedBookId =
+    typeof current.lastOpenedBookId === "string" ? current.lastOpenedBookId : null;
+  for (const s of spaces) {
+    const section = s.sections[QUARK_ID] as Partial<IndexFile> | undefined;
+    const books = Array.isArray(section?.books) ? section.books.filter(isValidIndex) : [];
+    for (const b of books) if (!byId.has(b.id)) byId.set(b.id, b);
+    if (!lastOpenedBookId && typeof section?.lastOpenedBookId === "string") {
+      lastOpenedBookId = section.lastOpenedBookId;
+    }
+  }
+  await writeJson<IndexFile>(INDEX_KEY, { books: [...byId.values()], lastOpenedBookId });
 }
 
 /** Título placeholder de un capítulo sin nombrar. */
@@ -182,52 +206,34 @@ function computeBookTotals(book: Book): { words: number; chapterCount: number } 
   return { words, chapterCount: book.chapters.length };
 }
 
-function messageOf(e: unknown): string {
-  return e instanceof Error ? e.message : typeof e === "string" ? e : String(e);
-}
-
 // ── Store ─────────────────────────────────────────────────────────────────────
 
-export class BooksStore {
-  private state: BooksState = INITIAL;
-  private listeners = new Set<() => void>();
+export class BooksStore extends ExternalStore<BooksState> {
+  constructor() {
+    super(INITIAL);
+  }
 
   // Estado fuera del snapshot.
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Para descartar resultados viejos cuando el space cambia rápido. */
-  private spaceSeq = 0;
-  /** Idem cuando se selecciona libro y se cambia antes de que termine la carga. */
+  /** El índice ya se leyó de disco. Antes de eso no se escribe (lo pisaría vacío). */
+  private loaded = false;
+  /** Para descartar resultados viejos cuando se selecciona libro y se cambia
+   *  antes de que termine la carga. */
   private bookSeq = 0;
   /** Cleanup de la suscripción al bus de propuestas IA. */
   private unsubProposal: (() => void) | null = null;
   /** Operaciones de búsqueda provistas por el editor activo (ver `SearchOps`). */
   private searchOps: SearchOps | null = null;
 
-  // ── useSyncExternalStore ──
-  subscribe = (cb: () => void): (() => void) => {
-    this.listeners.add(cb);
-    return () => {
-      this.listeners.delete(cb);
-    };
-  };
-  getSnapshot = (): BooksState => this.state;
-
-  private set(patch: Partial<BooksState>): void {
-    this.state = { ...this.state, ...patch };
-    for (const l of this.listeners) l();
-  }
-
   // ── Ciclo de vida ──
   async init(): Promise<void> {
-    // No hace falta nada acá: el space activo se setea desde la página vía
-    // setSpace() cuando monta (igual al patrón de music).
-    this.set({ status: "ready" });
     // Escuchar propuestas IA del bus global: cuando la tool publica una,
     // copiamos al estado interno (que abre el split) y limpiamos el bus.
     this.unsubProposal = subscribeBookProposal(() => this.consumeProposal());
     // Si la tool se ejecutó antes de que montáramos (poco probable), agarrá
     // la propuesta colgada ahora mismo.
     this.consumeProposal();
+    await this.loadIndex();
   }
 
   dispose(): void {
@@ -263,61 +269,45 @@ export class BooksStore {
     this.set({ compare });
   }
 
-  // Último libro abierto leído del space file; lo guardamos como variable de
+  // Último libro abierto leído del índice; lo guardamos como variable de
   // instancia para poder grabarlo de vuelta al cambiar de libro sin tener que
   // re-leer la sección entera cada vez.
   private lastOpenedBookId: string | null = null;
 
-  // ── Space → índice de libros ──
-  async setSpace(spaceId: string): Promise<void> {
-    if (this.state.spaceId === spaceId) return;
-    // Si veníamos editando, no perdemos el cambio: forzamos guardar antes.
+  // ── Índice de libros ──
+  private async loadIndex(): Promise<void> {
+    // Si veníamos editando (re-apertura del tab), no perdemos el cambio.
     await this.flushSave();
-    const seq = ++this.spaceSeq;
-    this.set({
-      spaceId,
-      status: "loading",
-      books: [],
-      activeBookId: null,
-      activeBook: null,
-      activeChapterId: null,
-      activeContent: "",
-      editorStatus: "saved",
-      pagination: { current: 1, total: 1 },
-      compare: null,
-    });
+    this.set({ status: "loading" });
     try {
-      const section = await readSpaceSection<SpaceFile>(spaceId, QUARK_ID, { books: [] });
-      if (seq !== this.spaceSeq) return;
-      const books = Array.isArray(section.books) ? section.books.filter(isValidIndex) : [];
+      const file = await readJson<IndexFile>(INDEX_KEY, { books: [] });
+      const books = Array.isArray(file.books) ? file.books.filter(isValidIndex) : [];
       this.lastOpenedBookId =
-        typeof section.lastOpenedBookId === "string" ? section.lastOpenedBookId : null;
+        typeof file.lastOpenedBookId === "string" ? file.lastOpenedBookId : null;
+      this.loaded = true;
       this.set({ books, status: "ready" });
-      // Auto-reabrir el último libro de este space si todavía existe.
+      // Auto-reabrir el último libro si todavía existe.
       const restore =
         this.lastOpenedBookId && books.some((b) => b.id === this.lastOpenedBookId)
           ? this.lastOpenedBookId
           : null;
       if (restore) await this.selectBook(restore);
     } catch (e) {
-      if (seq !== this.spaceSeq) return;
       this.set({ status: "error", error: messageOf(e) });
     }
   }
 
   private async persistIndex(): Promise<void> {
-    const { spaceId, books } = this.state;
-    if (!spaceId) return;
-    await writeSpaceSection<SpaceFile>(spaceId, QUARK_ID, {
-      books,
+    if (!this.loaded) return;
+    await writeJson<IndexFile>(INDEX_KEY, {
+      books: this.state.books,
       lastOpenedBookId: this.lastOpenedBookId,
     });
   }
 
   // ── Libros ──
   async createBook(title: string, author = ""): Promise<string | null> {
-    const { spaceId } = this.state;
-    if (!spaceId) return null;
+    if (!this.loaded) return null;
     const id = newId();
     const book: Book = {
       id,
@@ -425,7 +415,7 @@ export class BooksStore {
       });
       void this.persistIndex();
     }
-    // Persistir como último libro abierto en el space.
+    // Persistir como último libro abierto.
     if (this.lastOpenedBookId !== id) {
       this.lastOpenedBookId = id;
       void this.persistIndex();
@@ -586,10 +576,13 @@ export class BooksStore {
   }
 
   async deleteChapter(id: string): Promise<void> {
-    const book = this.state.activeBook;
-    if (!book) return;
+    if (!this.state.activeBook) return;
     const wasActive = this.state.activeChapterId === id;
     if (wasActive) await this.flushSave();
+    // Capturar el libro DESPUÉS del flush: `flushSave` reemplaza `activeBook`
+    // con el conteo de palabras actualizado y una copia previa lo pisaría.
+    const book = this.state.activeBook;
+    if (!book) return;
     const removed = book.chapters.find((c) => c.id === id);
     if (!removed) return;
     // Reposicionar los hermanos para mantener orden compacto.
@@ -619,15 +612,23 @@ export class BooksStore {
 
   async selectChapter(id: string): Promise<void> {
     if (this.state.activeChapterId === id) return;
+    if (!this.state.activeBook) return;
+    await this.flushSave();
+    // Capturar el libro DESPUÉS del flush: `flushSave` reemplaza `activeBook`
+    // con el conteo de palabras actualizado; una copia previa lo pisaría en
+    // memoria y en disco al grabar `lastOpenedChapterId` más abajo.
     const book = this.state.activeBook;
     if (!book) return;
     const chapter = book.chapters.find((c) => c.id === id);
     if (!chapter) return;
-    await this.flushSave();
     const content = await readChapter(book.id, id);
+    // Mismo cuidado tras la lectura: derivamos del estado actual (pudo haber
+    // un rename mientras tanto) y si el libro activo cambió, abandonamos.
+    const current = this.state.activeBook;
+    if (!current || current.id !== book.id) return;
     // Marcar el capítulo como el último abierto (persistencia ligera).
-    if (book.lastOpenedChapterId !== id) {
-      const updatedBook: Book = { ...book, lastOpenedChapterId: id };
+    if (current.lastOpenedChapterId !== id) {
+      const updatedBook: Book = { ...current, lastOpenedChapterId: id };
       this.set({ activeBook: updatedBook });
       void writeBook(updatedBook);
     }
@@ -750,7 +751,7 @@ export class BooksStore {
     }
   }
 
-  /** Forzar guardar lo pendiente AHORA (cambio de cap, cambio de space, dispose). */
+  /** Forzar guardar lo pendiente AHORA (cambio de cap, re-apertura, dispose). */
   async flushSave(): Promise<void> {
     this.cancelAutosave();
     const { activeBook, activeChapterId, activeContent, editorStatus } = this.state;
@@ -764,11 +765,16 @@ export class BooksStore {
     this.set({ editorStatus: "saving" });
     try {
       await writeChapter(activeBook.id, activeChapterId, activeContent);
+      // Derivar del estado ACTUAL, no de la copia previa al await: mientras se
+      // escribía pudieron renombrarse capítulos/carpetas y no queremos pisarlos.
+      // Si el libro activo cambió, quien lo cambió ya reseteó el editor.
+      const current = this.state.activeBook;
+      if (!current || current.id !== activeBook.id) return;
       // Actualizar word count cacheado del capítulo.
       const words = countWords(activeContent);
       const updatedBook: Book = {
-        ...activeBook,
-        chapters: activeBook.chapters.map((c) =>
+        ...current,
+        chapters: current.chapters.map((c) =>
           c.id === activeChapterId ? { ...c, words } : c,
         ),
       };
@@ -782,7 +788,10 @@ export class BooksStore {
         (prevIdx.words !== totals.words || prevIdx.chapterCount !== totals.chapterCount);
       this.set({
         activeBook: updatedBook,
-        editorStatus: "saved",
+        // Si se tipeó durante la escritura, lo grabado ya es viejo: queda
+        // "dirty" para que el autosave pendiente lo vuelva a bajar.
+        editorStatus: this.state.activeContent === activeContent ? "saved" : "dirty",
+        error: null,
         ...(indexChanged
           ? {
               books: this.state.books.map((b) =>
@@ -891,7 +900,7 @@ export class BooksStore {
    * Aplica un parche a los ajustes tipográficos y lo persiste en localStorage.
    * Los valores se normalizan/clampean a los rangos válidos. El re-render
    * dispara el recálculo de paginación en `RichEditor` (la altura de cada
-   * página cambia con la fuente/tamaño/interlineado).
+   * página cambia con la fuente/tamaño/interlineado/formato).
    */
   setTypography(patch: Partial<Typography>): void {
     const next = sanitizeTypography({ ...this.state.typography, ...patch });
@@ -899,7 +908,8 @@ export class BooksStore {
     if (
       prev.family === next.family &&
       prev.size === next.size &&
-      prev.lineHeight === next.lineHeight
+      prev.lineHeight === next.lineHeight &&
+      prev.trim === next.trim
     ) {
       return;
     }

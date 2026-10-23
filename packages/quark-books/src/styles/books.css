@@ -274,7 +274,8 @@
  * DECORACIONES de ProseMirror (widgets no-editables) que materializan el espacio
  * entre páginas + la línea separadora; no se insertan en el documento (no tocan
  * markdown ni undo). El ancho, los márgenes y el "alto de página" se inyectan
- * como CSS vars desde RichEditor (BOOK_PAGE). El corte real lo hace el PDF. */
+ * como CSS vars desde RichEditor (util/pageGeometry: formato físico en pulgadas
+ * a 96 px/in). El corte real lo hace el PDF. */
 .q-books-paper {
   position: relative;
   width: var(--q-books-page-w);
@@ -288,6 +289,13 @@
   flex: 0 0 auto;
 }
 
+/* Relleno al final de la hoja: estira la última página hasta su alto completo
+ * para que todas las páginas midan lo mismo, como en un libro. El alto lo setea
+ * RichEditor (lo que le falta a la última página). */
+.q-books-paper-fill {
+  display: block;
+}
+
 /* Corte de página: widget no-editable cuyo alto (inline, desde RichEditor)
  * RELLENA lo que sobra de la página + los márgenes, así la línea queda clavada en
  * la grilla y el texto no queda pegado al separador. */
@@ -295,6 +303,43 @@
   position: relative;
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* Folio: "N palabras" centrado en el margen inferior de cada página, como el
+ * número de página de un libro. Dentro de un corte, el `top` lo setea
+ * RichEditor; en la última página de la hoja va clavado al margen inferior del
+ * papel (`.q-books-paper-folio`). */
+.q-books-folio {
+  position: absolute;
+  left: calc(-1 * var(--q-books-page-mx));
+  right: calc(-1 * var(--q-books-page-mx));
+  transform: translateY(-50%);
+  text-align: center;
+  font-family: var(--q-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.3px;
+  color: var(--q-text-light);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: none;
+}
+
+.q-books-paper-folio {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--q-books-page-my) / 2);
+  transform: translateY(50%);
+  text-align: center;
+  font-family: var(--q-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.3px;
+  color: var(--q-text-light);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: none;
 }
 
 /* Línea separadora a todo el ancho de la hoja (los `-mx` compensan el padding
@@ -367,6 +412,9 @@
   position: relative;
   z-index: 1;
   outline: none;
+  /* `flow-root`: el margin-bottom del último párrafo queda DENTRO de la
+   * superficie, así su alto medido es exacto para completar la última página. */
+  display: flow-root;
   min-height: var(--q-books-content-h);
   caret-color: var(--q-primary-light);
   cursor: text;
@@ -460,6 +508,16 @@
 
 .q-books-footer-left {
   justify-self: start;
+  /* El error de guardado va en este slot: que no empuje al resto del footer. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.q-books-footer-error {
+  color: var(--q-error);
+  margin-left: 8px;
 }
 
 .q-books-footer-center {

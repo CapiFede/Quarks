@@ -11,8 +11,10 @@
  *        pausamos esperando el veredicto del usuario.
  *      - Si rechaza, devolvemos al modelo un `tool_result` con error y le
  *        damos otro hop para que reaccione.
- *      - Si da feedback, lo apendamos como user message y rompemos el loop —
- *        el agente arranca de nuevo con la nueva guía.
+ *      - Si da feedback, cerramos con stubs ESA call y todas las que quedaban
+ *        sin ejecutar (la API exige un tool_result por cada tool_call antes del
+ *        próximo mensaje user), apendamos el feedback como user message y
+ *        seguimos con un hop nuevo, que arranca con esa guía.
  *      - Si aprueba (o no requiere aprobación), ejecutamos y apendamos el
  *        `tool_result`.
  *   5. Vuelta al paso 2, hasta `maxHops`.
@@ -21,19 +23,14 @@
  * conversación, para que la UI vea el progreso (mensajes del assistant,
  * resultados de tools) sin esperar al final del loop.
  */
-import type {
-  Conversation,
-  Message,
-  Mode,
-  ToolCall,
-} from "./types";
+import type { Conversation, Mode, ToolCall } from "./types";
 import {
   appendMessage,
   makeAssistantMessage,
   makeToolMessage,
   makeUserMessage,
 } from "./conversation";
-import { completeAsMessage } from "./provider";
+import { chatCompletion } from "./provider";
 import { executeToolCall } from "./tools/execution";
 import { schemasForMode, needsApproval } from "./tools/policy";
 import { getTool, allTools } from "./tools/registry";
@@ -70,7 +67,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<AgentLoopRes
   for (let hop = 0; hop < opts.maxHops; hop++) {
     if (opts.signal?.aborted) break;
 
-    const result = await completeAsMessage({
+    const result = await chatCompletion({
       systemPrompt: opts.systemPrompt,
       conversation: conv,
       model: opts.model,
@@ -79,24 +76,24 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<AgentLoopRes
     });
 
     // Apendamos el assistant message (puede traer content + tool_calls).
-    const assistant = makeAssistantMessage(
-      result.message.content,
-      result.message.toolCalls,
-      result.message.usage,
-    );
+    const assistant = makeAssistantMessage(result.content, result.toolCalls, result.usage);
     conv = appendMessage(conv, assistant);
     opts.onUpdate(conv);
 
-    const calls = result.message.toolCalls ?? [];
+    const calls = result.toolCalls ?? [];
     if (calls.length === 0) {
       return { conversation: conv, hitHopLimit: false };
     }
 
     // Ejecutamos cada tool_call en orden (no en paralelo a propósito: queremos
     // un audit log claro para el usuario; la mayoría de los modelos pide pocas).
-    let shouldBreakForFeedback = false;
-    for (const call of calls) {
-      if (opts.signal?.aborted) break;
+    for (let i = 0; i < calls.length; i++) {
+      const call = calls[i];
+      if (opts.signal?.aborted) {
+        conv = stubRemaining(conv, calls.slice(i), "Cancelado por el usuario.");
+        opts.onUpdate(conv);
+        break;
+      }
 
       const tool = getTool(call.function.name);
       // Política de aprobación: si la tool la requiere en este modo y no hay
@@ -117,6 +114,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<AgentLoopRes
               call.id,
               call.function.name,
               `Usuario rechazó la ejecución${decision.reason ? `: ${decision.reason}` : "."}`,
+              true,
             ),
           );
           opts.onUpdate(conv);
@@ -124,21 +122,17 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<AgentLoopRes
         }
 
         if (decision.kind === "feedback") {
-          // Apendamos un tool_result "stub" para no dejar tool_calls huérfanos
-          // (la API se queja), seguido del feedback del usuario como nuevo
-          // mensaje user. Rompemos el loop por hops; el siguiente turno
-          // arranca con esa guía en la cola.
-          conv = appendMessage(
+          // Stub para esta call Y para las que quedaban sin ejecutar: una
+          // tool_call sin tool_result antes del mensaje user hace que la API
+          // rechace el próximo hop. Después va el feedback como mensaje user y
+          // el loop sigue con un hop nuevo, que arranca con esa guía.
+          conv = stubRemaining(
             conv,
-            makeToolMessage(
-              call.id,
-              call.function.name,
-              `Usuario pidió cambiar de rumbo (ver siguiente mensaje).`,
-            ),
+            calls.slice(i),
+            "No ejecutada: el usuario pidió cambiar de rumbo (ver siguiente mensaje).",
           );
           conv = appendMessage(conv, makeUserMessage(decision.message));
           opts.onUpdate(conv);
-          shouldBreakForFeedback = false; // dejamos que el loop siga (nuevo hop)
           break;
         }
         // approve → seguimos a ejecutar abajo.
@@ -151,16 +145,22 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<AgentLoopRes
       });
       conv = appendMessage(
         conv,
-        makeToolMessage(call.id, call.function.name, toolResult.content),
+        makeToolMessage(call.id, call.function.name, toolResult.content, toolResult.isError),
       );
       opts.onUpdate(conv);
     }
-
-    if (shouldBreakForFeedback) break;
   }
 
   // Si llegamos acá es porque agotamos hops o el signal abortó.
   return { conversation: conv, hitHopLimit: !opts.signal?.aborted };
+}
+
+/** Cierra `calls` con un tool_result stub (marcado como error) sin ejecutarlas. */
+function stubRemaining(conv: Conversation, calls: ToolCall[], reason: string): Conversation {
+  for (const c of calls) {
+    conv = appendMessage(conv, makeToolMessage(c.id, c.function.name, reason, true));
+  }
+  return conv;
 }
 
 function safeParseArgs(json: string): unknown {
@@ -169,25 +169,6 @@ function safeParseArgs(json: string): unknown {
   } catch {
     return json;
   }
-}
-
-/** Tipo helper para los consumidores que quieren saber si una mensaje es un tool_call vacío. */
-export function hasToolCalls(m: Message): boolean {
-  return m.role === "assistant" && !!m.toolCalls && m.toolCalls.length > 0;
-}
-
-/** Helper para detectar el último tool_call sin tool_result asociado (M2 streaming). */
-export function pendingToolCallId(conv: Conversation): string | null {
-  const ids = new Set<string>();
-  for (const m of conv.messages) {
-    if (m.role === "assistant" && m.toolCalls) {
-      for (const c of m.toolCalls) ids.add(c.id);
-    } else if (m.role === "tool" && m.toolCallId) {
-      ids.delete(m.toolCallId);
-    }
-  }
-  const last = [...ids].pop();
-  return last ?? null;
 }
 
 // Re-export del tipo `ToolCall` para que el caller no tenga que importar de types directo.

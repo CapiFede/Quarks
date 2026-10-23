@@ -1,7 +1,7 @@
 /**
  * Retrieval híbrido para inyectar memoria en el system prompt de cada turno.
  *
- * Reemplaza el `memoryForPrompt()` plano (que volcaba todo siempre). Política:
+ * Decide qué entradas de memoria entran al system prompt. Política:
  *
  *   1. Todas las entradas con `pinned: true` se incluyen SIEMPRE, sin pasar por
  *      búsqueda semántica. Pensado para identity y preferencias fuertes.
@@ -12,10 +12,12 @@
  * Si RAG está apagado en config, o si no hay `userMessage`, vuelve al
  * comportamiento legacy: incluye todas las entradas (sirve como kill switch).
  *
- * Tras inyectar, dispara `incrementUses(ids)` background (no bloquea el turno).
+ * Con `trackUses`, tras inyectar dispara `incrementUses(ids)` en background (no
+ * bloquea el turno). Lo activa solo el turno real: la preview del inspector
+ * llama a esto mismo en cada render y no tiene que escribir a disco.
  */
 import { report } from "../../services/log";
-import { dotProduct, embed, getEmbedderStatus } from "./embeddings";
+import { dotProduct, embed, resetEmbedder } from "./embeddings";
 import { incrementUses, listEntries } from "./store";
 import type { MemoryEntry } from "./types";
 
@@ -28,6 +30,8 @@ export interface RetrieveOptions {
   ragEnabled: boolean;
   /** Tope de entradas no-pinned a incluir vía retrieval. Default 10. */
   topK?: number;
+  /** Si true, suma 1 a `uses` de cada entrada que entró por retrieval. */
+  trackUses?: boolean;
 }
 
 /**
@@ -54,10 +58,13 @@ export async function retrieveMemoriesForTurn(opts: RetrieveOptions): Promise<st
 
   if (injected.length === 0) return "";
 
-  // Persistir el contador en background; un fallo no impacta al turno.
-  void incrementUses(injected.map((e) => e.id)).catch((e) =>
-    report("quarky.retrieve.incrementUses", e),
-  );
+  // Persistir el contador en background; un fallo no impacta al turno. Solo con
+  // retrieval real: con RAG apagado entra todo y el contador no diría nada.
+  if (opts.trackUses && ragOn) {
+    void incrementUses(injected.map((e) => e.id)).catch((e) =>
+      report("quarky.retrieve.incrementUses", e),
+    );
+  }
 
   return formatBlock(injected);
 }
@@ -91,16 +98,13 @@ async function topKByCosine(
   return scored.slice(0, k).map((s) => s.entry);
 }
 
-/** Diagnóstico para la UI. */
-export function getRetrievalInfo() {
-  return getEmbedderStatus();
-}
-
 /**
  * Atajo para que la UI fuerce una carga del modelo (botón "Probar embedder"
- * del inspector). Hace un embed dummy y descarta el resultado.
+ * del inspector). Es el único camino de reintento tras un error: resetea el
+ * estado y hace un embed dummy, descartando el resultado.
  */
 export async function probeEmbedder(): Promise<void> {
+  resetEmbedder();
   await embed("probe", "query");
 }
 

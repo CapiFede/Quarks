@@ -1,28 +1,18 @@
 /**
- * Menú de historial en el header del panel: lista todas las conversaciones del
- * space para reabrir las que no están abiertas como tab (seleccionar una la abre
+ * Menú de historial en el header del panel: lista todas las conversaciones
+ * para reabrir las que no están abiertas como tab (seleccionar una la abre
  * como tab). Renombrar/borrar también viven acá. La navegación entre las tabs
  * abiertas va por la `TabBar`.
  */
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useQuarky } from "../../../quarky/hooks/useQuarky";
 import { Icon } from "../../components/Icon";
+import { MenuHint, MenuPanel, useMenu } from "../../components/Menu";
 
 export function ConversationList() {
   const { conversations, active, selectConversation, deleteConversation, renameConversation } =
     useQuarky();
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
-
-  // Cerrar al clickear afuera.
-  useEffect(() => {
-    if (!open) return;
-    const onClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    window.addEventListener("mousedown", onClick);
-    return () => window.removeEventListener("mousedown", onClick);
-  }, [open]);
+  const { open, setOpen, ref } = useMenu<HTMLDivElement>();
 
   return (
     <div ref={ref} style={{ position: "relative", flex: "0 0 auto" }}>
@@ -47,33 +37,8 @@ export function ConversationList() {
       </div>
 
       {open && (
-        <div
-          style={{
-            position: "absolute",
-            top: 32,
-            right: 0,
-            width: 260,
-            maxHeight: 280,
-            overflow: "auto",
-            background: "var(--q-surface)",
-            border: "1px solid var(--q-border-dark)",
-            borderRadius: 8,
-            boxShadow: "0 8px 24px rgba(0,0,0,.28)",
-            padding: 4,
-            zIndex: 1,
-          }}
-        >
-          {conversations.length === 0 && (
-            <div
-              style={{
-                padding: "8px 10px",
-                fontSize: "var(--q-fs-11)",
-                color: "var(--q-text-light)",
-              }}
-            >
-              No hay conversaciones todavía.
-            </div>
-          )}
+        <MenuPanel align="right" minWidth={260}>
+          {conversations.length === 0 && <MenuHint>No hay conversaciones todavía.</MenuHint>}
           {conversations.map((c) => (
             <Row
               key={c.id}
@@ -87,7 +52,7 @@ export function ConversationList() {
               onDelete={() => void deleteConversation(c.id)}
             />
           ))}
-        </div>
+        </MenuPanel>
       )}
     </div>
   );
@@ -112,13 +77,15 @@ function Row({
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   // Al entrar en edición, foco + selección completa (es un rename, no append).
+  // Depende solo de `editing`: si el título cambia mientras editás (el
+  // auto-rename llega tras el primer turno), no pisamos lo que estás tipeando.
   useEffect(() => {
-    if (editing) {
-      setDraft(title);
-      // setTimeout para dejar que el input se monte primero.
-      setTimeout(() => inputRef.current?.select(), 0);
-    }
-  }, [editing, title]);
+    if (!editing) return;
+    setDraft(title);
+    // setTimeout para dejar que el input se monte primero.
+    const t = setTimeout(() => inputRef.current?.select(), 0);
+    return () => clearTimeout(t);
+  }, [editing]);
 
   const commit = () => {
     const t = draft.trim();

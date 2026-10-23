@@ -1,12 +1,16 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { Icon, isAndroid } from "@quarks/core";
 import type { Track } from "../types";
-import { fmtTime } from "../util";
+import { fmtTime, ratingColor } from "../util";
 
-const GRID = "32px 1fr 60px";
+const GRID = "32px 1fr 56px 44px 60px";
 
 export interface TrackListProps {
   tracks: Track[];
+  /** Puntaje por `Track.path` (ausente = sin puntaje). */
+  ratings: Record<string, number>;
+  /** Reproducciones por `Track.path` (ausente = 0). */
+  plays: Record<string, number>;
   activePath: string | null;
   playing: boolean;
   onPlay: (path: string) => void;
@@ -17,11 +21,13 @@ export interface TrackListProps {
 }
 
 /**
- * Lista de tracks (grid #/Título/Tiempo). `memo`: el tick de posición
+ * Lista de tracks (grid #/Título/Puntaje/Reproducciones/Tiempo). `memo`: el tick de posición
  * del player no la re-renderiza (sus props no cambian en cada tick).
  */
 export const TrackList = memo(function TrackList({
   tracks,
+  ratings,
+  plays,
   activePath,
   playing,
   onPlay,
@@ -59,6 +65,11 @@ export const TrackList = memo(function TrackList({
       >
         <span>#</span>
         <span>Título</span>
+        <span style={{ textAlign: "center" }}>Puntaje</span>
+        {/* Ícono en vez de texto: "Reproducciones" no entra en la columna. */}
+        <span title="Reproducciones" style={{ display: "flex", justifyContent: "center" }}>
+          <Icon name="headphones" size={13} />
+        </span>
         <span style={{ textAlign: "right" }}>Tiempo</span>
       </div>
 
@@ -79,6 +90,8 @@ export const TrackList = memo(function TrackList({
             key={t.path}
             idx={i + 1}
             track={t}
+            rating={ratings[t.path]}
+            plays={plays[t.path] ?? 0}
             active={t.path === activePath}
             playing={playing}
             selected={t.path === selectedPath}
@@ -94,6 +107,8 @@ export const TrackList = memo(function TrackList({
 interface RowProps {
   idx: number;
   track: Track;
+  rating: number | undefined;
+  plays: number;
   active: boolean;
   playing: boolean;
   selected: boolean;
@@ -101,7 +116,7 @@ interface RowProps {
   onSelect: () => void;
 }
 
-function Row({ idx, track, active, playing, selected, onPlay, onSelect }: RowProps) {
+function Row({ idx, track, rating, plays, active, playing, selected, onPlay, onSelect }: RowProps) {
   const [hover, setHover] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
 
@@ -178,6 +193,19 @@ function Row({ idx, track, active, playing, selected, onPlay, onSelect }: RowPro
       >
         {track.title}
       </span>
+      <span style={{ display: "flex", justifyContent: "center" }}>
+        {rating !== undefined && <RatingBadge score={rating} />}
+      </span>
+      <span
+        style={{
+          textAlign: "center",
+          color: "var(--q-text-light)",
+          fontFamily: "var(--q-font-mono)",
+          fontSize: 11,
+        }}
+      >
+        {plays}
+      </span>
       <span
         style={{
           textAlign: "right",
@@ -189,5 +217,31 @@ function Row({ idx, track, active, playing, selected, onPlay, onSelect }: RowPro
         {fmtTime(track.durationSec)}
       </span>
     </div>
+  );
+}
+
+/** El número del puntaje sobre un fondo suave de su color. */
+function RatingBadge({ score }: { score: number }) {
+  return (
+    <span
+      style={{
+        minWidth: 24,
+        // Del alto de la línea de texto: una fila con puntaje no queda más alta.
+        height: 16,
+        padding: "0 4px",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: 4,
+        background: ratingColor(score, 0.18),
+        color: ratingColor(score),
+        fontFamily: "var(--q-font-mono)",
+        fontSize: 11,
+        fontWeight: 600,
+        lineHeight: 1,
+      }}
+    >
+      {score}
+    </span>
   );
 }

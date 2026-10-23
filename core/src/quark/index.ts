@@ -9,7 +9,7 @@
  */
 
 // ── Contrato ──────────────────────────────────────────────────────────────────
-export type { Quark, AiContext, AiAttachment } from "./types";
+export type { Quark, AiContext, AiAttachment, LegacySpace } from "./types";
 
 // ── Plataforma ────────────────────────────────────────────────────────────────
 // Para que los quarks gateen UI/IO mobile-only vs desktop-only.
@@ -17,22 +17,31 @@ export { isAndroid, isDesktop, isLinux } from "../services/platform";
 // Tareas que tienen que seguir con la pantalla apagada (Android; no-op en desktop).
 export { startBackgroundTask, endBackgroundTask } from "../services/background";
 
-// ── Navegación: un quark pide al Shell enfocar su tab o activar un space ──────
+// ── Navegación: un quark pide al Shell enfocar su tab ──────────────────────────
 // `requestOpenQuark` lo usa Utilidades para traer su pantalla al frente cuando
-// suena una alarma. `requestActivateSpace` lo usa Música para abrir una playlist
-// de otro space desde "Manejar playlists". Ver `services/navigation.ts`.
-export { requestOpenQuark, requestActivateSpace } from "../services/navigation";
+// suena una alarma. Ver `services/navigation.ts`.
+export { requestOpenQuark } from "../services/navigation";
 
-// ── Spaces (§5): el quark usa `space.id` para particionar su data (§4) ─────────
-export type { Space } from "../services/spaces";
-export { useActiveSpace } from "../frontend/hooks/useActiveSpace";
+// ── Persistencia: escritura atómica en la raíz de AppData, soporta subcarpetas ─
+// El quark guarda todo lo suyo bajo `packages/<id>/…` (índice + contenido).
+// JSON por `name` sin extensión; texto plano por ruta completa. Ver StorageLayout.md.
+export {
+  readJson,
+  writeJson,
+  existsJson,
+  deleteJson,
+  readText,
+  writeText,
+  deleteFile,
+  deleteDir,
+} from "../services/store";
 
-// ── Persistencia: JSON atómico en la raíz de AppData, soporta subcarpetas ──────
-// `readJson`/`writeJson`: archivos arbitrarios (p. ej. el contenido del quark en
-// `packages/<id>/…`). `readSpaceSection`/`writeSpaceSection`: la porción del quark
-// dentro del archivo del space (`spaces/<id>.json`). Ver StorageLayout.md.
-export { readJson, writeJson, existsJson, deleteJson } from "../services/store";
-export { readSpaceSection, writeSpaceSection } from "../services/spaceData";
+// ── Estado: base de los stores de quark + hook para suscribirse ───────────────
+export { ExternalStore } from "../services/externalStore";
+export { useStoreState } from "../frontend/hooks/useStoreState";
+
+// ── Helpers puros compartidos ─────────────────────────────────────────────────
+export { newId, messageOf, countWords, clamp, UNTITLED } from "../services/util";
 
 // ── UI compartida: el quark la reusa, no la duplica (ver QuarkStructure.md) ────
 export { Icon, type IconProps } from "../frontend/components/Icon";
@@ -41,10 +50,13 @@ export { IconButton, type IconButtonProps } from "../frontend/components/IconBut
 export { TextInput, type TextInputProps } from "../frontend/components/TextInput";
 export { Toggle, type ToggleProps } from "../frontend/components/Toggle";
 export { QuarkToolbar, type QuarkToolbarProps } from "../frontend/components/QuarkToolbar";
+export { ConfirmDialog, type ConfirmDialogProps } from "../frontend/components/ConfirmDialog";
+export { ProgressBar, type ProgressBarProps } from "../frontend/components/ProgressBar";
+export { useMenu, MenuPanel, MenuItem, MenuDivider, MenuHint } from "../frontend/components/Menu";
 
 // ── Quarky (§6): contexto IA contribuido + handle al panel ─────────────────────
 // Los quarks usan `useQuarky()` para abrir/cerrar el panel desde la toolbar o
-// shortcuts propios. La integración de `buildAiContext()` se completa en M5.
+// shortcuts propios; el contexto por turno lo aportan vía `Quark.buildAiContext`.
 export { useQuarky } from "../quarky/hooks/useQuarky";
 export type { QuarkyContextValue } from "../quarky/hooks/useQuarky";
 

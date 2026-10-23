@@ -44,7 +44,7 @@ const FOLDER_MIME = "application/vnd.google-apps.folder";
 /** Tipo genérico para subir cualquier archivo (json, mp3, etc.) de forma binaria. */
 const UPLOAD_MIME = "application/octet-stream";
 /** Campos que pedimos de cada archivo (incluye `appProperties` con el sha256). */
-const FILE_FIELDS = "id,name,mimeType,modifiedTime,size,appProperties";
+const FILE_FIELDS = "id,name,mimeType,appProperties";
 
 /** El usuario tiene 3 minutos para completar el consent en el browser. */
 const LOGIN_TIMEOUT_MS = 180_000;
@@ -220,8 +220,6 @@ interface DriveFile {
   id: string;
   name: string;
   mimeType: string;
-  modifiedTime: string;
-  size?: string;
   appProperties?: Record<string, string>;
 }
 
@@ -229,8 +227,6 @@ function toRef(f: DriveFile): DriveFileRef {
   return {
     id: f.id,
     name: f.name,
-    modifiedTime: f.modifiedTime,
-    size: f.size ? Number(f.size) : undefined,
     sha256: f.appProperties?.sha256 ?? null,
     isFolder: f.mimeType === FOLDER_MIME,
   };

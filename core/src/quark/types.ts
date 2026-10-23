@@ -27,18 +27,31 @@ export interface AiContext {
 }
 
 /**
+ * Un space de la versión con Spaces (Personal, Trabajo…), tal como quedó en
+ * disco. Se lo pasa el core a `Quark.migrateSpaces` en la migración única que
+ * junta todo en una sola colección (ver `services/legacySpaces.ts`).
+ */
+export interface LegacySpace {
+  id: string;
+  name: string;
+  /** Era el space activo en este dispositivo. Viene primero en la lista. */
+  active: boolean;
+  /** Secciones de `spaces/<id>.json`, por id de quark (sin validar). */
+  sections: Record<string, unknown>;
+}
+
+/**
  * Contrato que implementa cada quark y se registra en el launcher.
  * Un quark depende del core; ningún quark depende de otro.
+ *
+ * Nombre e ícono NO van acá: viven en el stub del registry (`QUARK_STUBS`),
+ * que es lo que pintan el Home y los tabs. El `id` tiene que coincidir.
  */
 export interface Quark {
   id: string;
-  name: string;
-  shortName?: string;
-  icon: ReactNode;
 
   buildPage(): ReactNode;
   buildToolbar?(): ReactNode;
-  buildOverlay?(): ReactNode;
 
   /** Devuelve true si consumió el Escape. */
   onEscape?(): boolean;
@@ -54,4 +67,14 @@ export interface Quark {
    */
   initialize(): Promise<void>;
   dispose(): void;
+
+  /**
+   * Migración única desde los Spaces: arma la data única del quark juntando la
+   * sección de cada space (`spaces[i].sections[quark.id]`). Corre en el
+   * arranque, antes de montar nada, solo si hay data vieja. Debe FUSIONAR con
+   * lo que ya haya en su destino (por id, lo existente gana) en vez de pisarlo:
+   * puede volver a correr (se cortó a mitad, o una versión vieja de la app
+   * volvió a crear spaces) y repetirla no tiene que perder ni duplicar nada.
+   */
+  migrateSpaces?(spaces: LegacySpace[]): Promise<void>;
 }

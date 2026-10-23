@@ -1,15 +1,12 @@
 /** Métricas simples del editor: palabras, caracteres. */
 
-/**
- * Cuenta palabras de un texto. Una "palabra" es una racha de caracteres no
- * espaciados: el método ignora múltiples espacios y newlines. Suficiente para
- * el contador de la sidebar y del footer (no es la métrica de un editor de
- * código).
- */
-export function countWords(text: string): number {
-  const trimmed = text.trim();
-  if (!trimmed) return 0;
-  return trimmed.split(/\s+/u).length;
+// `countWords` es el del core (misma definición que usan Notas y Quarky); se
+// re-exporta para que el resto del quark siga importando las métricas de acá.
+export { countWords } from "@quarks/core";
+
+/** "1 palabra" / "N palabras", para los folios de página. */
+export function formatWords(n: number): string {
+  return n === 1 ? "1 palabra" : `${n} palabras`;
 }
 
 /** Cuenta caracteres tal cual (incluye espacios y newlines). */
